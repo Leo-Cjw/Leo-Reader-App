@@ -1,14 +1,14 @@
-# Reader for Mac 0.18.1
+# Reader for Mac 0.19.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
-当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、选择性可迁移导出、可逆重复治理、口令加密完整备份、资料库健康检查，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
+当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
 
 ## 快速开始
 
 ### Mac App
 
-打开 `Reader-0.18.1-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.19.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -73,7 +73,8 @@ npm run desktop:pack
 - 资料管理：可创建、改名、嵌套和安全删除的树形资料夹；父资料夹可聚合子树内容。支持单篇和批量移动、添加/移除标签、收藏、已读、归档与恢复。
 - 智能整理：可以把关键词、内容类型、标签、来源、原资料夹、阅读/收藏状态、高亮、附件和保存时间组合成“全部满足”或“任一满足”的动态资料夹；规则、结果计数和自定义顺序都保存在本地。文章卡片可直接拖到普通资料夹，同级资料夹与智能资料夹可拖动排序。
 - 资料视图：网页、订阅、附件、笔记与媒体筛选；列表和双列画廊可切换，画廊直接使用本地图片、PDF 缩略图和视频首帧。
-- 选择性导出：多选任意内容，生成标准 Markdown ZIP；可选携带原始附件，正文中的本地资源改写为相对路径，manifest 保留来源、标签和附件 SHA-256。
+- 选择性导出：多选任意内容，生成标准 Markdown ZIP；可选携带原始附件，正文中的本地资源改写为相对路径，manifest 保留来源、标签和附件 SHA-256。v3 包同时包含 Reader 专用 sidecar，使正文、摘要、阅读状态和扩展元数据可以无损往返而不影响 Markdown 的独立使用。
+- 选择性导入：在“添加 → Reader ZIP”中先安全预检，再逐篇勾选并指定目标资料夹；已有 Reader ID 或原链接默认跳过，不隐式覆盖。支持 v3 无损包和既有 v2 Markdown 包的兼容恢复。
 - 重复治理：按规范化原链接、完整正文或标题摘要检测重复组；用户明确选择保留版本后合并标签、收藏、摘要与阅读进度，副本仅归档且可恢复。
 - 检索：SQLite FTS5；中文查询自动使用 `LIKE` 兼容路径。
 - 阅读器：三栏桌面布局、明暗主题、文章助手和键盘入口。
@@ -90,6 +91,7 @@ npm run desktop:pack
 - 主数据库：`data/reader.sqlite3`
 - 原始附件：`data/files/`
 - 导入暂存：`data/imports/`
+- Markdown ZIP 预检暂存：`data/portable-imports/`（24 小时自动过期）
 - 完整备份：`data/backups/`
 - 升级前数据库快照：`data/migration-backups/`
 - 可再生缩略图：`data/thumbnails/`
@@ -143,6 +145,9 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/articles/batch`：原子批量移动、标签、收藏、已读、归档或恢复。
 - `POST /api/articles/:id/attachments`：向既有文章安全上传并挂载本地图片。
 - `POST /api/exports/markdown`：选择性导出普通 Markdown、附件和可校验 manifest。
+- `POST /api/imports/markdown/preview`：安全暂存并预检 Reader Markdown ZIP，返回不含本机路径的选择清单。
+- `POST /api/imports/markdown/:id`：把明确选择的文章导入指定资料夹，冲突默认跳过。
+- `DELETE /api/imports/markdown/:id`：取消预览并清理暂存内容。
 - `GET /api/duplicates`：检测活动资料中的高置信重复组。
 - `POST /api/duplicates/resolve`：保留指定版本并非破坏性归档其余副本。
 - `GET /api/articles/:id/revisions`：文章版本列表。
@@ -183,4 +188,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.18.1 变更见 [docs/RELEASE_NOTES_0.18.1.md](docs/RELEASE_NOTES_0.18.1.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.19.0 变更见 [docs/RELEASE_NOTES_0.19.0.md](docs/RELEASE_NOTES_0.19.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

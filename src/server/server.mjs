@@ -19,6 +19,7 @@ import { exportOPML, parseOPML } from './opml.mjs';
 import { prepareMarkdownExport, streamMarkdownExport } from './export.mjs';
 import { APP_VERSION } from './version.mjs';
 import { inspectDataHealth } from './data-health.mjs';
+import { cancelPortableImport, commitPortableImport, stagePortableImport } from './portable-import.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -249,6 +250,28 @@ export async function createReaderServer({
         const body = await readJSON(request);
         const prepared = await prepareMarkdownExport({ database, filesDir, ids: body.ids, includeAttachments: body.include_attachments !== false });
         return await streamMarkdownExport(response, prepared);
+      }
+
+      if (pathname === '/api/imports/markdown/preview' && method === 'POST') {
+        const preview = await stagePortableImport({ request, database, rootDir });
+        return sendJSON(response, 201, { preview });
+      }
+
+      const portableImportMatch = pathname.match(/^\/api\/imports\/markdown\/([0-9a-f-]{36})$/i);
+      if (portableImportMatch && method === 'POST') {
+        const body = await readJSON(request);
+        const result = await commitPortableImport({
+          database,
+          rootDir,
+          filesDir,
+          id: portableImportMatch[1],
+          articleIds: body.article_ids,
+          collectionId: body.collection_id || 'inbox'
+        });
+        return sendJSON(response, 200, { result });
+      }
+      if (portableImportMatch && method === 'DELETE') {
+        return sendJSON(response, 200, { cancelled: await cancelPortableImport(rootDir, portableImportMatch[1]) });
       }
 
       if (pathname === '/api/duplicates' && method === 'GET') {

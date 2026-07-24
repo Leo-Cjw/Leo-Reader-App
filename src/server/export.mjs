@@ -123,9 +123,38 @@ export async function prepareMarkdownExport({ database, filesDir, ids, includeAt
       }
     }
     entries.push({ kind: 'buffer', archivePath: markdownArchivePath, content: articleMarkdown(article, attachmentPaths) });
+    const recordArchivePath = path.posix.join('records', `${articleStem}.json`);
+    entries.push({
+      kind: 'buffer',
+      archivePath: recordArchivePath,
+      content: JSON.stringify({
+        format: 'reader-article-record',
+        formatVersion: 1,
+        article: {
+          id: article.id,
+          url: article.url || null,
+          title: article.title,
+          source: article.source,
+          author: article.author,
+          type: article.type,
+          language: article.language,
+          publishedAt: article.published_at || null,
+          createdAt: article.created_at,
+          updatedAt: article.updated_at,
+          excerpt: article.excerpt,
+          content: article.content,
+          summary: article.summary,
+          readTimeMinutes: article.read_time_minutes,
+          isFavorite: Boolean(article.is_favorite),
+          isRead: Boolean(article.is_read),
+          readingProgress: Number(article.reading_progress || 0),
+          metadata: article.metadata || {}
+        }
+      }, null, 2)
+    });
     highlightCount += article.highlights?.length || 0;
     manifestArticles.push({
-      id: article.id, title: article.title, path: markdownArchivePath, type: article.type, language: article.language,
+      id: article.id, title: article.title, path: markdownArchivePath, recordPath: recordArchivePath, type: article.type, language: article.language,
       originalURL: article.url || null, collection: article.collection_name || null, tags: article.tags || [],
       highlights: (article.highlights || []).map((highlight) => ({
         id: highlight.id, quote: highlight.quote, note: highlight.note, color: highlight.color,
@@ -137,13 +166,13 @@ export async function prepareMarkdownExport({ database, filesDir, ids, includeAt
 
   const createdAt = new Date().toISOString();
   const manifest = {
-    format: 'reader-markdown-export', formatVersion: 2, appVersion: APP_VERSION, createdAt,
+    format: 'reader-markdown-export', formatVersion: 3, appVersion: APP_VERSION, createdAt,
     options: { includeAttachments: Boolean(includeAttachments) },
     counts: { articles: articles.length, highlights: highlightCount, attachments: attachmentCount, attachmentBytes },
     articles: manifestArticles
   };
   entries.push({ kind: 'buffer', archivePath: 'manifest.json', content: JSON.stringify(manifest, null, 2) });
-  entries.push({ kind: 'buffer', archivePath: 'README.md', content: '# Reader Markdown Export\n\n`articles/` 中的内容是标准 Markdown，文章末尾保留高亮与批注；`attachments/` 保存原始附件。正文使用相对路径，可直接复制到其他笔记或知识库工具。`manifest.json` 记录来源、标签、高亮锚点与附件 SHA-256。\n' });
+  entries.push({ kind: 'buffer', archivePath: 'README.md', content: '# Reader Markdown Export\n\n`articles/` 中的内容是标准 Markdown，文章末尾保留高亮与批注；`attachments/` 保存原始附件。正文使用相对路径，可直接复制到其他笔记或知识库工具。`manifest.json` 记录来源、标签、高亮锚点与附件 SHA-256；`records/` 是 Reader 用于无损重新导入的机器可读 sidecar，不影响 Markdown 的独立使用。\n' });
   return { fileName: `Reader-Markdown-${timestampSlug()}.zip`, manifest, entries };
 }
 

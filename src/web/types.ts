@@ -153,6 +153,43 @@ export interface ImportJob {
   finished_at: string | null;
 }
 
+export type PortableImportConflict = 'duplicate_id' | 'duplicate_url';
+
+export interface PortableImportPreviewArticle {
+  id: string;
+  title: string;
+  source: string;
+  originalURL: string | null;
+  originalCollection: string | null;
+  tags: string[];
+  highlights: number;
+  attachments: number;
+  selectable: boolean;
+  conflict: PortableImportConflict | null;
+}
+
+export interface PortableImportPreview {
+  id: string;
+  formatVersion: number;
+  appVersion: string;
+  createdAt: string | null;
+  compatibilityMode: boolean;
+  counts: { articles: number; highlights: number; attachments: number };
+  articles: PortableImportPreviewArticle[];
+}
+
+export interface PortableImportResult {
+  imported: number;
+  skipped: number;
+  failed: number;
+  results: Array<{
+    id: string;
+    title: string;
+    status: 'imported' | 'skipped' | 'failed';
+    reason?: PortableImportConflict | string;
+  }>;
+}
+
 export interface ArticleRevisionSummary {
   id: string;
   article_id: string;

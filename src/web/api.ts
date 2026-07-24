@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -100,6 +100,25 @@ export const api = {
     document.body.appendChild(anchor); anchor.click(); anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(objectURL), 30_000);
     return { fileName, byteSize: blob.size };
+  },
+  async previewMarkdownImport(file: File) {
+    const response = await fetch('/api/imports/markdown/preview', {
+      method: 'POST',
+      body: file,
+      headers: { 'content-type': 'application/zip', 'x-reader-filename': encodeURIComponent(file.name) }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new APIError(response.status, payload.error || `导入包检查失败 (${response.status})`);
+    return (payload as { preview: PortableImportPreview }).preview;
+  },
+  async commitMarkdownImport(id: string, articleIds: string[], collectionId: string) {
+    return (await request<{ result: PortableImportResult }>(`/api/imports/markdown/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      body: JSON.stringify({ article_ids: articleIds, collection_id: collectionId })
+    })).result;
+  },
+  async cancelMarkdownImport(id: string) {
+    return await request<{ cancelled: boolean }>(`/api/imports/markdown/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
   async listDuplicateGroups() {
     return (await request<{ groups: DuplicateGroup[] }>('/api/duplicates')).groups;

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api';
-import type { AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, RAGCitation, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 type Toast = { id: number; message: string; tone?: 'error' | 'normal' };
 type ChatMessage = { role: 'user' | 'assistant'; text: string; citations?: RAGCitation[]; retrieval?: { matchedChunks: number; citedChunks: number } };
@@ -750,11 +750,21 @@ function EditorModal({ article, onClose, onSave, onUploadImage, notify }: { arti
   </section></div>;
 }
 
-function AddModal({ collections, onClose, onCreated, onQueued, notify, onSourceCreated, onOpenConnectors }: { collections: Collection[]; onClose: () => void; onCreated: (article: Article) => void; onQueued: (job: ImportJob) => void; notify: (message: string, tone?: Toast['tone']) => void; onSourceCreated: (source: Source) => void; onOpenConnectors: () => void }) {
-  const [tab, setTab] = useState<'url' | 'attachment' | 'markdown' | 'feed'>('url');
-  const [url, setURL] = useState(''); const [title, setTitle] = useState(''); const [content, setContent] = useState(''); const [file, setFile] = useState<File | null>(null); const [collection, setCollection] = useState('inbox'); const [busy, setBusy] = useState(false);
+function AddModal({ collections, onClose, onCreated, onQueued, onImported, notify, onSourceCreated, onOpenConnectors }: { collections: Collection[]; onClose: () => void; onCreated: (article: Article) => void; onQueued: (job: ImportJob) => void; onImported: () => Promise<void>; notify: (message: string, tone?: Toast['tone']) => void; onSourceCreated: (source: Source) => void; onOpenConnectors: () => void }) {
+  const [tab, setTab] = useState<'url' | 'attachment' | 'markdown' | 'feed' | 'package'>('url');
+  const [url, setURL] = useState(''); const [title, setTitle] = useState(''); const [content, setContent] = useState(''); const [file, setFile] = useState<File | null>(null); const [packageFile, setPackageFile] = useState<File | null>(null); const [packagePreview, setPackagePreview] = useState<PortableImportPreview | null>(null); const [packageSelection, setPackageSelection] = useState<Set<string>>(new Set()); const [collection, setCollection] = useState('inbox'); const [busy, setBusy] = useState(false);
   const [sourceKind, setSourceKind] = useState<Source['kind']>('rss'); const [sourceInterval, setSourceInterval] = useState(60);
   const isWeChatURL = /^https?:\/\/mp\.weixin\.qq\.com\//i.test(url.trim());
+  const close = async () => {
+    if (packagePreview) await api.cancelMarkdownImport(packagePreview.id).catch(() => {});
+    onClose();
+  };
+  const changeTab = async (next: typeof tab) => {
+    if (packagePreview) await api.cancelMarkdownImport(packagePreview.id).catch(() => {});
+    setPackagePreview(null);
+    setPackageSelection(new Set());
+    setTab(next);
+  };
   const submit = async () => {
     setBusy(true);
     try {
@@ -767,24 +777,48 @@ function AddModal({ collections, onClose, onCreated, onQueued, notify, onSourceC
         const result = await api.syncSource(created.source.id);
         notify(created.duplicate ? `订阅已存在，${result.notModified ? '内容没有更新' : `新增 ${result.imported} 条内容`}` : `订阅已添加，本次导入 ${result.imported} 条内容`);
       }
+      if (tab === 'package') {
+        if (!packagePreview) {
+          if (!packageFile) throw new Error('请选择 Reader Markdown ZIP');
+          const preview = await api.previewMarkdownImport(packageFile);
+          setPackagePreview(preview);
+          setPackageSelection(new Set(preview.articles.filter((article) => article.selectable).map((article) => article.id)));
+          return;
+        }
+        const result = await api.commitMarkdownImport(packagePreview.id, [...packageSelection], collection);
+        setPackagePreview(null);
+        await onImported();
+        notify(`已导入 ${result.imported} 篇${result.skipped ? `，跳过 ${result.skipped} 篇冲突内容` : ''}${result.failed ? `，${result.failed} 篇失败` : ''}`, result.failed ? 'error' : 'normal');
+      }
       onClose();
     } catch (error) { notify(error instanceof Error ? error.message : '添加失败', 'error'); }
     finally { setBusy(false); }
   };
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal" role="dialog" aria-modal="true" aria-label="添加内容">
-    <header><div><span className="eyebrow">本地采集</span><h2>添加到 Reader</h2></div><button className="icon-button" type="button" aria-label="关闭添加窗口" onClick={onClose}>×</button></header>
-    <div className="modal-tabs">{([['url','网页 URL'],['attachment','附件'],['markdown','Markdown'],['feed','自动订阅']] as const).map(([value,label]) => <button type="button" key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{label}</button>)}</div>
+  const selectableIds = packagePreview?.articles.filter((article) => article.selectable).map((article) => article.id) || [];
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => packageSelection.has(id));
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && void close()}><section className={`modal ${tab === 'package' ? 'portable-import-modal' : ''}`} role="dialog" aria-modal="true" aria-label="添加内容">
+    <header><div><span className="eyebrow">本地采集</span><h2>添加到 Reader</h2></div><button className="icon-button" type="button" aria-label="关闭添加窗口" disabled={busy} onClick={() => void close()}>×</button></header>
+    <div className="modal-tabs">{([['url','网页 URL'],['attachment','附件'],['markdown','Markdown'],['package','Reader ZIP'],['feed','自动订阅']] as const).map(([value,label]) => <button type="button" key={value} className={tab === value ? 'active' : ''} disabled={busy} onClick={() => void changeTab(value)}>{label}</button>)}</div>
     <div className="modal-body">
       {(tab === 'url' || tab === 'feed') && <label><span>{tab === 'feed' ? sourceKind === 'x' ? 'X 用户名或主页' : sourceKind === 'weibo' ? '微博数字 UID 或主页' : '订阅地址' : '网页地址'}</span><input autoFocus type={tab === 'feed' && (sourceKind === 'x' || sourceKind === 'weibo') ? 'text' : 'url'} value={url} onChange={(event) => setURL(event.target.value)} placeholder={tab === 'feed' ? sourceKind === 'youtube' ? 'https://www.youtube.com/@channel' : sourceKind === 'x' ? '@XDevelopers' : sourceKind === 'weibo' ? '例如：1234567890' : 'https://example.com/feed.xml' : 'https://example.com/article'}/></label>}
       {tab === 'attachment' && <label className="file-drop"><input type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.mp4,.mov,.m4v,.webm,.txt,.md,.markdown" onChange={(event) => setFile(event.target.files?.[0] || null)}/><span className="file-drop-icon">＋</span><strong>{file ? file.name : '选择 PDF、图片、视频或文本'}</strong><small>{file ? `${formatBytes(file.size)} · ${file.type || '未知类型'}` : '单个文件最大 100 MB，原文件和内容都只保存在本机。'}</small></label>}
+      {tab === 'package' && !packagePreview && <><label className="file-drop"><input type="file" accept=".zip,application/zip" onChange={(event) => setPackageFile(event.target.files?.[0] || null)}/><span className="file-drop-icon">↥</span><strong>{packageFile ? packageFile.name : '选择 Reader Markdown ZIP'}</strong><small>{packageFile ? `${formatBytes(packageFile.size)} · 等待安全检查` : '只接受 Reader 导出的 ZIP，最大 2 GB；预览前不会写入资料库。'}</small></label><div className="privacy-note"><strong>导入与完整恢复严格分离</strong><span>Reader 会拒绝越界路径、未知文件、超限内容和附件哈希不符；检查通过后仍需逐篇确认，已有 ID 或原链接默认跳过。</span></div></>}
+      {tab === 'package' && packagePreview && <div className="portable-import-review">
+        <div className="portable-import-summary"><span><strong>{packagePreview.counts.articles}</strong><small>篇文章</small></span><span><strong>{packagePreview.counts.attachments}</strong><small>个附件</small></span><span><strong>{packagePreview.counts.highlights}</strong><small>条高亮</small></span><button className="button" type="button" onClick={() => setPackageSelection(allSelected ? new Set() : new Set(selectableIds))}>{allSelected ? '取消全选' : '选择可导入内容'}</button></div>
+        {packagePreview.compatibilityMode && <div className="privacy-note warning"><strong>旧版 v2 兼容导入</strong><span>Reader 会从标准 Markdown 重建正文并去除导出时生成的附录；0.19 起的 v3 包带有无损 sidecar，可精确保留原正文。</span></div>}
+        <div className="portable-import-list">{packagePreview.articles.map((article) => <label key={article.id} className={`${packageSelection.has(article.id) ? 'selected' : ''} ${!article.selectable ? 'disabled' : ''}`}>
+          <input type="checkbox" disabled={!article.selectable} checked={packageSelection.has(article.id)} onChange={() => setPackageSelection((current) => { const next = new Set(current); if (next.has(article.id)) next.delete(article.id); else next.add(article.id); return next; })}/>
+          <span className="portable-import-check">{article.selectable ? '✓' : '—'}</span><span className="portable-import-copy"><span><strong>{article.title}</strong>{article.conflict && <i>{article.conflict === 'duplicate_id' ? '已在资料库' : '原链接已存在'}</i>}</span><small>{article.source || article.originalCollection || '本地内容'} · {article.attachments} 附件 · {article.highlights} 高亮{article.tags.length ? ` · ${article.tags.slice(0, 3).join('、')}` : ''}</small></span>
+        </label>)}</div>
+      </div>}
       {(tab === 'markdown' || tab === 'feed') && <label><span>{tab === 'feed' ? '订阅名称' : '标题'}</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={tab === 'feed' ? '例如：产品设计周刊' : '写下标题'}/></label>}
       {tab === 'feed' && <div className="source-create-grid"><label><span>来源类型</span><select value={sourceKind} onChange={(event) => setSourceKind(event.target.value as Source['kind'])}><option value="rss">RSS / Atom</option><option value="youtube">YouTube 频道</option><option value="x">X 用户</option><option value="weibo">微博用户</option></select></label><label><span>自动同步</span><select value={sourceInterval} onChange={(event) => setSourceInterval(Number(event.target.value))}><option value={15}>每 15 分钟</option><option value={30}>每 30 分钟</option><option value={60}>每小时</option><option value={360}>每 6 小时</option><option value={1440}>每天</option></select></label></div>}
       {tab === 'markdown' && <label><span>正文</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="支持 Markdown 文本；内容会直接写入本地 SQLite。"></textarea></label>}
-      {tab !== 'feed' && <label><span>保存到</span><select value={collection} onChange={(event) => setCollection(event.target.value)}>{collections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+      {tab !== 'feed' && (tab !== 'package' || packagePreview) && <label><span>保存到</span><select value={collection} onChange={(event) => setCollection(event.target.value)}>{collections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
       {tab === 'url' && <div className="privacy-note"><strong>{isWeChatURL ? '微信公众号专用导入' : '安全抓取'}</strong><span>{isWeChatURL ? 'Reader 会识别公众号标题、作者、正文和图片并保存到本机。若微信要求环境验证，本次任务会失败并可重试，不会把验证页保存成文章。' : 'Reader 会阻止本机、局域网和云元数据地址，最多读取 4 MB，并把正文与可下载图片保存到本机。'}</span></div>}
       {tab === 'feed' && <div className="privacy-note source-privacy"><strong>后台同步，本地入库</strong><span>{sourceKind === 'youtube' ? '支持频道主页、/channel/UC… 与官方 Feed 地址；新视频作为可整理的内容进入收件箱。' : sourceKind === 'x' ? '通过 X 官方 API 读取公开动态，使用 since_id 增量同步；Bearer Token 只保存在 macOS Keychain。' : sourceKind === 'weibo' ? '通过微博开放平台官方 CLI 读取用户时间线；Reader 复用 CLI 登录态，不接触或保存微博令牌。' : 'Reader 使用 ETag 与 Last-Modified 避免重复下载，失败时自动退避并保留可见状态。'}</span>{(sourceKind === 'x' || sourceKind === 'weibo') && <button type="button" className="button" onClick={onOpenConnectors}>配置社交连接器</button>}</div>}
     </div>
-    <footer><button className="button" type="button" onClick={onClose}>取消</button><button className="button primary" type="button" disabled={busy} onClick={() => void submit()}>{busy ? '正在处理…' : tab === 'feed' ? '添加并同步' : tab === 'markdown' ? '保存到本机' : '加入导入队列'}</button></footer>
+    <footer><button className="button" type="button" disabled={busy} onClick={() => void close()}>取消</button><button className="button primary" type="button" disabled={busy || (tab === 'package' && (!packagePreview ? !packageFile : packageSelection.size === 0))} onClick={() => void submit()}>{busy ? packagePreview ? '正在导入…' : '正在安全检查…' : tab === 'feed' ? '添加并同步' : tab === 'markdown' ? '保存到本机' : tab === 'package' ? packagePreview ? `导入 ${packageSelection.size} 篇` : '检查导入包' : '加入导入队列'}</button></footer>
   </section></div>;
 }
 
@@ -1260,7 +1294,7 @@ export function App() {
         {aiOpen && <AIPanel article={selected} onClose={() => setAIOpen(false)} onArticleUpdated={updateArticleInState} onDerivedCreated={showDerivedArticle} onOpenCitation={(citation) => void openCitation(citation)} configurationVersion={aiConfigurationVersion} notify={notify}/>}
       </div>
     </div>
-    {addOpen && <AddModal collections={collections} onClose={() => setAddOpen(false)} onCreated={created} onQueued={queued} notify={notify} onSourceCreated={(source) => { setSources((current) => [...current, source]); void refreshChrome(); }} onOpenConnectors={() => { setAddOpen(false); setConnectorSettingsOpen(true); }}/>}
+    {addOpen && <AddModal collections={collections} onClose={() => setAddOpen(false)} onCreated={created} onQueued={queued} onImported={async () => { await Promise.all([refreshArticles(), refreshChrome()]); }} notify={notify} onSourceCreated={(source) => { setSources((current) => [...current, source]); void refreshChrome(); }} onOpenConnectors={() => { setAddOpen(false); setConnectorSettingsOpen(true); }}/>}
     {editOpen && selected && <EditorModal article={selected} onClose={() => setEditOpen(false)} onSave={saveEditor} onUploadImage={uploadEditorImage} notify={notify}/>}
     {historyOpen && selected && <VersionHistoryModal article={selected} revisions={revisions} preview={revisionPreview} busy={busyHistory} onClose={() => setHistoryOpen(false)} onSelect={(version) => void selectRevision(version)} onRestore={(version) => void restoreRevision(version)}/>}
     {sourcesOpen && <SourcesModal sources={sources} onClose={() => setSourcesOpen(false)} onSync={(source) => void syncSource(source)} onUpdate={(source, patch) => void updateSource(source, patch)} onDelete={(source) => void deleteSource(source)} onImport={(file) => void importOPML(file)} onConnections={() => { setSourcesOpen(false); setConnectorSettingsOpen(true); }} busySource={busySource}/>}
