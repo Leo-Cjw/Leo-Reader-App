@@ -3,7 +3,7 @@ import path from 'node:path';
 import { access, readFile, stat } from 'node:fs/promises';
 import { constants as fsConstants, createReadStream } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { normalizeSmartCollectionRule, ReaderDatabase } from './db.mjs';
+import { listMigrationSnapshots, normalizeSmartCollectionRule, ReaderDatabase, resolveMigrationSnapshot } from './db.mjs';
 import { assertPublicURL } from './importers.mjs';
 import { AIService } from './ai.mjs';
 import { AISettingsManager } from './ai-settings.mjs';
@@ -725,6 +725,26 @@ export async function createReaderServer({
         const body = await readJSON(request);
         const passphrase = body.encrypted ? requiredString(body.passphrase, '备份口令', 1024) : '';
         return sendJSON(response, 201, { backup: await createBackup({ database, rootDir, appVersion: '0.17.0', passphrase }) });
+      }
+
+      if (pathname === '/api/migration-snapshots' && method === 'GET') {
+        return sendJSON(response, 200, { snapshots: await listMigrationSnapshots(database.path) });
+      }
+
+      const migrationSnapshotDownloadMatch = pathname.match(/^\/api\/migration-snapshots\/([0-9a-f-]{36})\/download$/i);
+      if (migrationSnapshotDownloadMatch && (method === 'GET' || method === 'HEAD')) {
+        const snapshot = await resolveMigrationSnapshot(database.path, migrationSnapshotDownloadMatch[1]);
+        if (!snapshot) throw new HTTPError(404, '升级快照不存在');
+        const info = await stat(snapshot.path);
+        response.writeHead(200, {
+          'content-type': 'application/vnd.sqlite3',
+          'content-length': String(info.size),
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(snapshot.file_name)}`,
+          'cache-control': 'private, no-store',
+          'x-content-type-options': 'nosniff'
+        });
+        if (method === 'HEAD') return response.end();
+        return createReadStream(snapshot.path).pipe(response);
       }
 
       const backupDownloadMatch = pathname.match(/^\/api\/backups\/([0-9a-f-]{36})\/download$/i);

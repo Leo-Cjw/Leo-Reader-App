@@ -96,7 +96,7 @@ npm run desktop:pack
 - 非敏感运行时设置：`data/settings.json`（权限 `0600`；不保存 API 密钥，也不进入备份或导出）
 - 敏感凭据：AI API Key 与 X Bearer Token 分别写入 macOS Keychain；微博 OAuth 令牌由官方 CLI 自行写入系统 Keychain，Reader 不读取令牌。
 - 数据库采用 WAL 模式，运行时可能出现 `-wal` 和 `-shm` 文件。
-- Reader 检测到旧版 schema 时，会在任何结构变更前通过 SQLite `VACUUM INTO` 创建权限为 `0600` 的一致性数据库快照；文件名记录原 schema、目标 schema 和创建时间。若资料库来自比当前应用更新的 schema，Reader 会拒绝降级打开且不修改原库。
+- Reader 检测到旧版 schema 时，会在任何结构变更前通过 SQLite `VACUUM INTO` 创建权限为 `0600` 的一致性数据库快照；文件名记录原 schema、目标 schema 和创建时间。“数据安全中心”可查看并导出这些数据库级恢复点。若资料库来自比当前应用更新的 schema，Reader 会拒绝降级打开且不修改原库。
 - 在左侧“数据安全”打开数据安全中心。Reader 使用 SQLite `VACUUM INTO` 创建一致快照，再打包附件和校验清单；加密备份使用 scrypt 派生密钥与 AES-256-GCM 整包认证加密，Reader 不保存口令。
 - 恢复不会覆盖正在运行的数据库：上传包通过路径、大小、哈希和 SQLite 完整性校验后，Reader 先创建安全备份，再安排下次启动原子恢复。
 - `schema.mjs` 中的迁移表是后续版本升级的唯一入口；不要手工修改已发布迁移。
@@ -175,6 +175,8 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `DELETE /api/settings/connectors/weibo`：调用官方 CLI 撤销本机登录。
 - `GET/POST /api/backups`：列出或创建完整备份。
 - `GET /api/backups/:id/download`：下载本地备份包。
+- `GET /api/migration-snapshots`：列出 schema 升级前自动创建的数据库快照，不返回磁盘路径。
+- `GET /api/migration-snapshots/:id/download`：导出指定升级快照。
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 

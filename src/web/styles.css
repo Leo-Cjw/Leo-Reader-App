@@ -71,7 +71,7 @@ button, select { cursor: pointer; }
 .sidebar, .library-pane, .reader-pane, .ai-panel { min-width: 0; min-height: 0; }
 
 .button, .icon-button { border: 1px solid var(--line); background: var(--button); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-.button { min-height: 30px; border-radius: 8px; padding: 0 11px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; text-decoration: none; font-size: 10px; font-weight: 680; }
+.button { min-height: 30px; border-radius: 8px; padding: 0 11px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; color: inherit; text-decoration: none; font-size: 10px; font-weight: 680; }
 .icon-button { width: 30px; height: 30px; padding: 0; border-radius: 8px; display: grid; place-items: center; font-size: 13px; }
 .button:hover, .icon-button:hover { border-color: var(--line-strong); background: color-mix(in srgb, var(--button) 78%, var(--selection)); }
 .button:active, .icon-button:active { transform: translateY(1px); }
@@ -252,7 +252,7 @@ button, select { cursor: pointer; }
 .backup-list article strong { overflow: hidden; font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
 .backup-list article small { color: var(--muted); font-size: 8px; }
 .empty-state.compact { min-height: 180px; }
-.restore-section { justify-content: flex-start; }
+.restore-section { justify-content: flex-start; overflow-y: auto; scrollbar-width: thin; }
 .restore-file { position: relative; min-height: 170px; padding: 24px; border: 1px dashed var(--line-strong); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; background: var(--panel); text-align: center; cursor: pointer; }
 .restore-file:hover { border-color: var(--accent); }
 .restore-file input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -265,6 +265,19 @@ button, select { cursor: pointer; }
 .pending-icon { width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 20px; }
 .pending-restore strong { font-size: 13px; }
 .pending-restore p { max-width: 270px; margin: 0 0 8px; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.migration-protection { padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 9px; }
+.migration-protection > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.migration-protection > header > span { display: flex; flex-direction: column; gap: 3px; }
+.migration-protection > header strong { font-size: 10px; }
+.migration-protection > header small { color: var(--muted); font-size: 8px; }
+.migration-snapshot-list { max-height: 138px; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin; }
+.migration-snapshot-list article { padding: 9px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: 30px minmax(0,1fr) auto; align-items: center; gap: 9px; }
+.backup-mark.migration { width: 28px; height: 28px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
+.migration-snapshot-list article > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.migration-snapshot-list strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.migration-snapshot-list small { color: var(--muted); font-size: 7.6px; }
+.migration-empty { margin: 0; padding: 11px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 8.5px; line-height: 1.5; }
+.migration-note { margin: 0; color: var(--faint); font-size: 7.6px; line-height: 1.5; }
 .safety-footer { padding: 11px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 8.5px; line-height: 1.45; }
 .empty-state { min-height: 220px; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; }.empty-state strong { color: var(--ink); font-size: 11px; }.empty-state span { max-width: 210px; font-size: 9.5px; line-height: 1.5; }
 .toast { position: fixed; z-index: 50; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 9px 13px; border-radius: 9px; background: var(--ink); color: var(--reader); box-shadow: 0 12px 30px rgba(0,0,0,.24); font-size: 9.5px; animation: toast-in .18s ease-out; }.toast.error { background: #963e33; color: #fff; }@keyframes toast-in { from { opacity: 0; transform: translate(-50%,7px); } to { opacity: 1; transform: translate(-50%,0); } }

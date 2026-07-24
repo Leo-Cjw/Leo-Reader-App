@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 import yauzl from 'yauzl';
+import { ReaderDatabase } from '../src/server/db.mjs';
 import { createReaderServer } from '../src/server/server.mjs';
 
 async function json(url, init) {
@@ -211,6 +212,42 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(cancelledRestore.body.cancelled, true);
   const invalidRestore = await json(`${base}/api/backups/restore`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: Buffer.from('not a Reader backup') });
   assert.equal(invalidRestore.response.status, 400);
+});
+
+test('migration snapshots are listed without private paths and can be exported safely', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-migration-snapshot-api-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const dbPath = path.join(dir, 'reader.sqlite3');
+  const legacy = new ReaderDatabase(dbPath);
+  await legacy.execute(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+  INSERT INTO schema_migrations(version,applied_at) VALUES (7,'2026-01-01');
+  CREATE TABLE sources (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1, last_fetched_at TEXT, last_error TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  );
+  INSERT INTO sources(id,kind,title,url,created_at,updated_at)
+  VALUES ('legacy','rss','升级前订阅','https://example.com/feed.xml','2026-01-01','2026-01-01');`);
+
+  const app = await createReaderServer({ rootDir: dir, dbPath, port: 0 });
+  const address = await app.listen();
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${address.port}`;
+
+  const listed = await json(`${base}/api/migration-snapshots`);
+  assert.equal(listed.response.status, 200);
+  assert.equal(listed.body.snapshots.length, 1);
+  const snapshot = listed.body.snapshots[0];
+  assert.deepEqual(
+    { from: snapshot.from_schema_version, to: snapshot.to_schema_version, privatePath: snapshot.path },
+    { from: 7, to: 8, privatePath: undefined }
+  );
+  const download = await fetch(`${base}/api/migration-snapshots/${snapshot.id}/download`);
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get('content-type'), 'application/vnd.sqlite3');
+  assert.match(download.headers.get('content-disposition') || '', /reader-before-schema-v7-to-v8/);
+  assert.equal(Buffer.from(await download.arrayBuffer()).subarray(0, 16).toString(), 'SQLite format 3\u0000');
+  assert.equal((await fetch(`${base}/api/migration-snapshots/00000000-0000-4000-8000-000000000000/download`)).status, 404);
 });
 
 test('attachment upload runs through the durable queue and supports byte ranges', async (t) => {

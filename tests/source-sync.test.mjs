@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ReaderDatabase } from '../src/server/db.mjs';
+import { listMigrationSnapshots, ReaderDatabase, resolveMigrationSnapshot } from '../src/server/db.mjs';
 import { createSourceScheduler, createSourceSyncService } from '../src/server/source-sync.mjs';
 
 async function temporaryDatabase(t, prefix = 'reader-source-') {
@@ -31,6 +31,14 @@ test('schema v8 migrates legacy source rows, builds chunks and schedules every c
   );
   assert.equal((await stat(path.dirname(db.lastMigrationSnapshot.path))).mode & 0o777, 0o700);
   assert.equal((await stat(db.lastMigrationSnapshot.path)).mode & 0o777, 0o600);
+  const listedSnapshots = await listMigrationSnapshots(db.path);
+  assert.equal(listedSnapshots.length, 1);
+  assert.deepEqual(
+    { from: listedSnapshots[0].from_schema_version, to: listedSnapshots[0].to_schema_version, bytes: listedSnapshots[0].byte_size > 0 },
+    { from: 7, to: 8, bytes: true }
+  );
+  assert.equal((await resolveMigrationSnapshot(db.path, listedSnapshots[0].id)).path, db.lastMigrationSnapshot.path);
+  assert.equal(await resolveMigrationSnapshot(db.path, '../reader.sqlite3'), null);
   const snapshot = new ReaderDatabase(db.lastMigrationSnapshot.path);
   assert.equal((await snapshot.one('SELECT max(version) AS version FROM schema_migrations;')).version, 7);
   assert.equal((await snapshot.one("SELECT title FROM sources WHERE id='legacy';")).title, '旧订阅');

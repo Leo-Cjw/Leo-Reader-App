@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmod, mkdir, rm, stat } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { SCHEMA_VERSION, schemaSQL } from './schema.mjs';
@@ -8,6 +8,8 @@ import { chunkArticleMarkdown, ragQueryTerms, scoreRagChunk } from './chunks.mjs
 const SQLITE_BINARY = process.env.READER_SQLITE_BINARY || '/usr/bin/sqlite3';
 const HIGHLIGHT_COLORS = new Set(['amber', 'green', 'blue', 'pink']);
 const SMART_COLLECTION_TYPES = new Set(['article', 'rss', 'youtube', 'x', 'weibo', 'markdown', 'pdf', 'image', 'video', 'attachment']);
+const MIGRATION_SNAPSHOT_PATTERN = /^reader-before-schema-v(\d+)-to-v(\d+)-(\d{4}-\d{2}-\d{2}T[0-9-]+Z)-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.sqlite3$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function sqlValue(value) {
   if (value === null || value === undefined) return 'NULL';
@@ -25,6 +27,45 @@ function now() {
 
 function timestampSlug(value = new Date()) {
   return value.toISOString().replace(/[:.]/g, '-');
+}
+
+function migrationSnapshotDirectory(dbPath) {
+  return path.join(path.dirname(path.resolve(dbPath)), 'migration-backups');
+}
+
+export async function listMigrationSnapshots(dbPath) {
+  const directory = migrationSnapshotDirectory(dbPath);
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  }
+
+  const snapshots = [];
+  for (const entry of entries) {
+    const match = entry.isFile() && entry.name.match(MIGRATION_SNAPSHOT_PATTERN);
+    if (!match) continue;
+    const info = await stat(path.join(directory, entry.name));
+    const createdAt = info.birthtimeMs > 0 ? info.birthtime : info.mtime;
+    snapshots.push({
+      id: match[4].toLowerCase(),
+      file_name: entry.name,
+      byte_size: info.size,
+      created_at: createdAt.toISOString(),
+      from_schema_version: Number(match[1]),
+      to_schema_version: Number(match[2])
+    });
+  }
+  return snapshots.sort((left, right) => right.created_at.localeCompare(left.created_at));
+}
+
+export async function resolveMigrationSnapshot(dbPath, id) {
+  if (!UUID_PATTERN.test(String(id || ''))) return null;
+  const snapshot = (await listMigrationSnapshots(dbPath)).find((item) => item.id === String(id).toLowerCase());
+  if (!snapshot) return null;
+  return { ...snapshot, path: path.join(migrationSnapshotDirectory(dbPath), snapshot.file_name) };
 }
 
 function boundedString(value, max) {
@@ -220,7 +261,7 @@ export class ReaderDatabase {
       throw new Error(`资料库 schema v${fromVersion} 高于当前 Reader 支持的 v${SCHEMA_VERSION}；为避免数据损坏，已拒绝降级打开`);
     }
 
-    const backupDirectory = path.join(path.dirname(this.path), 'migration-backups');
+    const backupDirectory = migrationSnapshotDirectory(this.path);
     await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
     await chmod(backupDirectory, 0o700);
     const snapshotPath = path.join(

@@ -181,6 +181,15 @@ export interface Backup {
   encrypted: boolean;
 }
 
+export interface MigrationSnapshot {
+  id: string;
+  file_name: string;
+  byte_size: number;
+  created_at: string;
+  from_schema_version: number;
+  to_schema_version: number;
+}
+
 export interface PendingRestore {
   id: string;
   backupCreatedAt: string;
