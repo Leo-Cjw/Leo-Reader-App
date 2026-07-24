@@ -146,9 +146,13 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 0.27.0 在桌面主进程集中监听 Electron 的 suspend/resume、网络在线状态、macOS 电源与热状态。电池电量只通过只读的 `/usr/bin/pmset -g batt` 获取，不写系统设置：断网或电池供电且不高于 20% 时只暂停自动来源调度，本地附件导入与用户主动同步保持可用；睡眠、严重/临界热状态或 CPU 被系统限制到 50% 以下时暂停导入队列与自动同步。服务端把这些条件与待恢复写锁合并为单一串行策略，只有全部原因解除后才恢复对应 worker，避免唤醒或网络恢复绕过资料库恢复锁。当前脱敏状态通过 `/api/health` 提供，并在订阅中心显示面向用户的暂停原因。
 
+0.28.0 使用 Electron 内置 `autoUpdater` 对接公开 GitHub Release 的 `update.electronjs.org` universal macOS 路由。更新控制器只在打包后的 darwin 应用中运行，并在设置 feed 之前用 `/usr/bin/codesign` 重新确认当前 `.app` 同时具有 `Developer ID Application` authority 和有效 Team Identifier；ad-hoc、开发或异常签名均保持离线。正式发行流水线先公证并装订通用 App，再从该 App 生成符合 Squirrel.Mac 的 `Reader-<version>-darwin-universal.zip`，解压后重新执行严格签名与票据验证，最后把同一 App 放入另行公证的 DMG。未提供完整签名与公证配置时不生成更新 ZIP，并删除可能残留的同版本 ZIP。
+
+签名版本启动一分钟后检查一次，之后每六小时检查；手动检查复用同一串行状态，不会并发重复下载。更新下载完成后必须由用户确认，Reader 会先停止后台协调器、导入/订阅 worker、诊断缓冲与本地 HTTP 服务，再调用系统更新安装。资料库仍位于独立的 Application Support 目录，不进入更新包。
+
 0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
 
-- Apple Developer ID 签名、公证和自动更新。
+- 取得真实 Apple Developer ID 与公证凭据，发布首个正式 GitHub Release，并完成跨版本自动升级演练。
 - Share Extension、Spotlight、系统通知和更完整的文件导入器。
 
 当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron 与 Canvas 切片完成官方哈希、Mach-O 架构及签名结构验证，仍应在 Apple Silicon 真机上补运行验收。

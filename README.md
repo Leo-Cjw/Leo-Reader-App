@@ -1,4 +1,4 @@
-# Reader for Mac 0.27.0
+# Reader for Mac 0.28.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.27.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.28.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -44,7 +44,7 @@ Vite 开发界面位于 `http://127.0.0.1:4311`，并把 `/api` 代理到 4312 �
 npm run desktop:pack
 ```
 
-该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块架构，执行 ad-hoc 深度签名验证，再生成并校验 DMG。输出位于 `release/mac-universal/Reader.app` 与 `release/Reader-<version>-universal.dmg`。若已具备 Apple Developer ID，仍需在公开分发前接入正式签名和 Apple 公证。
+该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块架构，执行签名验证，再生成并校验 DMG。输出位于 `release/mac-universal/Reader.app` 与 `release/Reader-<version>-universal.dmg`。未提供正式发行凭据时保留 ad-hoc 模式，并主动删除同版本残留的更新 ZIP。
 
 流水线已预留正式发行入口。先用 `xcrun notarytool store-credentials` 把公证凭据写入 Keychain，再提供证书名称和凭据配置名：
 
@@ -54,7 +54,9 @@ READER_NOTARY_KEYCHAIN_PROFILE="reader-notary" \
 npm run desktop:pack
 ```
 
-此模式使用 hardened runtime 逐项签名通用 App，提交 DMG 至 Apple 公证服务，装订票据并执行 `stapler validate`。凭据不写入项目、命令参数或产物；`READER_NOTARY_KEYCHAIN` 可选指定非默认 Keychain。当前交付包因本机没有 Developer ID 证书与公证配置，仍是 ad-hoc/未公证版本。
+此模式使用 hardened runtime 逐项签名通用 App，先公证并验证 App，再生成 `Reader-<version>-darwin-universal.zip` 和 DMG，最后公证并验证 DMG。更新 ZIP 只会从已通过 Developer ID、App 公证票据和解压后签名复检的 App 生成；凭据不写入项目、命令参数或产物，`READER_NOTARY_KEYCHAIN` 可选指定非默认 Keychain。发布更新时需在公开 GitHub 仓库创建语义版本 Release，并同时上传该 universal ZIP。当前本地交付因没有 Developer ID 证书与公证配置，仍是 ad-hoc/未公证版本。
+
+正式签名版本在 Reader 菜单提供“检查更新…”，启动一分钟后及此后每六小时自动检查公开 Release。发现更新后由 Electron 下载，只有用户确认“重启并安装”才会安全停止后台任务并安装。运行时会重新检查当前 App 的 Developer ID authority 与 Team Identifier；源码、开发、ad-hoc 或签名异常的包不会设置更新地址，也不会联系更新服务。
 
 ## 已实现能力
 
@@ -199,4 +201,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.27.0 变更见 [docs/RELEASE_NOTES_0.27.0.md](docs/RELEASE_NOTES_0.27.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.28.0 变更见 [docs/RELEASE_NOTES_0.28.0.md](docs/RELEASE_NOTES_0.28.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

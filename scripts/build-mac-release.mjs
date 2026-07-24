@@ -113,26 +113,44 @@ run(path.join(projectRoot, 'node_modules', '.bin', 'electron-builder'), [
   '--mac', 'dir', '--arm64', `--config.electronDist=${arm64Dist}`
 ]);
 run(process.execPath, [path.join(projectRoot, 'scripts', 'build-universal-mac.mjs')]);
-run(process.execPath, [path.join(projectRoot, 'scripts', 'build-mac-dmg.mjs')]);
 
 const packageMetadata = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
 const appPath = path.join(releaseRoot, 'mac-universal', 'Reader.app');
 const dmgPath = path.join(releaseRoot, `Reader-${packageMetadata.version}-universal.dmg`);
+const updatePath = path.join(releaseRoot, `Reader-${packageMetadata.version}-darwin-universal.zip`);
 const notaryProfile = process.env.READER_NOTARY_KEYCHAIN_PROFILE?.trim();
+await rm(updatePath, { force: true });
 if (notaryProfile) {
   if (!process.env.READER_MAC_SIGN_IDENTITY?.trim()) {
     throw new Error('公证要求同时设置 READER_MAC_SIGN_IDENTITY');
   }
+  await notarize({
+    appPath,
+    keychainProfile: notaryProfile,
+    keychain: process.env.READER_NOTARY_KEYCHAIN?.trim() || undefined
+  });
+  run('/usr/bin/xcrun', ['stapler', 'validate', appPath]);
+} else {
+  console.log('\n未设置 READER_NOTARY_KEYCHAIN_PROFILE；不生成自动更新 ZIP。');
+}
+
+run(process.execPath, [path.join(projectRoot, 'scripts', 'build-mac-dmg.mjs')]);
+if (notaryProfile) {
   await notarize({
     appPath: dmgPath,
     keychainProfile: notaryProfile,
     keychain: process.env.READER_NOTARY_KEYCHAIN?.trim() || undefined
   });
   run('/usr/bin/xcrun', ['stapler', 'validate', dmgPath]);
+  run(process.execPath, [path.join(projectRoot, 'scripts', 'build-mac-update.mjs')]);
 } else {
-  console.log('\n未设置 READER_NOTARY_KEYCHAIN_PROFILE；保留 ad-hoc/未公证发行模式。');
+  console.log('\n当前 DMG 未公证；仅用于本机验证，不作为自动更新源。');
 }
 const dmgInfo = await stat(dmgPath);
 console.log('\nReader macOS 通用发行包已完成：');
 console.log(appPath);
 console.log(`${dmgPath} (${dmgInfo.size} bytes)`);
+if (notaryProfile) {
+  const updateInfo = await stat(updatePath);
+  console.log(`${updatePath} (${updateInfo.size} bytes)`);
+}

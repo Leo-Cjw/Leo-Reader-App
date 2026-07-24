@@ -1,8 +1,9 @@
 import path from 'node:path';
-import { app, BrowserWindow, dialog, Menu, net, powerMonitor, session, shell } from 'electron';
+import { app, autoUpdater, BrowserWindow, dialog, Menu, net, powerMonitor, session, shell } from 'electron';
 import { createReaderServer } from '../src/server/server.mjs';
 import { DESKTOP_COMMANDS, isAllowedAppURL, isSafeExternalURL, resolveDesktopDataRoot } from './security.mjs';
 import { createDesktopBackgroundCoordinator } from './background-state.mjs';
+import { createUpdateController } from './updates.mjs';
 
 app.enableSandbox();
 app.setName('Reader');
@@ -13,8 +14,19 @@ if (!lockAcquired) app.quit();
 let mainWindow = null;
 let readerServer = null;
 let backgroundCoordinator = null;
+let updateController = null;
 let appOrigin = '';
 let shutdownStarted = false;
+
+async function closeReader() {
+  backgroundCoordinator?.stop();
+  backgroundCoordinator = null;
+  const server = readerServer;
+  if (server) await server.close();
+  if (readerServer === server) readerServer = null;
+  updateController?.stop();
+  updateController = null;
+}
 
 function sendCommand(command) {
   if (!DESKTOP_COMMANDS.has(command) || !mainWindow || mainWindow.isDestroyed()) return;
@@ -29,6 +41,7 @@ function installMenu() {
         { role: 'about' },
         { type: 'separator' },
         { label: '设置…', accelerator: 'CommandOrControl+,', click: () => sendCommand('settings') },
+        { label: '检查更新…', click: () => { void updateController?.check(true); } },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -156,6 +169,22 @@ async function startReader() {
   const address = await readerServer.listen();
   backgroundCoordinator = createDesktopBackgroundCoordinator({ powerMonitor, net, server: readerServer });
   await backgroundCoordinator.start();
+  updateController = createUpdateController({
+    app,
+    autoUpdater,
+    dialog,
+    getWindow: () => mainWindow,
+    beforeInstall: async () => {
+      shutdownStarted = true;
+      try {
+        await closeReader();
+      } catch (error) {
+        shutdownStarted = false;
+        throw error;
+      }
+    }
+  });
+  await updateController.start();
   appOrigin = `http://127.0.0.1:${address.port}`;
   installMenu();
   configureSession();
@@ -190,12 +219,9 @@ if (lockAcquired) {
     if (!readerServer || shutdownStarted) return;
     event.preventDefault();
     shutdownStarted = true;
-    backgroundCoordinator?.stop();
-    backgroundCoordinator = null;
-    readerServer.close()
+    closeReader()
       .catch((error) => console.error('Reader shutdown failed', error))
       .finally(() => {
-        readerServer = null;
         app.quit();
       });
   });

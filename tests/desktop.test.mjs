@@ -66,6 +66,8 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /setPermissionRequestHandler/);
   assert.match(main, /createDesktopBackgroundCoordinator/);
   assert.match(main, /await backgroundCoordinator\.start\(\)/);
+  assert.match(main, /createUpdateController/);
+  assert.match(main, /检查更新…/);
 
   const html = await readFile(path.join(projectRoot, 'index.html'), 'utf8');
   assert.match(html, /Content-Security-Policy/);
@@ -76,6 +78,11 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(afterPack, /NSAllowsArbitraryLoads bool false/);
   assert.match(afterPack, /NSCameraUsageDescription/);
   assert.match(afterPack, /NSMicrophoneUsageDescription/);
+
+  const release = await readFile(path.join(projectRoot, 'scripts', 'build-mac-release.mjs'), 'utf8');
+  assert.match(release, /notarize\(\{\s*appPath,/);
+  assert.match(release, /build-mac-update\.mjs/);
+  assert.match(release, /不生成自动更新 ZIP/);
 });
 
 test('sidebar collections keep their declared keyboard tree contract', async () => {
