@@ -747,16 +747,21 @@ export class ReaderDatabase {
   }
 
   async listArticlePage(options = {}) {
-    const { limit = 100, cursor = null, includeTotal = true } = options;
+    const { limit = 100, cursor = null, includeTotal = true, includeContent = true } = options;
     const { where, join } = await this.articleListParts(options);
     const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+    const articleColumns = includeContent
+      ? 'a.*'
+      : `a.id,a.url,a.title,a.source,a.author,a.type,a.language,a.published_at,a.created_at,a.updated_at,
+        a.excerpt,a.summary,a.read_time_minutes,a.is_favorite,a.is_read,a.reading_progress,a.archived,
+        a.collection_id,a.metadata_json`;
     const decodedCursor = decodeArticleCursor(cursor);
     const pageWhere = [...where];
     if (decodedCursor) {
       pageWhere.push(`(a.created_at < ${sqlValue(decodedCursor.createdAt)} OR (a.created_at=${sqlValue(decodedCursor.createdAt)} AND a.id < ${sqlValue(decodedCursor.id)}))`);
     }
     const rows = await this.query(`
-      SELECT a.*, c.name AS collection_name,
+      SELECT ${articleColumns}, c.name AS collection_name,
         (SELECT count(*) FROM article_revisions r WHERE r.article_id=a.id) AS revision_count,
         coalesce((SELECT json_group_array(t.name) FROM article_tags at JOIN tags t ON t.id=at.tag_id WHERE at.article_id=a.id), '[]') AS tags_json,
         coalesce((SELECT json_group_array(json_object('id',f.id,'file_name',f.file_name,'mime_type',f.mime_type,'byte_size',f.byte_size,'sha256',f.sha256,'url','/api/attachments/' || f.id || '/content','thumbnail_url',CASE WHEN f.mime_type='application/pdf' OR f.mime_type LIKE 'image/%' THEN '/api/attachments/' || f.id || '/thumbnail' ELSE NULL END)) FROM attachments f WHERE f.article_id=a.id), '[]') AS attachments_json

@@ -51,7 +51,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(health.body.storage, 'sqlite');
   assert.equal(health.body.version, APP_VERSION);
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.22.0');
+  assert.equal(APP_VERSION, '0.23.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -110,6 +110,9 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(search.body.total, 1);
   assert.equal(search.body.hasMore, false);
   assert.equal(search.body.nextCursor, null);
+  assert.equal(Object.hasOwn(search.body.articles[0], 'content'), false);
+  const articleDetail = await json(`${base}/api/articles/${created.body.article.id}`);
+  assert.match(articleDetail.body.article.content, /Reader 使用本地 SQLite 保存内容/);
   const firstPage = await json(`${base}/api/articles?limit=2`);
   assert.equal(firstPage.body.articles.length, 2);
   assert.equal(firstPage.body.total, 4);

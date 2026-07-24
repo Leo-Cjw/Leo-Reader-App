@@ -355,6 +355,9 @@ button, select { cursor: pointer; }
 .library-filters button:hover { background: color-mix(in srgb, var(--selection) 52%, transparent); }
 .library-filters button.active { border-color: var(--line); background: var(--button); color: var(--ink); font-weight: 720; }
 .article-card { cursor: pointer; }
+.article-open { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }
+.article-open:focus-visible { outline: none; }
+.article-card:has(.article-open:focus-visible) { box-shadow: inset 0 0 0 2px var(--accent); }
 .article-card.batch-selected { background: color-mix(in srgb, var(--selection) 80%, var(--accent-soft)); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .selection-check { position: absolute; z-index: 2; top: 7px; right: 7px; width: 19px; height: 19px; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; display: grid; place-items: center; opacity: 0; background: var(--reader); color: var(--reader); font-size: 10px; font-weight: 780; transition: opacity .12s ease; }
 .article-card:hover .selection-check, .selection-check:focus-visible, .selection-check.checked { opacity: 1; }

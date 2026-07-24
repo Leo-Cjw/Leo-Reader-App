@@ -8,6 +8,9 @@ const ARTICLE_COUNT = Math.max(1, Number(process.env.READER_BENCHMARK_ARTICLES) 
 const QUERY_RUNS = Math.max(1, Number(process.env.READER_BENCHMARK_RUNS) || 12);
 const BATCH_SIZE = 500;
 const MAX_INTERACTION_P95_MS = 250;
+const MAX_SUMMARY_PAGE_BYTES = 512 * 1024;
+const LONG_BODY_ARTICLES = 97;
+const LONG_BODY_BYTES = 100 * 1024;
 
 function articleTimestamp(index) {
   return new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString();
@@ -61,19 +64,44 @@ try {
     statements.push('COMMIT;');
     await database.execute(statements.join('\n'));
   }
+  const longBodyStart = Math.max(0, ARTICLE_COUNT - LONG_BODY_ARTICLES);
+  const longBody = 'Reader long-body payload benchmark. '.repeat(Math.ceil(LONG_BODY_BYTES / 36)).slice(0, LONG_BODY_BYTES);
+  await database.execute(`UPDATE articles SET content = ${sqlValue(longBody)}
+    WHERE id >= ${sqlValue(`library-benchmark-${String(longBodyStart).padStart(6, '0')}`)};`);
   const seedMs = performance.now() - seedStarted;
 
   const stats = await measure(() => database.stats());
-  const firstPage = await measure(() => database.listArticlePage({ limit: 100 }));
-  const secondPage = await measure(() => database.listArticlePage({ limit: 100, cursor: firstPage.value.nextCursor, includeTotal: false }));
+  const fullFirstPage = await database.listArticlePage({ limit: 100 });
+  const fullPayloadBytes = Buffer.byteLength(JSON.stringify(fullFirstPage.articles));
+  const firstPage = await measure(() => database.listArticlePage({ limit: 100, includeContent: false }));
+  const summaryPayloadBytes = Buffer.byteLength(JSON.stringify(firstPage.value.articles));
+  const secondPage = await measure(() => database.listArticlePage({
+    limit: 100,
+    cursor: firstPage.value.nextCursor,
+    includeTotal: false,
+    includeContent: false
+  }));
   const middleCursor = encodeArticleCursor({
     created_at: articleTimestamp(Math.floor(ARTICLE_COUNT / 2)),
     id: `library-benchmark-${String(Math.floor(ARTICLE_COUNT / 2)).padStart(6, '0')}`
   });
-  const middlePage = await measure(() => database.listArticlePage({ limit: 100, cursor: middleCursor, includeTotal: false }));
-  const unreadPage = await measure(() => database.listArticlePage({ view: 'unread', limit: 100 }));
-  const englishSearch = await measure(() => database.listArticlePage({ query: 'benchmark needle', limit: 100 }));
-  const chineseSearch = await measure(() => database.listArticlePage({ query: '性能标记', limit: 100 }));
+  const middlePage = await measure(() => database.listArticlePage({
+    limit: 100,
+    cursor: middleCursor,
+    includeTotal: false,
+    includeContent: false
+  }));
+  const unreadPage = await measure(() => database.listArticlePage({ view: 'unread', limit: 100, includeContent: false }));
+  const englishSearch = await measure(() => database.listArticlePage({
+    query: 'benchmark needle',
+    limit: 100,
+    includeContent: false
+  }));
+  const chineseSearch = await measure(() => database.listArticlePage({
+    query: '性能标记',
+    limit: 100,
+    includeContent: false
+  }));
 
   const report = {
     requestedArticles: ARTICLE_COUNT,
@@ -81,6 +109,9 @@ try {
     seedMs: Number(seedMs.toFixed(1)),
     runs: QUERY_RUNS,
     gateMs: MAX_INTERACTION_P95_MS,
+    summaryPayloadGateBytes: MAX_SUMMARY_PAGE_BYTES,
+    fullPayloadBytes,
+    summaryPayloadBytes,
     stats: { p50Ms: stats.p50Ms, p95Ms: stats.p95Ms },
     firstPage: { count: firstPage.value.articles.length, total: firstPage.value.total, p50Ms: firstPage.p50Ms, p95Ms: firstPage.p95Ms },
     secondPage: { count: secondPage.value.articles.length, p50Ms: secondPage.p50Ms, p95Ms: secondPage.p95Ms },
@@ -96,6 +127,9 @@ try {
   const valid = report.totalArticles >= ARTICLE_COUNT
     && firstPage.value.total === report.totalArticles
     && [firstPage, secondPage, middlePage, unreadPage, englishSearch, chineseSearch].every((result) => result.value.articles.length === 100)
+    && fullPayloadBytes > MAX_SUMMARY_PAGE_BYTES
+    && summaryPayloadBytes <= MAX_SUMMARY_PAGE_BYTES
+    && firstPage.value.articles.every((article) => !Object.hasOwn(article, 'content'))
     && secondPage.value.articles.every((article) => !firstIds.has(article.id))
     && interactionP95s.every((value) => value <= MAX_INTERACTION_P95_MS);
   if (!valid) process.exitCode = 1;

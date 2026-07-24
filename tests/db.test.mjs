@@ -65,6 +65,8 @@ test('article pages are stable, complete and reject invalid cursors', async (t) 
   });
   assert.equal(typeof encodeArticleCursor(first.articles[0]), 'string');
   assert.equal((await db.listArticlePage({ query: '性能标记' })).articles[0].id, 'page-042');
+  assert.equal((await db.listArticlePage({ limit: 1 })).articles[0].content.length > 0, true);
+  assert.equal(Object.hasOwn((await db.listArticlePage({ limit: 1, includeContent: false })).articles[0], 'content'), false);
   await assert.rejects(db.listArticlePage({ cursor: 'not-a-cursor' }), /分页游标无效/);
 });
 

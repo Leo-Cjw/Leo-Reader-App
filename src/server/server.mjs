@@ -261,7 +261,8 @@ export async function createReaderServer({
             collectionId: url.searchParams.get('collection') || null, types: url.searchParams.get('types') || '',
             smartCollectionId: url.searchParams.get('smart') || null,
             tag: url.searchParams.get('tag') || '', mediaOnly: url.searchParams.get('media') === '1',
-            limit: url.searchParams.get('limit') || 100, cursor: url.searchParams.get('cursor') || null
+            limit: url.searchParams.get('limit') || 100, cursor: url.searchParams.get('cursor') || null,
+            includeContent: false
           });
           return sendJSON(response, 200, page);
         } catch (error) {

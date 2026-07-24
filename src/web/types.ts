@@ -27,8 +27,10 @@ export interface Article {
   metadata?: Record<string, unknown>;
 }
 
+export type ArticleSummary = Omit<Article, 'content'>;
+
 export interface ArticlePage {
-  articles: Article[];
+  articles: ArticleSummary[];
   total: number;
   hasMore: boolean;
   nextCursor: string | null;

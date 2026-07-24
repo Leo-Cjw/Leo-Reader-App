@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api';
-import type { AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, ArticleSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 type Toast = { id: number; message: string; tone?: 'error' | 'normal' };
 type ChatMessage = { role: 'user' | 'assistant'; text: string; citations?: RAGCitation[]; retrieval?: { matchedChunks: number; citedChunks: number } };
@@ -98,8 +98,12 @@ function formatMoment(value: string | null) {
   return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
-function sourceInitial(article: Article) {
+function sourceInitial(article: ArticleSummary) {
   return (article.source || article.title || 'R').trim().slice(0, 1).toUpperCase();
+}
+
+function toArticleSummary({ content: _content, ...summary }: Article): ArticleSummary {
+  return summary;
 }
 
 function formatBytes(value: number) {
@@ -190,7 +194,7 @@ function selectionOffsets(root: HTMLElement, range: Range) {
   return { start: start + leading, end: end - trailing, quote: rawQuote.trim() };
 }
 
-function articlePreviewAttachment(article: Article) {
+function articlePreviewAttachment(article: ArticleSummary) {
   return article.attachments?.find((attachment) => attachment.mime_type.startsWith('image/') || attachment.mime_type.startsWith('video/') || attachment.mime_type === 'application/pdf') || null;
 }
 
@@ -261,7 +265,7 @@ function Sidebar({ view, setView, collectionId, setCollectionId, smartCollection
 }
 
 function ArticleList({ articles, total, hasMore, loadingMore, onLoadMore, selectedId, onSelect, loading, title, query, setQuery, contentFilter, setContentFilter, layout, setLayout, selectedIds, onToggleSelection, onSelectAll, onClearSelection, onBatch, onExport, onCompose, collections, tags, archiveView }: {
-  articles: Article[]; total: number; hasMore: boolean; loadingMore: boolean; onLoadMore: () => void; selectedId: string | null; onSelect: (article: Article) => void; loading: boolean; title: string; query: string; setQuery: (value: string) => void;
+  articles: ArticleSummary[]; total: number; hasMore: boolean; loadingMore: boolean; onLoadMore: () => void; selectedId: string | null; onSelect: (article: ArticleSummary) => void; loading: boolean; title: string; query: string; setQuery: (value: string) => void;
   contentFilter: ContentFilter; setContentFilter: (value: ContentFilter) => void; layout: LibraryLayout; setLayout: (value: LibraryLayout) => void;
   selectedIds: Set<string>; onToggleSelection: (id: string) => void; onSelectAll: () => void; onClearSelection: () => void;
   onBatch: (patch: { collection_id?: string; is_favorite?: boolean; is_read?: boolean; archived?: boolean; tags_add?: string[]; tags_remove?: string[] }, message: string) => void;
@@ -286,15 +290,16 @@ function ArticleList({ articles, total, hasMore, loadingMore, onLoadMore, select
       {articles.map((article) => {
         const preview = articlePreviewAttachment(article);
         const checked = selectedIds.has(article.id);
-        return <article key={article.id} role="button" tabIndex={0} draggable aria-label={article.title} aria-pressed={checked} className={`article-card ${preview ? 'has-preview' : ''} ${selectedId === article.id && !selectedIds.size ? 'selected' : ''} ${checked ? 'batch-selected' : ''}`} onClick={() => selectedIds.size ? onToggleSelection(article.id) : onSelect(article)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectedIds.size ? onToggleSelection(article.id) : onSelect(article); } }}
+        return <article key={article.id} draggable className={`article-card ${preview ? 'has-preview' : ''} ${selectedId === article.id && !selectedIds.size ? 'selected' : ''} ${checked ? 'batch-selected' : ''}`} onClick={selectedIds.size ? () => onToggleSelection(article.id) : undefined}
           onDragStart={(event) => { const ids = checked && selectedIds.size ? [...selectedIds] : [article.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-reader-articles', JSON.stringify(ids)); event.dataTransfer.setData('text/plain', `${ids.length} 条 Reader 内容`); }}>
-          <button className={`selection-check ${checked ? 'checked' : ''}`} type="button" aria-label={checked ? `取消选择 ${article.title}` : `选择 ${article.title}`} onClick={(event) => { event.stopPropagation(); onToggleSelection(article.id); }}>{checked ? '✓' : ''}</button>
-          <span className="source-mark" data-kind={article.type}>{sourceInitial(article)}</span>
-          <span className="card-content"><span className="card-meta"><strong>{article.source || '本地内容'}</strong><span>·</span><span>{formatDate(article.published_at || article.created_at)}</span>{!article.is_read && <i aria-label="未读"></i>}</span>
+          {!selectedIds.size && <button key="open" className="article-open" type="button" aria-label={`打开 ${article.title}`} onClick={() => onSelect(article)}></button>}
+          <button key="select" className={`selection-check ${checked ? 'checked' : ''}`} type="button" aria-label={checked ? `取消选择 ${article.title}` : `选择 ${article.title}`} onClick={(event) => { event.stopPropagation(); onToggleSelection(article.id); }}>{checked ? '✓' : ''}</button>
+          <span className="source-mark" data-kind={article.type} aria-hidden="true">{sourceInitial(article)}</span>
+          <span className="card-content" aria-hidden="true"><span className="card-meta"><strong>{article.source || '本地内容'}</strong><span>·</span><span>{formatDate(article.published_at || article.created_at)}</span>{!article.is_read && <i></i>}</span>
             <span className="card-title">{article.title}</span><span className="card-excerpt">{article.excerpt}</span>
             <span className="card-footer"><span className="chip">{article.type}</span>{article.collection_name && <span className="chip">{article.collection_name}</span>}{article.tags.slice(0, 2).map((tag) => <span className="chip tag-chip" key={tag}>#{tag}</span>)}{article.is_favorite && <span className="favorite">★</span>}</span>
           </span>
-          {preview && <span className="card-preview" data-kind={preview.mime_type === 'application/pdf' ? 'pdf' : preview.mime_type.split('/')[0]}>{preview.mime_type.startsWith('video/') ? <video src={preview.url} muted playsInline preload="metadata" aria-hidden="true" onLoadedData={(event) => { if (event.currentTarget.duration > 0.02) event.currentTarget.currentTime = 0.01; }}></video> : <img src={preview.thumbnail_url || preview.url} alt="" loading="lazy"/>}<i>{preview.mime_type === 'application/pdf' ? 'PDF' : preview.mime_type.startsWith('video/') ? 'VIDEO' : ''}</i></span>}
+          {preview && <span className="card-preview" aria-hidden="true" data-kind={preview.mime_type === 'application/pdf' ? 'pdf' : preview.mime_type.split('/')[0]}>{preview.mime_type.startsWith('video/') ? <video src={preview.url} muted playsInline preload="metadata" onLoadedData={(event) => { if (event.currentTarget.duration > 0.02) event.currentTarget.currentTime = 0.01; }}></video> : <img src={preview.thumbnail_url || preview.url} alt="" loading="lazy"/>}<i>{preview.mime_type === 'application/pdf' ? 'PDF' : preview.mime_type.startsWith('video/') ? 'VIDEO' : ''}</i></span>}
         </article>;
       })}
       {hasMore && <div className="load-more-row"><button className="button" type="button" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? '正在加载…' : '加载更多'}</button><span>还有 {(total - articles.length).toLocaleString()} 条内容</span></div>}
@@ -536,7 +541,7 @@ function AIPanel({ article, onClose, onArticleUpdated, onDerivedCreated, onOpenC
   </aside>;
 }
 
-function ComposeModal({ articles, collections, busy, onClose, onCreate }: { articles: Article[]; collections: Collection[]; busy: boolean; onClose: () => void; onCreate: (options: { prompt: string; format: string; language: string; collectionId: string }) => void }) {
+function ComposeModal({ articles, collections, busy, onClose, onCreate }: { articles: ArticleSummary[]; collections: Collection[]; busy: boolean; onClose: () => void; onCreate: (options: { prompt: string; format: string; language: string; collectionId: string }) => void }) {
   const [prompt, setPrompt] = useState('提炼共同主题、关键分歧和可执行结论，只使用来源中明确出现的信息。');
   const [format, setFormat] = useState('brief');
   const [language, setLanguage] = useState('zh-CN');
@@ -975,7 +980,7 @@ function SmartCollectionManagerModal({ smartCollections, collections, tags, busy
   </section></div>;
 }
 
-function ExportModal({ articles, busy, onClose, onExport }: { articles: Article[]; busy: boolean; onClose: () => void; onExport: (includeAttachments: boolean) => Promise<void> }) {
+function ExportModal({ articles, busy, onClose, onExport }: { articles: ArticleSummary[]; busy: boolean; onClose: () => void; onExport: (includeAttachments: boolean) => Promise<void> }) {
   const [includeAttachments, setIncludeAttachments] = useState(true);
   const attachments = articles.flatMap((article) => article.attachments || []);
   const attachmentBytes = attachments.reduce((sum, attachment) => sum + attachment.byte_size, 0);
@@ -1139,16 +1144,17 @@ function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, 
 
 export function App() {
   const isDesktop = new URLSearchParams(window.location.search).get('desktop') === '1';
-  const [articles, setArticles] = useState<Article[]>([]); const [collections, setCollections] = useState<Collection[]>([]); const [smartCollections, setSmartCollections] = useState<SmartCollection[]>([]); const [tags, setTags] = useState<Tag[]>([]); const [sources, setSources] = useState<Source[]>([]); const [jobs, setJobs] = useState<ImportJob[]>([]); const [stats, setStats] = useState(initialStats);
+  const [articles, setArticles] = useState<ArticleSummary[]>([]); const [collections, setCollections] = useState<Collection[]>([]); const [smartCollections, setSmartCollections] = useState<SmartCollection[]>([]); const [tags, setTags] = useState<Tag[]>([]); const [sources, setSources] = useState<Source[]>([]); const [jobs, setJobs] = useState<ImportJob[]>([]); const [stats, setStats] = useState(initialStats);
   const [articleTotal, setArticleTotal] = useState(0); const [articleCursor, setArticleCursor] = useState<string | null>(null); const [loadingMore, setLoadingMore] = useState(false);
   const [revisions, setRevisions] = useState<ArticleRevisionSummary[]>([]); const [revisionPreview, setRevisionPreview] = useState<ArticleRevision | null>(null); const [backups, setBackups] = useState<Backup[]>([]); const [migrationSnapshots, setMigrationSnapshots] = useState<MigrationSnapshot[]>([]); const [dataHealth, setDataHealth] = useState<DataHealth | null>(null); const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null); const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
-  const [view, setView] = useState<View>('inbox'); const [collectionId, setCollectionId] = useState<string | null>(null); const [smartCollectionId, setSmartCollectionId] = useState<string | null>(null); const [tagFilter, setTagFilter] = useState(''); const [contentFilter, setContentFilter] = useState<ContentFilter>('all'); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(null); const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [view, setView] = useState<View>('inbox'); const [collectionId, setCollectionId] = useState<string | null>(null); const [smartCollectionId, setSmartCollectionId] = useState<string | null>(null); const [tagFilter, setTagFilter] = useState(''); const [contentFilter, setContentFilter] = useState<ContentFilter>('all'); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(null); const [selected, setSelected] = useState<Article | null>(null); const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true); const [aiOpen, setAIOpen] = useState(true); const [addOpen, setAddOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [historyOpen, setHistoryOpen] = useState(false); const [sourcesOpen, setSourcesOpen] = useState(false); const [collectionsOpen, setCollectionsOpen] = useState(false); const [smartCollectionsOpen, setSmartCollectionsOpen] = useState(false); const [queueOpen, setQueueOpen] = useState(false); const [safetyOpen, setSafetyOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [connectorSettingsOpen, setConnectorSettingsOpen] = useState(false); const [exportOpen, setExportOpen] = useState(false); const [composeOpen, setComposeOpen] = useState(false); const [duplicatesOpen, setDuplicatesOpen] = useState(false); const [focusedCitation, setFocusedCitation] = useState<RAGCitation | null>(null); const [busySource, setBusySource] = useState<string | null>(null); const [busyCollection, setBusyCollection] = useState(false); const [busySmartCollection, setBusySmartCollection] = useState(false); const [busyHistory, setBusyHistory] = useState(false); const [busySafety, setBusySafety] = useState(false); const [busyExport, setBusyExport] = useState(false); const [busyCompose, setBusyCompose] = useState(false); const [busyDuplicates, setBusyDuplicates] = useState(false); const [aiConfigurationVersion, setAIConfigurationVersion] = useState(0);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false); const [busyDiagnostics, setBusyDiagnostics] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('reader-theme') || 'light'); const [libraryLayout, setLibraryLayout] = useState<LibraryLayout>(() => localStorage.getItem('reader-library-layout') === 'gallery' ? 'gallery' : 'list'); const [toast, setToast] = useState<Toast | null>(null);
   const jobStates = useRef(new Map<string, ImportJob['status']>());
   const articleRequestId = useRef(0);
+  const articleDetailRequestId = useRef(0);
   const notify = useCallback((message: string, tone: Toast['tone'] = 'normal') => setToast({ id: Date.now(), message, tone }), []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), 2600); return () => window.clearTimeout(timer); }, [toast]);
   useEffect(() => { localStorage.setItem('reader-theme', theme); }, [theme]);
@@ -1197,6 +1203,21 @@ export function App() {
   useEffect(() => { void refreshChrome(); }, [refreshChrome]);
   useEffect(() => { const timer = window.setTimeout(() => void refreshArticles(), query ? 220 : 0); return () => window.clearTimeout(timer); }, [refreshArticles, query]);
   useEffect(() => {
+    const requestId = ++articleDetailRequestId.current;
+    if (!selectedId) {
+      setSelected(null);
+      return;
+    }
+    setSelected((current) => current?.id === selectedId ? current : null);
+    void api.getArticle(selectedId).then((article) => {
+      if (requestId !== articleDetailRequestId.current) return;
+      setSelected(article);
+      setArticles((current) => current.map((item) => item.id === article.id ? toArticleSummary(article) : item));
+    }).catch((error) => {
+      if (requestId === articleDetailRequestId.current) notify(error instanceof Error ? error.message : '正文加载失败', 'error');
+    });
+  }, [selectedId, notify]);
+  useEffect(() => {
     const timer = window.setInterval(() => void refreshChrome(), 30_000);
     return () => window.clearInterval(timer);
   }, [refreshChrome]);
@@ -1223,17 +1244,19 @@ export function App() {
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const selected = useMemo(() => articles.find((article) => article.id === selectedId) || null, [articles, selectedId]);
   const selectedArticles = useMemo(() => articles.filter((article) => selectedIds.has(article.id)), [articles, selectedIds]);
   const title = smartCollectionId ? smartCollections.find((item) => item.id === smartCollectionId)?.name || '智能资料夹' : tagFilter ? `# ${tagFilter}` : collectionId ? collections.find((item) => item.id === collectionId)?.name || '资料夹' : viewLabels[view];
 
-  const updateArticleInState = useCallback((article: Article) => { setArticles((current) => current.map((item) => item.id === article.id ? article : item)); }, []);
+  const updateArticleInState = useCallback((article: Article) => {
+    setArticles((current) => current.map((item) => item.id === article.id ? toArticleSummary(article) : item));
+    setSelected((current) => current?.id === article.id ? article : current);
+  }, []);
   const patchSelected = async (patch: Partial<Article>) => {
     if (!selected) return; const optimistic = { ...selected, ...patch }; updateArticleInState(optimistic);
     try { updateArticleInState(await api.updateArticle(selected.id, patch)); await Promise.all([refreshArticles(), refreshChrome()]); }
     catch (error) { updateArticleInState(selected); notify(error instanceof Error ? error.message : '保存失败', 'error'); }
   };
-  const selectArticle = (article: Article) => { setFocusedCitation(null); setSelectedId(article.id); if (!article.is_read) void api.updateArticle(article.id, { is_read: true }).then((next) => { updateArticleInState(next); void Promise.all([refreshChrome(), refreshArticles()]); }); };
+  const selectArticle = (article: ArticleSummary) => { setFocusedCitation(null); setSelectedId(article.id); if (!article.is_read) void api.updateArticle(article.id, { is_read: true }).then((next) => { updateArticleInState(next); void Promise.all([refreshChrome(), refreshArticles()]); }); };
   const addTags = async (nextTags: string[]) => { if (!selected) return; try { updateArticleInState(await api.updateTags(selected.id, nextTags, [])); await refreshChrome(); } catch (error) { notify(error instanceof Error ? error.message : '标签保存失败', 'error'); } };
   const removeTags = async (nextTags: string[]) => { if (!selected) return; try { updateArticleInState(await api.updateTags(selected.id, [], nextTags)); await refreshChrome(); } catch (error) { notify(error instanceof Error ? error.message : '标签移除失败', 'error'); } };
   const toggleSelection = (id: string) => setSelectedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -1267,7 +1290,7 @@ export function App() {
   };
   const showDerivedArticle = (article: Article, message: string) => {
     setView('inbox'); setCollectionId(null); setSmartCollectionId(null); setTagFilter(''); setContentFilter('all'); setQuery(''); setSelectedIds(new Set());
-    setArticles((current) => [article, ...current.filter((item) => item.id !== article.id)]); setSelectedId(article.id);
+    setArticles((current) => [toArticleSummary(article), ...current.filter((item) => item.id !== article.id)]); setSelected(article); setSelectedId(article.id);
     void refreshChrome(); notify(message);
   };
   const composeSelected = async (options: { prompt: string; format: string; language: string; collectionId: string }) => {
@@ -1279,7 +1302,12 @@ export function App() {
   };
   const openSourceArticle = async (id: string) => {
     try {
-      const article = articles.find((item) => item.id === id) || await api.getArticle(id);
+      let article = articles.find((item) => item.id === id);
+      if (!article) {
+        const detail = await api.getArticle(id);
+        article = toArticleSummary(detail);
+        setSelected(detail);
+      }
       setFocusedCitation(null);
       setView('inbox'); setCollectionId(null); setSmartCollectionId(null); setTagFilter(''); setContentFilter('all'); setQuery(''); setSelectedIds(new Set());
       setArticles((current) => current.some((item) => item.id === article.id) ? current : [article, ...current]); setSelectedId(article.id);
@@ -1327,7 +1355,7 @@ export function App() {
     finally { setBusySmartCollection(false); }
   };
   const reorderSmartCollections = async (orderedIds: string[]) => { setBusySmartCollection(true); try { setSmartCollections(await api.reorderSmartCollections(orderedIds)); notify('智能资料夹顺序已保存'); } catch (error) { notify(error instanceof Error ? error.message : '智能资料夹排序失败', 'error'); throw error; } finally { setBusySmartCollection(false); } };
-  const created = (article: Article) => { setArticles((current) => [article, ...current]); setSelectedId(article.id); setView('inbox'); setCollectionId(null); setSmartCollectionId(null); void refreshChrome(); notify('内容已安全保存到本机'); };
+  const created = (article: Article) => { setArticles((current) => [toArticleSummary(article), ...current]); setSelected(article); setSelectedId(article.id); setView('inbox'); setCollectionId(null); setSmartCollectionId(null); void refreshChrome(); notify('内容已安全保存到本机'); };
   const queued = (job: ImportJob) => { jobStates.current.set(job.id, job.status); setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]); setQueueOpen(true); };
   const retryJob = async (job: ImportJob) => { try { const next = await api.retryImportJob(job.id); jobStates.current.set(next.id, next.status); setJobs((current) => current.map((item) => item.id === next.id ? next : item)); notify('任务已重新加入队列'); } catch (error) { notify(error instanceof Error ? error.message : '重试失败', 'error'); } };
   const saveEditor = async (patch: Partial<Article>) => { if (!selected) throw new Error('内容不存在'); const updated = await api.updateArticle(selected.id, patch); updateArticleInState(updated); return updated; };
