@@ -406,6 +406,18 @@ export interface Source {
   updated_at: string;
 }
 
+export interface BackgroundWorkState {
+  suspended: boolean;
+  online: boolean;
+  lowBattery: boolean;
+  powerConstrained: boolean;
+  restoreLocked: boolean;
+  importsPaused: boolean;
+  sourceSyncPaused: boolean;
+  importPauseReasons: string[];
+  sourceSyncPauseReasons: string[];
+}
+
 export interface ConnectorStatus {
   x: {
     configured: boolean;

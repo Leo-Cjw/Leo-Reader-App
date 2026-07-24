@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -24,6 +24,9 @@ function encodeSecretHeader(value: string) {
 }
 
 export const api = {
+  async getBackgroundWorkState() {
+    return (await request<{ background: BackgroundWorkState }>('/api/health')).background;
+  },
   async listArticles(view: View, query = '', collectionId?: string | null, filters: { types?: string[]; tag?: string; mediaOnly?: boolean } = {}, smartCollectionId?: string | null, cursor?: string | null) {
     const params = new URLSearchParams({ view });
     if (query) params.set('q', query);

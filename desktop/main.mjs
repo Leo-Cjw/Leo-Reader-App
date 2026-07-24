@@ -1,7 +1,8 @@
 import path from 'node:path';
-import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, net, powerMonitor, session, shell } from 'electron';
 import { createReaderServer } from '../src/server/server.mjs';
 import { DESKTOP_COMMANDS, isAllowedAppURL, isSafeExternalURL, resolveDesktopDataRoot } from './security.mjs';
+import { createDesktopBackgroundCoordinator } from './background-state.mjs';
 
 app.enableSandbox();
 app.setName('Reader');
@@ -11,6 +12,7 @@ if (!lockAcquired) app.quit();
 
 let mainWindow = null;
 let readerServer = null;
+let backgroundCoordinator = null;
 let appOrigin = '';
 let shutdownStarted = false;
 
@@ -152,6 +154,8 @@ async function startReader() {
     port: 0
   });
   const address = await readerServer.listen();
+  backgroundCoordinator = createDesktopBackgroundCoordinator({ powerMonitor, net, server: readerServer });
+  await backgroundCoordinator.start();
   appOrigin = `http://127.0.0.1:${address.port}`;
   installMenu();
   configureSession();
@@ -186,6 +190,8 @@ if (lockAcquired) {
     if (!readerServer || shutdownStarted) return;
     event.preventDefault();
     shutdownStarted = true;
+    backgroundCoordinator?.stop();
+    backgroundCoordinator = null;
     readerServer.close()
       .catch((error) => console.error('Reader shutdown failed', error))
       .finally(() => {

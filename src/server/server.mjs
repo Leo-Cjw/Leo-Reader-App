@@ -23,6 +23,7 @@ import { cancelPortableImport, commitPortableImport, stagePortableImport } from 
 import { repairDerivedData } from './data-repair.mjs';
 import { diagnosticErrorCategory, diagnosticRoute, LocalDiagnosticsStore } from './diagnostics.mjs';
 import { SCHEMA_VERSION } from './schema.mjs';
+import { createBackgroundWorkPolicy } from './background-work.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -221,16 +222,10 @@ export async function createReaderServer({
   });
   const sourceScheduler = createSourceScheduler(database, sourceSync);
   sourceScheduler.start();
+  const backgroundWork = createBackgroundWorkPolicy(importWorker, sourceScheduler);
   let dataRepairPromise = null;
   let restoreWriteLocked = false;
   let diagnosticsStopped = false;
-  const pauseBackgroundWork = async () => {
-    await Promise.all([importWorker.pause(), sourceScheduler.pause()]);
-  };
-  const resumeBackgroundWork = () => {
-    importWorker.resume();
-    sourceScheduler.resume();
-  };
 
   const server = http.createServer(async (request, response) => {
     let requestPath = '/';
@@ -247,7 +242,14 @@ export async function createReaderServer({
       }
 
       if (pathname === '/api/health' && method === 'GET') {
-        return sendJSON(response, 200, { ok: true, version: APP_VERSION, storage: 'sqlite', restoredOnStart: Boolean(appliedRestore), time: new Date().toISOString() });
+        return sendJSON(response, 200, {
+          ok: true,
+          version: APP_VERSION,
+          storage: 'sqlite',
+          restoredOnStart: Boolean(appliedRestore),
+          background: backgroundWork.snapshot(),
+          time: new Date().toISOString()
+        });
       }
 
       if (pathname === '/api/stats' && method === 'GET') {
@@ -835,7 +837,7 @@ export async function createReaderServer({
         if (dataRepairPromise) throw new HTTPError(409, '请等待资料库修复完成后再恢复升级快照');
         restoreWriteLocked = true;
         try {
-          await pauseBackgroundWork();
+          await backgroundWork.update({ restoreLocked: true });
           const activeJobs = (await database.listImportJobs(200)).filter((job) => job.status === 'pending' || job.status === 'running');
           if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再恢复升级快照');
           const snapshot = await resolveMigrationSnapshot(database.path, migrationSnapshotRestoreMatch[1]);
@@ -846,7 +848,7 @@ export async function createReaderServer({
         } catch (error) {
           if (!(await getPendingRestore(rootDir))) {
             restoreWriteLocked = false;
-            resumeBackgroundWork();
+            await backgroundWork.update({ restoreLocked: false });
           }
           throw error;
         }
@@ -904,7 +906,7 @@ export async function createReaderServer({
       if (pathname === '/api/backups/restore' && method === 'POST') {
         restoreWriteLocked = true;
         try {
-          await pauseBackgroundWork();
+          await backgroundWork.update({ restoreLocked: true });
           const activeJobs = (await database.listImportJobs(200)).filter((job) => job.status === 'pending' || job.status === 'running');
           if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再恢复数据');
           const passphrase = decodeBase64SecretHeader(request, 'x-reader-backup-passphrase');
@@ -914,7 +916,7 @@ export async function createReaderServer({
         } catch (error) {
           if (!(await getPendingRestore(rootDir))) {
             restoreWriteLocked = false;
-            resumeBackgroundWork();
+            await backgroundWork.update({ restoreLocked: false });
           }
           throw error;
         }
@@ -924,7 +926,7 @@ export async function createReaderServer({
         const cancelled = await cancelPendingRestore(rootDir);
         if (cancelled) {
           restoreWriteLocked = false;
-          resumeBackgroundWork();
+          await backgroundWork.update({ restoreLocked: false });
           await diagnostics.record('restore_cancelled');
         }
         return sendJSON(response, 200, { cancelled });
@@ -1030,6 +1032,8 @@ export async function createReaderServer({
     diagnostics,
     host,
     port,
+    setBackgroundWorkState(state) { return backgroundWork.update(state); },
+    getBackgroundWorkState() { return backgroundWork.snapshot(); },
     async listen() { await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); }); return server.address(); },
     async close() {
       await Promise.all([importWorker.stop(), sourceScheduler.stop()]);

@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api';
-import type { AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, ArticleSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, ArticleSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 type Toast = { id: number; message: string; tone?: 'error' | 'normal' };
 type ChatMessage = { role: 'user' | 'assistant'; text: string; citations?: RAGCitation[]; retrieval?: { matchedChunks: number; citedChunks: number } };
 
 const initialStats: Stats = { total: 0, unread: 0, favorites: 0, notes: 0, archived: 0 };
+const initialBackgroundWorkState: BackgroundWorkState = { suspended: false, online: true, lowBattery: false, powerConstrained: false, restoreLocked: false, importsPaused: false, sourceSyncPaused: false, importPauseReasons: [], sourceSyncPauseReasons: [] };
 const viewLabels: Record<View, string> = { inbox: '收件箱', unread: '未读', favorites: '收藏', notes: '我的笔记', archive: '归档' };
 type ContentFilter = 'all' | 'articles' | 'feeds' | 'attachments' | 'notes' | 'media';
 type LibraryLayout = 'list' | 'gallery';
@@ -1007,18 +1008,25 @@ function AddModal({ collections, onClose, onCreated, onQueued, onImported, notif
   </section></div>;
 }
 
-function SourcesModal({ sources, onClose, onSync, onUpdate, onDelete, onImport, onConnections, busySource }: {
+function SourcesModal({ sources, background, onClose, onSync, onUpdate, onDelete, onImport, onConnections, busySource }: {
   sources: Source[]; onClose: () => void; onSync: (source: Source) => void;
+  background: BackgroundWorkState;
   onUpdate: (source: Source, patch: Partial<Pick<Source, 'enabled' | 'sync_interval_minutes'>>) => void;
   onDelete: (source: Source) => void; onImport: (file: File) => void; onConnections: () => void; busySource: string | null;
 }) {
   const active = sources.filter((source) => source.enabled).length;
   const errors = sources.filter((source) => source.last_status === 'error').length;
+  const pauseMessage = background.restoreLocked ? '资料库等待恢复重启，自动同步已暂停。'
+    : background.suspended ? 'Mac 正在睡眠，唤醒后自动继续。'
+    : background.powerConstrained ? '系统处于严重热状态或主动降频，后台任务已暂停。'
+    : background.lowBattery ? '电池电量不高于 20%，自动同步将在充电或电量恢复后继续。'
+    : !background.online ? 'Mac 当前离线，自动同步将在网络恢复后继续。'
+    : '';
   const statusLabel: Record<Source['last_status'], string> = { idle: '待同步', syncing: '同步中', ok: '已更新', error: '需处理', not_modified: '无更新' };
   const intervalLabel: Record<number, string> = { 15: '15 分钟', 30: '30 分钟', 60: '1 小时', 360: '6 小时', 1440: '每天', 10080: '每周' };
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal sources-modal" role="dialog" aria-modal="true" aria-label="订阅管理">
     <header><div><span className="eyebrow">自动采集</span><h2>订阅中心</h2></div><div className="source-header-actions"><button className="button" type="button" onClick={onConnections}>连接器</button><label className="button source-import"><input type="file" accept=".opml,.xml,text/x-opml" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.currentTarget.value = ''; }}/>导入 OPML</label><a className="button" href="/api/sources/opml">导出</a><button className="icon-button" type="button" aria-label="关闭订阅管理" onClick={onClose}>×</button></div></header>
-    <div className="source-overview"><span><strong>{sources.length}</strong><small>全部来源</small></span><span><strong>{active}</strong><small>自动同步</small></span><span className={errors ? 'warning' : ''}><strong>{errors}</strong><small>需要处理</small></span><p>RSS、YouTube、X 与微博统一在后台增量同步，正文和状态都保存在本机。</p></div>
+    <div className="source-overview"><span><strong>{sources.length}</strong><small>全部来源</small></span><span><strong>{active}</strong><small>自动同步</small></span><span className={errors ? 'warning' : ''}><strong>{errors}</strong><small>需要处理</small></span><p className={pauseMessage ? 'warning' : ''} role="status" aria-live="polite">{pauseMessage || 'RSS、YouTube、X 与微博统一在后台增量同步，正文和状态都保存在本机。'}</p></div>
     <div className="source-list">{sources.length === 0 ? <div className="empty-state"><strong>尚未添加订阅</strong><span>从“添加”菜单加入 RSS、YouTube、X 或微博账号，也可以导入 OPML。</span></div> : sources.map((source) => {
       const busy = busySource === source.id;
       const kindLabel: Record<Source['kind'], string> = { rss: 'RSS', youtube: 'YT', x: 'X', weibo: '微' };
@@ -1324,6 +1332,7 @@ function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, 
 export function App() {
   const isDesktop = new URLSearchParams(window.location.search).get('desktop') === '1';
   const [articles, setArticles] = useState<ArticleSummary[]>([]); const [collections, setCollections] = useState<Collection[]>([]); const [smartCollections, setSmartCollections] = useState<SmartCollection[]>([]); const [tags, setTags] = useState<Tag[]>([]); const [sources, setSources] = useState<Source[]>([]); const [jobs, setJobs] = useState<ImportJob[]>([]); const [stats, setStats] = useState(initialStats);
+  const [backgroundWork, setBackgroundWork] = useState(initialBackgroundWorkState);
   const [articleTotal, setArticleTotal] = useState(0); const [articleCursor, setArticleCursor] = useState<string | null>(null); const [loadingMore, setLoadingMore] = useState(false);
   const [revisions, setRevisions] = useState<ArticleRevisionSummary[]>([]); const [revisionPreview, setRevisionPreview] = useState<ArticleRevision | null>(null); const [backups, setBackups] = useState<Backup[]>([]); const [migrationSnapshots, setMigrationSnapshots] = useState<MigrationSnapshot[]>([]); const [dataHealth, setDataHealth] = useState<DataHealth | null>(null); const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null); const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
@@ -1346,7 +1355,7 @@ export function App() {
   }), [contentFilter, tagFilter]);
 
   const refreshChrome = useCallback(async () => {
-    try { const [nextCollections, nextSmartCollections, nextSources, nextStats, nextTags] = await Promise.all([api.listCollections(), api.listSmartCollections(), api.listSources(), api.getStats(), api.listTags()]); setCollections(nextCollections); setSmartCollections(nextSmartCollections); setSources(nextSources); setStats(nextStats); setTags(nextTags); }
+    try { const [nextCollections, nextSmartCollections, nextSources, nextStats, nextTags, nextBackgroundWork] = await Promise.all([api.listCollections(), api.listSmartCollections(), api.listSources(), api.getStats(), api.listTags(), api.getBackgroundWorkState()]); setCollections(nextCollections); setSmartCollections(nextSmartCollections); setSources(nextSources); setStats(nextStats); setTags(nextTags); setBackgroundWork(nextBackgroundWork); }
     catch (error) { notify(error instanceof Error ? error.message : '无法读取本地资料库', 'error'); }
   }, [notify]);
 
@@ -1621,7 +1630,7 @@ export function App() {
     {addOpen && <AddModal collections={collections} onClose={() => setAddOpen(false)} onCreated={created} onQueued={queued} onImported={async () => { await Promise.all([refreshArticles(), refreshChrome()]); }} notify={notify} onSourceCreated={(source) => { setSources((current) => [...current, source]); void refreshChrome(); }} onOpenConnectors={() => { setAddOpen(false); setConnectorSettingsOpen(true); }}/>}
     {editOpen && selected && <EditorModal article={selected} onClose={() => setEditOpen(false)} onSave={saveEditor} onUploadImage={uploadEditorImage} notify={notify}/>}
     {historyOpen && selected && <VersionHistoryModal article={selected} revisions={revisions} preview={revisionPreview} busy={busyHistory} onClose={() => setHistoryOpen(false)} onSelect={(version) => void selectRevision(version)} onRestore={(version) => void restoreRevision(version)}/>}
-    {sourcesOpen && <SourcesModal sources={sources} onClose={() => setSourcesOpen(false)} onSync={(source) => void syncSource(source)} onUpdate={(source, patch) => void updateSource(source, patch)} onDelete={(source) => void deleteSource(source)} onImport={(file) => void importOPML(file)} onConnections={() => { setSourcesOpen(false); setConnectorSettingsOpen(true); }} busySource={busySource}/>}
+    {sourcesOpen && <SourcesModal sources={sources} background={backgroundWork} onClose={() => setSourcesOpen(false)} onSync={(source) => void syncSource(source)} onUpdate={(source, patch) => void updateSource(source, patch)} onDelete={(source) => void deleteSource(source)} onImport={(file) => void importOPML(file)} onConnections={() => { setSourcesOpen(false); setConnectorSettingsOpen(true); }} busySource={busySource}/>}
     {collectionsOpen && <CollectionManagerModal collections={collections} busy={busyCollection} onClose={() => setCollectionsOpen(false)} onCreate={createCollection} onUpdate={updateCollection} onDelete={deleteCollection} onReorder={reorderCollections}/>}
     {smartCollectionsOpen && <SmartCollectionManagerModal smartCollections={smartCollections} collections={collections} tags={tags} busy={busySmartCollection} onClose={() => setSmartCollectionsOpen(false)} onCreate={createSmartCollection} onUpdate={updateSmartCollection} onDelete={deleteSmartCollection} onReorder={reorderSmartCollections}/>}
     {exportOpen && selectedArticles.length > 0 && <ExportModal articles={selectedArticles} busy={busyExport} onClose={() => setExportOpen(false)} onExport={exportSelected}/>}

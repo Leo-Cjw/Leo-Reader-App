@@ -64,6 +64,8 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /contextIsolation:\s*true/);
   assert.match(main, /sandbox:\s*true/);
   assert.match(main, /setPermissionRequestHandler/);
+  assert.match(main, /createDesktopBackgroundCoordinator/);
+  assert.match(main, /await backgroundCoordinator\.start\(\)/);
 
   const html = await readFile(path.join(projectRoot, 'index.html'), 'utf8');
   assert.match(html, /Content-Security-Policy/);
