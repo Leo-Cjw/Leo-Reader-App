@@ -460,9 +460,11 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
   const progressTimer = useRef<number | undefined>(undefined);
   const articleBodyRef = useRef<HTMLDivElement>(null);
   const annotationsRef = useRef<HTMLElement>(null);
+  const selectionOpenerRef = useRef<HTMLElement | null>(null);
   const [tagInput, setTagInput] = useState('');
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [highlightBusy, setHighlightBusy] = useState(false);
+  const [highlightAnnouncement, setHighlightAnnouncement] = useState('');
   const [selectionDraft, setSelectionDraft] = useState<{
     quote: string; startOffset: number; endOffset: number; color: HighlightColor; note: string; top: number; left: number;
   } | null>(null);
@@ -520,6 +522,8 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
       return;
     }
     const rect = range.getBoundingClientRect();
+    const activeElement = document.activeElement;
+    selectionOpenerRef.current = activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : root;
     setSelectionDraft({
       quote: offsets.quote,
       startOffset: offsets.start,
@@ -530,22 +534,39 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
       left: Math.min(window.innerWidth - 310, Math.max(12, rect.left + rect.width / 2 - 145))
     });
   };
+  const dismissSelection = useCallback(() => {
+    setSelectionDraft(null);
+    window.getSelection()?.removeAllRanges();
+    const target = selectionOpenerRef.current?.isConnected ? selectionOpenerRef.current : articleBodyRef.current;
+    window.requestAnimationFrame(() => target?.focus());
+  }, []);
+  useEffect(() => {
+    if (!selectionDraft) return;
+    const handleSelectionEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || highlightBusy) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dismissSelection();
+    };
+    document.addEventListener('keydown', handleSelectionEscape, true);
+    return () => document.removeEventListener('keydown', handleSelectionEscape, true);
+  }, [selectionDraft, highlightBusy, dismissSelection]);
   const saveSelection = async () => {
     if (!article || !selectionDraft || highlightBusy) return;
     setHighlightBusy(true);
     try {
       const created = await api.createHighlight(article.id, selectionDraft);
       setHighlights((current) => [...current, created].sort((left, right) => left.start_offset - right.start_offset));
-      setSelectionDraft(null);
-      window.getSelection()?.removeAllRanges();
+      dismissSelection();
       notify(created.note ? '高亮和批注已保存在本机' : '高亮已保存在本机');
     } catch (error) { notify(error instanceof Error ? error.message : '高亮保存失败', 'error'); }
     finally { setHighlightBusy(false); }
   };
-  const saveHighlightPatch = async (id: string, patch: { note?: string; color?: HighlightColor }) => {
+  const saveHighlightPatch = async (id: string, patch: { note?: string; color?: HighlightColor }, announcement?: string) => {
     try {
       const updated = await api.updateHighlight(id, patch);
       setHighlights((current) => current.map((highlight) => highlight.id === id ? { ...highlight, ...patch, updated_at: updated.updated_at } : highlight));
+      if (announcement) setHighlightAnnouncement(announcement);
     } catch (error) { notify(error instanceof Error ? error.message : '批注保存失败', 'error'); }
   };
   const deleteHighlight = async (highlight: Highlight) => {
@@ -571,6 +592,12 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
       registry.set('reader-focus', new HighlightClass(range));
       window.setTimeout(() => registry.delete('reader-focus'), 1600);
     }
+    const index = highlights.findIndex((item) => item.id === highlight.id);
+    setHighlightAnnouncement(`已定位高亮 ${index + 1}：${highlight.quote.slice(0, 80)}`);
+  };
+  const focusAnnotations = () => {
+    annotationsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.requestAnimationFrame(() => annotationsRef.current?.focus({ preventScroll: true }));
   };
   if (!article) return <main className="reader-pane empty-reader"><div><strong>选择一篇内容开始阅读</strong><span>阅读进度、收藏和批注都会保存在本地。</span></div></main>;
   const embeddedIds = new Set(Array.isArray(article.metadata?.embeddedAttachmentIds) ? article.metadata.embeddedAttachmentIds.filter((id): id is string => typeof id === 'string') : []);
@@ -588,12 +615,13 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
     setTagInput('');
   };
   return <main className="reader-pane" data-screen-label="阅读器">
+    <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{highlightAnnouncement}</span>
     <div className="reader-toolbar">
       <button className="icon-button" type="button" aria-label={article.is_favorite ? '取消收藏' : '收藏'} onClick={() => void onPatch({ is_favorite: !article.is_favorite })}>{article.is_favorite ? '★' : '☆'}</button>
       <select aria-label="移动到资料夹" value={article.collection_id || ''} onChange={(event) => void onPatch({ collection_id: event.target.value })}>{collectionRows.map((collection) => <option key={collection.id} value={collection.id}>{'— '.repeat(collection.depth)}{collection.name}</option>)}</select>
       <div className="toolbar-spacer"></div>
       <button className={`button ${article.archived ? '' : 'quiet-danger'}`} type="button" onClick={() => void onPatch({ archived: !article.archived })}>{article.archived ? '恢复' : '归档'}</button>
-      <button className="button" type="button" onClick={() => annotationsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>高亮 <span className="button-count">{highlights.length}</span></button>
+      <button className="button" type="button" onClick={focusAnnotations}>高亮 <span className="button-count">{highlights.length}</span></button>
       <button className="button" type="button" onClick={onHistory}>历史 <span className="button-count">{article.revision_count || 1}</span></button>
       <button className="button" type="button" onClick={onEdit}>编辑 <kbd>⌘E</kbd></button>
       {article.url && <a className="button" href={article.url} target="_blank" rel="noreferrer">原文 ↗</a>}
@@ -614,26 +642,26 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
           {attachment.mime_type.startsWith('video/') && <video controls preload="metadata" src={attachment.url}></video>}
           {attachment.mime_type === 'application/pdf' && <object data={attachment.url} type="application/pdf" aria-label={attachment.file_name}><a href={attachment.url}>打开 PDF</a></object>}
         </section>)}</div> : null}
-        <div className="article-body" ref={articleBodyRef} onMouseUp={captureSelection} onKeyUp={captureSelection}><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ node: _node, ...props }) => <span className="inline-figure" role="group"><img {...props} loading="lazy"/><span className="image-caption">{props.alt || '正文图片'} · 已保存在本机</span></span> }}>{article.content}</ReactMarkdown></div>
-        <section className="annotations" ref={annotationsRef} aria-label="高亮与批注">
-          <header><span><small>LOCAL ANNOTATIONS</small><strong>高亮与批注</strong></span><em>{highlights.length ? `${highlights.length} 条 · 全部保存在本机` : '选中正文即可开始'}</em></header>
+        <div className="article-body" ref={articleBodyRef} role="region" tabIndex={0} aria-label="文章正文，可选择文字创建高亮" onMouseUp={captureSelection} onKeyUp={captureSelection}><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ node: _node, ...props }) => <span className="inline-figure" role="group"><img {...props} loading="lazy"/><span className="image-caption">{props.alt || '正文图片'} · 已保存在本机</span></span> }}>{article.content}</ReactMarkdown></div>
+        <section className="annotations" ref={annotationsRef} tabIndex={-1} aria-label="高亮与批注">
+          <header><span><small>LOCAL ANNOTATIONS</small><strong>高亮与批注</strong></span><em aria-live="polite">{highlights.length ? `${highlights.length} 条 · 全部保存在本机` : '选中正文即可开始'}</em></header>
           {!highlights.length ? <div className="annotations-empty"><span>✦</span><div><strong>让收藏变成自己的理解</strong><p>在上方正文中选中一句话，选择颜色并写下批注。高亮会随资料库备份迁移。</p></div></div> :
             <div className="annotation-list">{highlights.map((highlight, index) => <article key={highlight.id} className="annotation-card" data-color={highlight.color}>
               <button type="button" className="annotation-index" onClick={() => focusHighlight(highlight)} aria-label={`定位高亮 ${index + 1}`}>{String(index + 1).padStart(2, '0')}</button>
               <div className="annotation-copy">
                 <button type="button" className="annotation-quote" onClick={() => focusHighlight(highlight)}><q>{highlight.quote}</q></button>
-                <textarea aria-label={`高亮 ${index + 1} 的批注`} value={highlight.note} onChange={(event) => setHighlights((current) => current.map((item) => item.id === highlight.id ? { ...item, note: event.target.value } : item))} onBlur={(event) => void saveHighlightPatch(highlight.id, { note: event.target.value })} placeholder="写下你的理解…"/>
-                <footer><span className="annotation-colors">{highlightColors.map((color) => <button type="button" key={color.value} className={highlight.color === color.value ? 'active' : ''} data-color={color.value} aria-label={`改为${color.label}`} onClick={() => void saveHighlightPatch(highlight.id, { color: color.value })}></button>)}</span><small>{formatDate(highlight.created_at)}</small><button type="button" className="annotation-delete" onClick={() => void deleteHighlight(highlight)}>删除</button></footer>
+                <textarea aria-label={`高亮 ${index + 1} 的批注`} value={highlight.note} onChange={(event) => setHighlights((current) => current.map((item) => item.id === highlight.id ? { ...item, note: event.target.value } : item))} onBlur={(event) => void saveHighlightPatch(highlight.id, { note: event.target.value }, `高亮 ${index + 1} 的批注已保存`)} placeholder="写下你的理解…"/>
+                <footer><span className="annotation-colors" role="group" aria-label={`高亮 ${index + 1} 的颜色`}>{highlightColors.map((color) => <button type="button" key={color.value} className={highlight.color === color.value ? 'active' : ''} data-color={color.value} aria-label={`改为${color.label}`} aria-pressed={highlight.color === color.value} onClick={() => void saveHighlightPatch(highlight.id, { color: color.value }, `高亮 ${index + 1} 已改为${color.label}`)}></button>)}</span><small>{formatDate(highlight.created_at)}</small><button type="button" className="annotation-delete" aria-label={`删除高亮 ${index + 1}`} onClick={() => void deleteHighlight(highlight)}>删除</button></footer>
               </div>
             </article>)}</div>}
         </section>
         <div className="document-end"><span>阅读完毕</span><button type="button" className="button" onClick={() => void onPatch({ is_read: true, reading_progress: 1 })}>标记为已读</button></div>
       </article>
     </div>
-    {selectionDraft && <aside className="selection-popover" style={{ top: selectionDraft.top, left: selectionDraft.left }} role="dialog" aria-label="保存高亮">
-      <header><span>保存高亮</span><button type="button" aria-label="取消高亮" onClick={() => setSelectionDraft(null)}>×</button></header>
-      <q>{selectionDraft.quote}</q>
-      <div className="selection-colors">{highlightColors.map((color) => <button type="button" key={color.value} data-color={color.value} className={selectionDraft.color === color.value ? 'active' : ''} aria-label={color.label} onClick={() => setSelectionDraft((current) => current ? { ...current, color: color.value } : current)}></button>)}</div>
+    {selectionDraft && <aside className="selection-popover" style={{ top: selectionDraft.top, left: selectionDraft.left }} role="dialog" aria-labelledby="selection-popover-title" aria-describedby="selection-popover-quote">
+      <header><span id="selection-popover-title">保存高亮</span><button type="button" aria-label="取消高亮" disabled={highlightBusy} onClick={dismissSelection}>×</button></header>
+      <q id="selection-popover-quote">{selectionDraft.quote}</q>
+      <div className="selection-colors" role="group" aria-label="高亮颜色">{highlightColors.map((color) => <button type="button" key={color.value} data-color={color.value} className={selectionDraft.color === color.value ? 'active' : ''} aria-label={color.label} aria-pressed={selectionDraft.color === color.value} onClick={() => setSelectionDraft((current) => current ? { ...current, color: color.value } : current)}></button>)}</div>
       <textarea autoFocus value={selectionDraft.note} onChange={(event) => setSelectionDraft((current) => current ? { ...current, note: event.target.value } : current)} placeholder="写一句批注（可选）" aria-label="高亮批注"/>
       <button className="button primary" type="button" disabled={highlightBusy} onClick={() => void saveSelection()}>{highlightBusy ? '保存中…' : '保存到本机'}</button>
     </aside>}
@@ -884,21 +912,26 @@ function EditorModal({ article, onClose, onSave, onUploadImage, notify }: { arti
     } catch (error) { notify(error instanceof Error ? error.message : '图片上传失败', 'error'); }
     finally { setUploading(false); setDragActive(false); }
   };
-  const statusText = uploading ? '正在保存图片…' : busy ? '正在自动保存…' : saveState === 'error' ? '自动保存失败' : dirty ? '停笔后自动保存' : savedAt ? `已自动保存 ${savedAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '已保存';
-  return <div className="modal-backdrop editor-backdrop"><section className="modal editor-modal" role="dialog" aria-modal="true" aria-label="Markdown 编辑器">
-    <header><div><span className="eyebrow">本地 Markdown</span><h2>编辑内容</h2></div><div className="editor-status"><span className={dirty || saveState === 'error' ? 'dirty' : ''}>{statusText}</span><button className="icon-button" type="button" aria-label="关闭编辑器" disabled={busy || uploading} onClick={requestClose}>×</button></div></header>
+  const statusText = uploading ? '正在保存图片…' : busy ? '正在保存…' : saveState === 'error' ? '保存失败' : dirty ? '停笔后自动保存' : savedAt ? `已保存 ${savedAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '已保存';
+  const handleEditorKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 's') return;
+    event.preventDefault();
+    if (!busy && !uploading) void persist(false, true);
+  };
+  return <div className="modal-backdrop editor-backdrop"><section className="modal editor-modal" role="dialog" aria-modal="true" aria-label="Markdown 编辑器" aria-busy={busy || uploading} onKeyDown={handleEditorKeyDown}>
+    <header><div><span className="eyebrow">本地 Markdown</span><h2>编辑内容</h2></div><div className="editor-status"><span role="status" aria-live="polite" aria-atomic="true" className={dirty || saveState === 'error' ? 'dirty' : ''}>{statusText}</span><button className="icon-button" type="button" aria-label="关闭编辑器" disabled={busy || uploading} onClick={requestClose}>×</button></div></header>
     <div className="editor-meta">
-      <label className="editor-title"><span>标题</span><input value={title} onChange={(event) => setTitle(event.target.value)} aria-label="编辑标题"/></label>
+      <label className="editor-title"><span>标题</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} aria-label="编辑标题"/></label>
       <label><span>作者</span><input value={author} onChange={(event) => setAuthor(event.target.value)} aria-label="编辑作者"/></label>
       <label><span>来源</span><input value={source} onChange={(event) => setSource(event.target.value)} aria-label="编辑来源"/></label>
       <label className="editor-excerpt"><span>摘要</span><input value={excerpt} onChange={(event) => setExcerpt(event.target.value)} aria-label="编辑摘要"/></label>
     </div>
-    <div className="editor-assets"><div className="editor-assets-title"><strong>文章图片</strong><small>{images.length ? `${images.length} 张保存在本机 · 点击插入光标处` : '上传后自动插入正文并保存在本机'}</small></div><div className="editor-asset-list">{images.map((attachment) => <button type="button" key={attachment.id} title={`插入 ${attachment.file_name}`} onClick={() => insertMarkdown(imageMarkdown(attachment))}><img src={attachment.thumbnail_url || attachment.url} alt=""/><span>{attachment.file_name}</span></button>)}{!images.length && <span className="editor-assets-empty">还没有文章图片</span>}</div><label className="editor-image-upload"><input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.avif,.heic,image/png,image/jpeg,image/gif,image/webp,image/avif,image/heic" multiple onChange={(event) => { const files = [...(event.target.files || [])]; event.currentTarget.value = ''; void uploadFiles(files); }}/><span>{uploading ? '上传中…' : '＋ 上传图片'}</span><small>单张 ≤ 20 MB</small></label></div>
+    <div className="editor-assets"><div className="editor-assets-title"><strong>文章图片</strong><small>{images.length ? `${images.length} 张保存在本机 · 点击插入光标处` : '上传后自动插入正文并保存在本机'}</small></div><div className="editor-asset-list">{images.map((attachment) => <button type="button" key={attachment.id} aria-label={`插入图片 ${attachment.file_name}`} onClick={() => insertMarkdown(imageMarkdown(attachment))}><img src={attachment.thumbnail_url || attachment.url} alt=""/><span>{attachment.file_name}</span></button>)}{!images.length && <span className="editor-assets-empty">还没有文章图片</span>}</div><label className="editor-image-upload"><input type="file" aria-label="上传文章图片" disabled={uploading} accept=".png,.jpg,.jpeg,.gif,.webp,.avif,.heic,image/png,image/jpeg,image/gif,image/webp,image/avif,image/heic" multiple onChange={(event) => { const files = [...(event.target.files || [])]; event.currentTarget.value = ''; void uploadFiles(files); }}/><span>{uploading ? '上传中…' : '＋ 上传图片'}</span><small>单张 ≤ 20 MB</small></label></div>
     <div className="editor-workspace">
-      <section className={`editor-source ${dragActive ? 'drag-active' : ''}`}><header><strong>Markdown</strong><span>{content.length.toLocaleString()} 字符 · 可拖入图片</span></header><textarea ref={textareaRef} value={content} onChange={(event) => setContent(event.target.value)} onDragEnter={(event) => { if ([...event.dataTransfer.items].some((item) => item.kind === 'file')) setDragActive(true); }} onDragOver={(event) => { event.preventDefault(); }} onDragLeave={() => setDragActive(false)} onDrop={(event) => { event.preventDefault(); void uploadFiles([...event.dataTransfer.files]); }} aria-label="Markdown 正文" spellCheck={false}></textarea></section>
-      <section className="editor-preview"><header><strong>实时预览</strong><span>安全渲染 · 不执行 HTML</span></header><article lang={article.language}><h1>{title || '无标题'}</h1>{excerpt && <p className="dek">{excerpt}</p>}<ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></article></section>
+      <section className={`editor-source ${dragActive ? 'drag-active' : ''}`} aria-labelledby="editor-source-title"><header><strong id="editor-source-title">Markdown</strong><span>{content.length.toLocaleString()} 字符 · 可拖入图片</span></header><textarea ref={textareaRef} value={content} onChange={(event) => setContent(event.target.value)} onDragEnter={(event) => { if ([...event.dataTransfer.items].some((item) => item.kind === 'file')) setDragActive(true); }} onDragOver={(event) => { event.preventDefault(); }} onDragLeave={() => setDragActive(false)} onDrop={(event) => { event.preventDefault(); void uploadFiles([...event.dataTransfer.files]); }} aria-label="Markdown 正文" spellCheck={false}></textarea></section>
+      <section className="editor-preview" aria-labelledby="editor-preview-title"><header><strong id="editor-preview-title">实时预览</strong><span>安全渲染 · 不执行 HTML</span></header><article lang={article.language}><h1>{title || '无标题'}</h1>{excerpt && <p className="dek">{excerpt}</p>}<ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></article></section>
     </div>
-    <footer><span className="editor-footer-note">停笔 1.4 秒后自动保存；每次内容变更都可在版本历史中恢复。</span><button className="button" type="button" disabled={busy || uploading} onClick={requestClose}>关闭</button><button className="button primary" type="button" disabled={busy || uploading || !title.trim()} onClick={() => void persist(true, true)}>{busy ? '正在保存…' : dirty ? '保存并关闭' : '完成'}</button></footer>
+    <footer><span className="editor-footer-note">停笔 1.4 秒后自动保存；⌘S 立即保存，每次变更都可在版本历史中恢复。</span><button className="button" type="button" disabled={busy || uploading || !dirty || !title.trim()} onClick={() => void persist(false, true)}>保存 <kbd>⌘S</kbd></button><button className="button" type="button" disabled={busy || uploading} onClick={requestClose}>关闭</button><button className="button primary" type="button" disabled={busy || uploading || !title.trim()} onClick={() => void persist(true, true)}>{busy ? '正在保存…' : dirty ? '保存并关闭' : '完成'}</button></footer>
   </section></div>;
 }
 

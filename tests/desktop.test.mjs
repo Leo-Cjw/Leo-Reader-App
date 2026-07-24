@@ -92,3 +92,23 @@ test('sidebar collections keep their declared keyboard tree contract', async () 
   assert.match(app, /event\.currentTarget\.click\(\)/);
   assert.match(styles, /\.collection-nav \[role="treeitem"\]:focus-visible/);
 });
+
+test('editor and highlights keep their declared keyboard and announcement contract', async () => {
+  const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
+  const styles = await readFile(path.join(projectRoot, 'src', 'web', 'styles.css'), 'utf8');
+
+  assert.match(app, /handleEditorKeyDown/);
+  assert.match(app, /event\.key\.toLowerCase\(\) !== 's'/);
+  assert.match(app, /aria-label="上传文章图片"/);
+  assert.match(app, /aria-labelledby="editor-source-title"/);
+  assert.match(app, /aria-labelledby="editor-preview-title"/);
+  assert.match(app, /role="status" aria-live="polite"/);
+  assert.match(app, /aria-describedby="selection-popover-quote"/);
+  assert.match(app, /handleSelectionEscape/);
+  assert.match(app, /document\.addEventListener\('keydown', handleSelectionEscape, true\)/);
+  assert.match(app, /aria-pressed=/);
+  assert.match(app, /role="region" tabIndex=\{0\} aria-label="文章正文，可选择文字创建高亮"/);
+  assert.match(app, /tabIndex=\{-1\} aria-label="高亮与批注"/);
+  assert.match(styles, /\.editor-image-upload:focus-within/);
+  assert.match(styles, /\.annotations:focus-visible/);
+});
