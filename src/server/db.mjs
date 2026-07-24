@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmod, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { chmod, mkdir, open, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { SCHEMA_VERSION, schemaSQL } from './schema.mjs';
@@ -223,7 +223,7 @@ export class ReaderDatabase {
   }
 
   async initialize() {
-    await mkdir(path.dirname(this.path), { recursive: true });
+    await this.hardenDatabasePermissions();
     const migration = await this.prepareMigration();
     this.lastMigrationSnapshot = migration.snapshot;
     if (migration.fromVersion < SCHEMA_VERSION) await this.execute(schemaSQL);
@@ -233,7 +233,20 @@ export class ReaderDatabase {
     await this.backfillArticleRevisions();
     await this.backfillArticleChunks();
     await this.repairLegacyWeChatCaptures();
+    await this.hardenDatabasePermissions();
     return this;
+  }
+
+  async hardenDatabasePermissions() {
+    const directory = path.dirname(this.path);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const handle = await open(this.path, 'a', 0o600);
+    await handle.close();
+    for (const filePath of [this.path, `${this.path}-wal`, `${this.path}-shm`]) {
+      await chmod(filePath, 0o600).catch((error) => {
+        if (error?.code !== 'ENOENT') throw error;
+      });
+    }
   }
 
   async existingSchemaVersion() {

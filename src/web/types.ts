@@ -190,6 +190,37 @@ export interface MigrationSnapshot {
   to_schema_version: number;
 }
 
+export interface DataHealthCheck {
+  id: string;
+  label: string;
+  status: 'pass' | 'warning' | 'fail';
+  detail: string;
+}
+
+export interface DataHealth {
+  status: 'healthy' | 'warning' | 'error';
+  checked_at: string;
+  duration_ms: number;
+  schema_version: number;
+  database: {
+    byte_size: number;
+    integrity: boolean;
+    foreign_key_violations: number | null;
+    migration_history_verified: boolean;
+    private_permissions: boolean;
+  };
+  attachments: {
+    records: number;
+    referenced_files: number;
+    stored_files: number;
+    missing_files: number;
+    size_mismatches: number;
+    orphan_files: number;
+  };
+  search: RAGIndexStatus | null;
+  checks: DataHealthCheck[];
+}
+
 export interface PendingRestore {
   id: string;
   backupCreatedAt: string;

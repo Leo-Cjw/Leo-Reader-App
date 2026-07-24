@@ -232,6 +232,23 @@ button, select { cursor: pointer; }
 .safety-section > header > span { display: flex; flex-direction: column; gap: 3px; }
 .safety-section > header strong { font-size: 12px; }
 .safety-section > header small { color: var(--muted); font-size: 8.5px; }
+.data-health-card { padding: 12px; border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; gap: 11px; background: var(--panel); }
+.data-health-card > header { display: grid; grid-template-columns: 30px minmax(0,1fr) auto; align-items: center; gap: 9px; }
+.health-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: rgba(80,144,92,.13); color: #548a5d; font-size: 13px; font-weight: 800; }
+.data-health-card.warning .health-mark { background: rgba(178,128,66,.13); color: #9a743c; }
+.data-health-card.error .health-mark { background: rgba(160,68,55,.12); color: #a04437; }
+.data-health-card.checking .health-mark { background: var(--selection); color: var(--muted); font-size: 9px; letter-spacing: .08em; }
+.data-health-card > header > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.data-health-card > header strong { font-size: 10px; }
+.data-health-card > header small { overflow: hidden; color: var(--muted); font-size: 7.6px; text-overflow: ellipsis; white-space: nowrap; }
+.data-health-checks { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
+.data-health-checks > span { min-width: 0; padding: 7px; border: 1px solid var(--line); border-radius: 8px; display: grid; grid-template-columns: 17px minmax(0,1fr); align-items: start; gap: 6px; background: color-mix(in srgb, var(--reader) 65%, transparent); }
+.data-health-checks > span > i { width: 17px; height: 17px; border-radius: 6px; display: grid; place-items: center; background: rgba(80,144,92,.12); color: #548a5d; font-size: 8px; font-style: normal; font-weight: 800; }
+.data-health-checks > span[data-status="warning"] > i { background: rgba(178,128,66,.13); color: #9a743c; }
+.data-health-checks > span[data-status="fail"] > i { background: rgba(160,68,55,.12); color: #a04437; }
+.data-health-checks > span > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.data-health-checks strong { font-size: 8px; }
+.data-health-checks small { overflow: hidden; color: var(--muted); font-size: 6.9px; text-overflow: ellipsis; white-space: nowrap; }
 .backup-creator { padding: 12px; border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; gap: 11px; background: var(--panel); }
 .security-toggle { display: grid; grid-template-columns: 16px minmax(0,1fr); align-items: start; gap: 9px; cursor: pointer; }
 .security-toggle input { width: 14px; height: 14px; margin-top: 2px; accent-color: var(--accent); }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
@@ -44,14 +44,31 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   const address = await app.listen();
   t.after(() => app.close());
   const base = `http://127.0.0.1:${address.port}`;
+  assert.equal((await stat(path.join(dir, 'data'))).mode & 0o777, 0o700);
 
   const health = await json(`${base}/api/health`);
   assert.equal(health.response.status, 200);
   assert.equal(health.body.storage, 'sqlite');
   assert.equal(health.body.version, APP_VERSION);
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.18.0');
+  assert.equal(APP_VERSION, '0.18.1');
   assert.equal(packageMetadata.version, APP_VERSION);
+
+  const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
+  assert.equal(dataHealth.response.status, 200);
+  assert.equal(dataHealth.body.health.status, 'healthy');
+  assert.equal(dataHealth.body.health.database.migration_history_verified, true);
+  assert.equal(dataHealth.body.health.checks.length, 6);
+  assert.equal('path' in dataHealth.body.health.database, false);
+  assert.doesNotMatch(JSON.stringify(dataHealth.body), new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  const blockedFilesDir = path.join(dir, 'data', 'files');
+  await mkdir(path.dirname(blockedFilesDir), { recursive: true });
+  await writeFile(blockedFilesDir, 'not a directory');
+  const failedDataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
+  assert.equal(failedDataHealth.response.status, 500);
+  assert.deepEqual(failedDataHealth.body, { error: '无法完成资料库检查' });
+  assert.doesNotMatch(JSON.stringify(failedDataHealth.body), new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  await rm(blockedFilesDir);
 
   const created = await json(`${base}/api/articles`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'markdown', title: '成熟产品测试', content: 'Reader 使用本地 SQLite 保存内容，并提供全文搜索、收藏和摘要功能。' }) });
   assert.equal(created.response.status, 201);

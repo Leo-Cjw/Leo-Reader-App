@@ -93,7 +93,7 @@ function validateMigrationRegistry() {
 
 validateMigrationRegistry();
 
-async function verifyMigrationHistory(database) {
+export async function verifyMigrationHistory(database) {
   const current = await database.one('SELECT max(version) AS version FROM schema_migrations;');
   if (Number(current?.version) !== SCHEMA_VERSION) {
     throw new Error(`资料库迁移未到达目标 schema v${SCHEMA_VERSION}`);

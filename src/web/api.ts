@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -244,6 +244,9 @@ export const api = {
   },
   async listMigrationSnapshots() {
     return (await request<{ snapshots: MigrationSnapshot[] }>('/api/migration-snapshots')).snapshots;
+  },
+  async checkDataHealth() {
+    return (await request<{ health: DataHealth }>('/api/data-health', { method: 'POST' })).health;
   },
   async createBackup(passphrase?: string) {
     return (await request<{ backup: Backup }>('/api/backups', { method: 'POST', body: JSON.stringify({ encrypted: Boolean(passphrase), passphrase: passphrase || '' }) })).backup;

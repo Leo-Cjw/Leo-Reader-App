@@ -1,6 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
-import { access, readFile, stat } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, stat } from 'node:fs/promises';
 import { constants as fsConstants, createReadStream } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { listMigrationSnapshots, normalizeSmartCollectionRule, ReaderDatabase, resolveMigrationSnapshot } from './db.mjs';
@@ -18,6 +18,7 @@ import { SocialConnectorManager } from './social-connectors.mjs';
 import { exportOPML, parseOPML } from './opml.mjs';
 import { prepareMarkdownExport, streamMarkdownExport } from './export.mjs';
 import { APP_VERSION } from './version.mjs';
+import { inspectDataHealth } from './data-health.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -171,6 +172,9 @@ export async function createReaderServer({
   socialConnectors = null,
   socialEnvironment = process.env
 } = {}) {
+  const dataRoot = path.join(rootDir, 'data');
+  await mkdir(dataRoot, { recursive: true, mode: 0o700 });
+  await chmod(dataRoot, 0o700);
   const appliedRestore = await applyPendingRestore({ rootDir, dbPath });
   const database = await new ReaderDatabase(dbPath).initialize();
   const runtimeAIService = aiService || new AIService({ endpoint: '', apiKey: '' });
@@ -726,6 +730,14 @@ export async function createReaderServer({
         const body = await readJSON(request);
         const passphrase = body.encrypted ? requiredString(body.passphrase, '备份口令', 1024) : '';
         return sendJSON(response, 201, { backup: await createBackup({ database, rootDir, appVersion: APP_VERSION, passphrase }) });
+      }
+
+      if (pathname === '/api/data-health' && method === 'POST') {
+        try {
+          return sendJSON(response, 200, { health: await inspectDataHealth({ database, filesDir }) });
+        } catch {
+          throw Object.assign(new HTTPError(500, '无法完成资料库检查'), { expected: true });
+        }
       }
 
       if (pathname === '/api/migration-snapshots' && method === 'GET') {
