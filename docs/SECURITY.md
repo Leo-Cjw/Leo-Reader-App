@@ -18,6 +18,7 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 
 ## 附件
 
+- macOS 文件入口使用 Chromium/Electron 的标准系统文件选择器。渲染器只接收用户明确选择的 `File` 对象，再经既有同源 HTTP 流式端点上传；真实路径、Node API、任意文件读取能力和新的 preload/IPC 文件桥均不暴露。可见按钮与隐藏 input 位于同一受限组件，选择回调先建立请求体再清空 input。
 - 单文件最大 100 MB，流式写入权限为 `0600` 的随机暂存文件。
 - 文件名只作为显示信息；磁盘存储名由 SHA-256 和受限扩展名组成。
 - 仅接受 PDF、常见图片/视频、Markdown 和纯文本；可执行格式被拒绝。
@@ -125,4 +126,4 @@ npm test
 npm run build
 ```
 
-0.29.0 的依赖审计、自动测试、性能基准、隔离资料库真实浏览器回归及 Universal App 验证结果记录在对应发行说明。键盘选区回归覆盖字符/逐词 Range、Enter 保存、Escape 取消、焦点恢复、SQLite 持久化与字符输入不修改 DOM；既有测试继续覆盖更新签名门禁、后台状态合并、摘要/详情边界、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.29.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon Gatekeeper、跨版本自动升级和完整 VoiceOver 真机审计。
+0.30.0 的依赖审计、自动测试、性能基准、隔离资料库真实浏览器回归及最终 Universal App 验证结果记录在对应发行说明。文件入口回归覆盖五个可见键盘按钮、标准隐藏 input、选择器触发、同文件重选顺序和 preload 无路径/文件读取桥；既有测试继续覆盖键盘选区、更新签名门禁、后台状态合并、摘要/详情边界、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.30.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon Gatekeeper、跨版本自动升级和完整 VoiceOver 真机审计。

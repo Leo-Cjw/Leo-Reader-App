@@ -68,6 +68,8 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /await backgroundCoordinator\.start\(\)/);
   assert.match(main, /createUpdateController/);
   assert.match(main, /检查更新…/);
+  assert.match(main, /if \(!window\.isDestroyed\(\)\) window\.show\(\)/);
+  assert.doesNotMatch(main, /once\('ready-to-show'/);
 
   const html = await readFile(path.join(projectRoot, 'index.html'), 'utf8');
   assert.match(html, /Content-Security-Policy/);
@@ -108,7 +110,7 @@ test('editor and highlights keep their declared keyboard and announcement contra
 
   assert.match(app, /handleEditorKeyDown/);
   assert.match(app, /event\.key\.toLowerCase\(\) !== 's'/);
-  assert.match(app, /aria-label="上传文章图片"/);
+  assert.match(app, /ariaLabel="上传文章图片"/);
   assert.match(app, /aria-labelledby="editor-source-title"/);
   assert.match(app, /aria-labelledby="editor-preview-title"/);
   assert.match(app, /role="status" aria-live="polite"/);
@@ -124,7 +126,26 @@ test('editor and highlights keep their declared keyboard and announcement contra
   assert.match(app, /aria-pressed=/);
   assert.match(app, /role=\{keyboardSelectionMode \? 'document' : 'region'\}/);
   assert.match(app, /tabIndex=\{-1\} aria-label="高亮与批注"/);
-  assert.match(styles, /\.editor-image-upload:focus-within/);
+  assert.match(styles, /\.editor-image-upload:focus-visible/);
   assert.match(styles, /\.article-body\.keyboard-selecting/);
   assert.match(styles, /\.annotations:focus-visible/);
+});
+
+test('file imports use visible keyboard buttons without exposing desktop paths', async () => {
+  const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
+  const styles = await readFile(path.join(projectRoot, 'src', 'web', 'styles.css'), 'utf8');
+  const preload = await readFile(path.join(projectRoot, 'desktop', 'preload.cjs'), 'utf8');
+
+  assert.equal((app.match(/<FilePickerButton/g) || []).length, 5);
+  assert.match(app, /inputRef\.current\?\.click\(\)/);
+  assert.match(app, /className="native-file-input" type="file" hidden/);
+  assert.match(app, /if \(files\.length\) onFiles\(files\);\s+event\.currentTarget\.value = '';/);
+  for (const label of ['上传文章图片', '选择 PDF、图片、视频或文本', '选择 Reader Markdown ZIP', '导入 OPML 文件', '选择 Reader 备份']) {
+    assert.match(app, new RegExp(label));
+  }
+  assert.doesNotMatch(app, /<label className="(?:file-drop|editor-image-upload|source-import|restore-file)"/);
+  assert.match(styles, /\.file-drop:focus-visible/);
+  assert.match(styles, /\.source-import:focus-visible/);
+  assert.match(styles, /\.restore-file:focus-visible/);
+  assert.doesNotMatch(preload, /showOpenDialog|readFile|filePath/);
 });

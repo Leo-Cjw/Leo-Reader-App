@@ -72,6 +72,8 @@ flowchart LR
 
 0.29.0 为静态正文增加显式的纯键盘选取模式，不把文章变成可编辑控件。开启后正文保持只读 `document`，Reader 用当前 Electron Chromium 的原生 `Selection.modify` 推进 DOM Range：左右方向键按字符、上下方向键按视觉行、Option+方向键按词移动，Shift 把移动扩展为选区；Control+Option 组合不拦截，以保留 VoiceOver 导航。折叠光标和已选原文通过 live status 播报，在支持 CSS Custom Highlight 的运行时额外显示单字符光标标记。Enter 复用既有保存浮层，Escape、保存或取消都会清除 Range 并把焦点还给“键盘选取”按钮。正文从未设置 `contenteditable`，字符输入、删除、粘贴或输入法不会获得修改 DOM 的编辑面；高亮仍只在用户确认后通过既有 API 写入 SQLite。
 
+0.30.0 用共享的 `FilePickerButton` 替换编辑器图片、附件、Reader ZIP、OPML 与备份恢复路径中依赖透明覆盖或微小输入框的文件入口。每个入口以原生可见按钮作为唯一交互面，受信任的点击触发同组件内隐藏的标准 `input[type=file]`，选择完成后只把浏览器提供的 `File` 对象交给既有同源流式上传；Electron preload 不新增路径、文件读取或任意 IPC。处理函数在清空 input 之前建立请求体，使立即上传不依赖选择器继续保留文件句柄，同时仍允许再次选择同一个文件。
+
 同版本的十万篇门禁暴露出资料库总览统计会重复扫描文章表。`stats()` 保持原响应字段，但把总数、未读、收藏、笔记和归档改为五个独立标量计数，使 SQLite 分别使用现有 `archived`、`is_read`、`is_favorite` 与 `type` 覆盖索引；不增加 schema 或缓存，也不引入计数失效风险。
 
 Schema v8 的智能资料夹只保存经过规范化的规则，不复制文章或引入第二套归属关系。规则允许组合正文关键词、受限内容类型、标签、来源、原资料夹、阅读/收藏状态、高亮、附件和最多 3,650 天的时间窗口。服务端把每条规则编译为参数化 SQLite 条件，基础条件始终排除归档内容；“任一满足”和“全部满足”只作用于用户规则，不得绕过基础边界。普通资料夹与智能资料夹排序都要求客户端提交完整同级 ID 集合，并在单一事务中重写连续位置，避免碰撞或部分排序。
@@ -146,6 +148,8 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 0.18 的 Electron Mac 外壳提供单实例、原生菜单、Dock 生命周期、隐藏式标题栏、系统另存为、外链交给默认浏览器，以及沙箱化 preload 的固定命令桥。渲染进程关闭 Node integration、启用 context isolation 与 sandbox；权限请求统一拒绝，导航只信任启动时生成的精确本地 origin。
 
+0.30.0 的窗口启动不再把显示时机完全交给 `ready-to-show` 事件。主进程保持 `show: false` 避免空白闪烁，在本地页面 `loadURL` 成功后检查窗口未销毁并显式 `show()`；打包 App 回归以 CoreGraphics 确认窗口已在屏幕显示，并从最终渲染器确认文档为 visible。文件选择继续使用 Chromium/Electron 的标准系统选择器，不经过 preload 或主进程文件系统桥。
+
 发行流水线分别构建 x86_64 与 arm64 应用，再用项目内的流式 Mach-O 合并工具生成通用主程序和 Helper；两套 `@napi-rs/canvas` 原生模块按架构保留在独立包路径，由运行时选择。Electron 压缩包必须匹配依赖自带的官方 SHA-256 清单。合并后执行 ad-hoc 深度签名、严格验证，并生成带“应用程序”快捷方式且通过 `hdiutil verify` 的压缩 DMG。
 
 0.27.0 在桌面主进程集中监听 Electron 的 suspend/resume、网络在线状态、macOS 电源与热状态。电池电量只通过只读的 `/usr/bin/pmset -g batt` 获取，不写系统设置：断网或电池供电且不高于 20% 时只暂停自动来源调度，本地附件导入与用户主动同步保持可用；睡眠、严重/临界热状态或 CPU 被系统限制到 50% 以下时暂停导入队列与自动同步。服务端把这些条件与待恢复写锁合并为单一串行策略，只有全部原因解除后才恢复对应 worker，避免唤醒或网络恢复绕过资料库恢复锁。当前脱敏状态通过 `/api/health` 提供，并在订阅中心显示面向用户的暂停原因。
@@ -157,7 +161,7 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
 
 - 取得真实 Apple Developer ID 与公证凭据，发布首个正式 GitHub Release，并完成跨版本自动升级演练。
-- Share Extension、Spotlight、系统通知和更完整的文件导入器。
+- Share Extension、Spotlight、系统通知和更完整的跨应用导入体验。
 
 当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron 与 Canvas 切片完成官方哈希、Mach-O 架构及签名结构验证，仍应在 Apple Silicon 真机上补运行验收。
 

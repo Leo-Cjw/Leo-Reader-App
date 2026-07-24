@@ -150,11 +150,11 @@ async function createWindow() {
   });
   mainWindow = window;
   configureNavigation(window);
-  window.once('ready-to-show', () => window.show());
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = null;
   });
   await window.loadURL(`${appOrigin}/?desktop=1`);
+  if (!window.isDestroyed()) window.show();
 }
 
 async function startReader() {
