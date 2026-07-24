@@ -1,4 +1,4 @@
-# Reader for Mac 0.24.0
+# Reader for Mac 0.25.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.24.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.25.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -74,7 +74,7 @@ npm run desktop:pack
 - 资料管理：可创建、改名、嵌套和安全删除的树形资料夹；父资料夹可聚合子树内容。支持单篇和批量移动、添加/移除标签、收藏、已读、归档与恢复。
 - 智能整理：可以把关键词、内容类型、标签、来源、原资料夹、阅读/收藏状态、高亮、附件和保存时间组合成“全部满足”或“任一满足”的动态资料夹；规则、结果计数和自定义顺序都保存在本地。文章卡片可直接拖到普通资料夹，同级资料夹与智能资料夹可拖动排序。
 - 资料视图：网页、订阅、附件、笔记与媒体筛选；列表和双列画廊可切换，画廊直接使用本地图片、PDF 缩略图和视频首帧。列表使用稳定游标分页，明确显示已加载数和命中总数，不会在 100 条后静默截断；列表响应不携带正文，选中后才读取单篇详情，长文章不会放大整页传输。
-- 键盘与读屏基础：文章卡片使用同级原生“打开”和“选择”按钮，不再把选择控件嵌套在可点击容器中；全部 14 个顶层模态框会把焦点带入窗口、约束 Tab/Shift+Tab、支持 Esc 安全关闭，并在关闭后把焦点还给原触发控件。
+- 键盘与读屏基础：文章卡片使用同级原生“打开”和“选择”按钮；全部 14 个顶层模态框管理焦点进入、Tab/Shift+Tab、Esc 与焦点恢复；侧栏资料夹暴露真实树层级、展开和选中状态，并支持方向键、Home/End、Enter/Space。
 - 选择性导出：多选任意内容，生成标准 Markdown ZIP；可选携带原始附件，正文中的本地资源改写为相对路径，manifest 保留来源、标签和附件 SHA-256。v3 包同时包含 Reader 专用 sidecar，使正文、摘要、阅读状态和扩展元数据可以无损往返而不影响 Markdown 的独立使用。
 - 选择性导入：在“添加 → Reader ZIP”中先安全预检，再逐篇勾选并指定目标资料夹；已有 Reader ID 或原链接默认跳过，不隐式覆盖。支持 v3 无损包和既有 v2 Markdown 包的兼容恢复。
 - 重复治理：按规范化原链接、完整正文或标题摘要检测重复组；用户明确选择保留版本后合并标签、收藏、摘要与阅读进度，副本仅归档且可恢复。
@@ -199,4 +199,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.24.0 变更见 [docs/RELEASE_NOTES_0.24.0.md](docs/RELEASE_NOTES_0.24.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.25.0 变更见 [docs/RELEASE_NOTES_0.25.0.md](docs/RELEASE_NOTES_0.25.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

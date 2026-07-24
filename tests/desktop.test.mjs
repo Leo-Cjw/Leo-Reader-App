@@ -75,3 +75,20 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(afterPack, /NSCameraUsageDescription/);
   assert.match(afterPack, /NSMicrophoneUsageDescription/);
 });
+
+test('sidebar collections keep their declared keyboard tree contract', async () => {
+  const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
+  const styles = await readFile(path.join(projectRoot, 'src', 'web', 'styles.css'), 'utf8');
+
+  assert.match(app, /role="tree"/);
+  assert.match(app, /role="treeitem"/);
+  for (const attribute of ['aria-level', 'aria-posinset', 'aria-setsize', 'aria-expanded', 'aria-selected']) {
+    assert.match(app, new RegExp(attribute));
+  }
+  for (const key of ['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End', 'Enter']) {
+    assert.match(app, new RegExp(`event\\.key === '${key}'`));
+  }
+  assert.match(app, /event\.key === ' '/);
+  assert.match(app, /event\.currentTarget\.click\(\)/);
+  assert.match(styles, /\.collection-nav \[role="treeitem"\]:focus-visible/);
+});

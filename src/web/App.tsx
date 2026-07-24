@@ -303,12 +303,70 @@ function Sidebar({ view, setView, collectionId, setCollectionId, smartCollection
   onMoveArticles: (ids: string[], collectionId: string) => void;
 }) {
   const [dropCollectionId, setDropCollectionId] = useState<string | null>(null);
+  const [collapsedCollectionIds, setCollapsedCollectionIds] = useState<Set<string>>(() => new Set());
+  const [focusedCollectionId, setFocusedCollectionId] = useState<string | null>(null);
   const items: Array<{ view: View; glyph: string; count: number }> = [
     { view: 'inbox', glyph: '⌁', count: stats.total }, { view: 'unread', glyph: '○', count: stats.unread },
     { view: 'favorites', glyph: '☆', count: stats.favorites }, { view: 'notes', glyph: '≡', count: stats.notes },
     { view: 'archive', glyph: '⌄', count: stats.archived }
   ];
   const collectionRows = flattenedCollections(collections);
+  const visibleCollectionRows: typeof collectionRows = [];
+  const siblingCounts = new Map<string, number>();
+  const siblingPositions = new Map<string, number>();
+  let hiddenBelowDepth: number | null = null;
+  for (const collection of collectionRows) {
+    const parentKey = collection.parent_id || '';
+    const siblingPosition = (siblingCounts.get(parentKey) || 0) + 1;
+    siblingCounts.set(parentKey, siblingPosition);
+    siblingPositions.set(collection.id, siblingPosition);
+    if (hiddenBelowDepth !== null) {
+      if (collection.depth > hiddenBelowDepth) continue;
+      hiddenBelowDepth = null;
+    }
+    visibleCollectionRows.push(collection);
+    if (collection.child_count && collapsedCollectionIds.has(collection.id)) hiddenBelowDepth = collection.depth;
+  }
+  const visibleCollectionIds = new Set(visibleCollectionRows.map((collection) => collection.id));
+  const treeTabStopId = focusedCollectionId && visibleCollectionIds.has(focusedCollectionId)
+    ? focusedCollectionId
+    : collectionId && visibleCollectionIds.has(collectionId) ? collectionId : visibleCollectionRows[0]?.id;
+  const focusCollection = (id: string) => {
+    setFocusedCollectionId(id);
+    window.requestAnimationFrame(() => document.getElementById(`sidebar-collection-${id}`)?.focus());
+  };
+  const toggleCollection = (id: string) => {
+    setCollapsedCollectionIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const handleCollectionKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const collection = visibleCollectionRows[index];
+    if (!collection) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.currentTarget.click();
+      return;
+    }
+    let targetId: string | undefined;
+    if (event.key === 'ArrowDown') targetId = visibleCollectionRows[Math.min(index + 1, visibleCollectionRows.length - 1)]?.id;
+    else if (event.key === 'ArrowUp') targetId = visibleCollectionRows[Math.max(index - 1, 0)]?.id;
+    else if (event.key === 'Home') targetId = visibleCollectionRows[0]?.id;
+    else if (event.key === 'End') targetId = visibleCollectionRows.at(-1)?.id;
+    else if (event.key === 'ArrowRight' && collection.child_count) {
+      if (collapsedCollectionIds.has(collection.id)) toggleCollection(collection.id);
+      else targetId = visibleCollectionRows[index + 1]?.depth === collection.depth + 1 ? visibleCollectionRows[index + 1].id : undefined;
+    } else if (event.key === 'ArrowLeft') {
+      if (collection.child_count && !collapsedCollectionIds.has(collection.id)) toggleCollection(collection.id);
+      else targetId = collection.parent_id || undefined;
+    } else return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (targetId) focusCollection(targetId);
+  };
   return <aside className="sidebar" data-screen-label="产品导航">
     <div className="brand-row"><div className="brand"><span className="brand-mark">R</span><strong>Reader</strong></div><button className="icon-button" type="button" aria-label="添加内容" onClick={onAdd}>＋</button></div>
     <nav className="nav-stack" aria-label="资料库">
@@ -317,12 +375,25 @@ function Sidebar({ view, setView, collectionId, setCollectionId, smartCollection
       </button>)}
     </nav>
     <div className="section-heading"><span>资料夹</span><span className="section-heading-actions"><button type="button" className="text-icon" aria-label="检查重复内容" onClick={onDuplicates}>查重</button><button type="button" className="text-icon" aria-label="管理资料夹" onClick={onCollections}>管理</button></span></div>
-    <nav className="nav-stack collection-nav" aria-label="资料夹">
-      {collectionRows.map((collection) => <button key={collection.id} type="button" className={`nav-item collection-drop-target ${collectionId === collection.id ? 'active' : ''} ${dropCollectionId === collection.id ? 'drop-active' : ''}`} style={{ paddingLeft: 9 + collection.depth * 14 }} onClick={() => { setCollectionId(collection.id); setSmartCollectionId(null); setView('inbox'); setTagFilter(''); }}
+    <nav className="nav-stack collection-nav" aria-label="资料夹" role="tree">
+      {visibleCollectionRows.map((collection, index) => <button key={collection.id} id={`sidebar-collection-${collection.id}`} type="button" role="treeitem"
+        aria-level={collection.depth + 1} aria-posinset={siblingPositions.get(collection.id)} aria-setsize={siblingCounts.get(collection.parent_id || '')}
+        aria-expanded={collection.child_count ? !collapsedCollectionIds.has(collection.id) : undefined} aria-selected={collectionId === collection.id}
+        tabIndex={treeTabStopId === collection.id ? 0 : -1}
+        className={`nav-item collection-drop-target ${collectionId === collection.id ? 'active' : ''} ${dropCollectionId === collection.id ? 'drop-active' : ''}`}
+        style={{ paddingLeft: 9 + collection.depth * 14 }}
+        onFocus={() => setFocusedCollectionId(collection.id)}
+        onKeyDown={(event) => handleCollectionKeyDown(event, index)}
+        onClick={() => { setFocusedCollectionId(collection.id); setCollectionId(collection.id); setSmartCollectionId(null); setView('inbox'); setTagFilter(''); }}
         onDragOver={(event) => { if (event.dataTransfer.types.includes('application/x-reader-articles')) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropCollectionId(collection.id); } }}
         onDragLeave={() => setDropCollectionId((current) => current === collection.id ? null : current)}
         onDrop={(event) => { event.preventDefault(); const ids = draggedArticleIds(event); setDropCollectionId(null); if (ids.length) onMoveArticles(ids, collection.id); }}>
-        <span className="nav-glyph folder">{collection.child_count ? '▿' : '□'}</span><span className="nav-label">{collection.name}</span><span className="nav-count">{collection.article_count}</span>
+        <span className={`nav-glyph folder ${collection.child_count ? 'has-children' : ''}`} aria-hidden="true"
+          title={collection.child_count ? collapsedCollectionIds.has(collection.id) ? '展开资料夹' : '折叠资料夹' : undefined}
+          onClick={collection.child_count ? (event) => { event.stopPropagation(); toggleCollection(collection.id); } : undefined}>
+          {collection.child_count ? collapsedCollectionIds.has(collection.id) ? '›' : '▿' : '□'}
+        </span>
+        <span className="nav-label">{collection.name}</span><span className="nav-count">{collection.article_count}</span>
       </button>)}
     </nav>
     <div className="section-heading"><span>智能资料夹</span><button type="button" className="text-icon" aria-label="管理智能资料夹" onClick={onSmartCollections}>管理</button></div>
