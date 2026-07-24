@@ -1,1 +1,179 @@
-# Leo-Reader-App
+# Reader for Mac 0.17
+
+Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
+
+当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、选择性可迁移导出、可逆重复治理、口令加密完整备份，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
+
+## 快速开始
+
+### Mac App
+
+打开 `Reader-Mac-0.17.0-universal-adhoc.dmg`，把 `Reader.app` 拖到“应用程序”。当前通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+
+Mac App 的资料库独立位于：
+
+`~/Library/Application Support/Reader/ReaderData/data/`
+
+升级或替换 `Reader.app` 不会覆盖这份资料。应用只监听随机的 `127.0.0.1` 端口；窗口启用 Chromium 沙箱、上下文隔离和严格 CSP，拒绝所有网页权限，外部链接交给系统浏览器。
+
+### 源码运行
+
+依赖：Node.js 20+、系统 `sqlite3` 命令。macOS 已自带 SQLite。
+
+```bash
+npm install
+npm test
+npm run build
+npm start
+```
+
+然后访问 [http://127.0.0.1:4312](http://127.0.0.1:4312)。默认只监听回环地址，不暴露到局域网。首次启动会创建 `data/reader.sqlite3` 并写入三条示例内容。
+
+开发模式需要两个终端：
+
+```bash
+npm run server
+npm run dev
+```
+
+Vite 开发界面位于 `http://127.0.0.1:4311`，并把 `/api` 代理到 4312 端口。
+
+### 构建 Mac 发行包
+
+```bash
+npm run desktop:pack
+```
+
+该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块架构，执行 ad-hoc 深度签名验证，再生成并校验 DMG。输出位于 `release/mac-universal/Reader.app` 与 `release/Reader-<version>-universal.dmg`。若已具备 Apple Developer ID，仍需在公开分发前接入正式签名和 Apple 公证。
+
+流水线已预留正式发行入口。先用 `xcrun notarytool store-credentials` 把公证凭据写入 Keychain，再提供证书名称和凭据配置名：
+
+```bash
+READER_MAC_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+READER_NOTARY_KEYCHAIN_PROFILE="reader-notary" \
+npm run desktop:pack
+```
+
+此模式使用 hardened runtime 逐项签名通用 App，提交 DMG 至 Apple 公证服务，装订票据并执行 `stapler validate`。凭据不写入项目、命令参数或产物；`READER_NOTARY_KEYCHAIN` 可选指定非默认 Keychain。当前交付包因本机没有 Developer ID 证书与公证配置，仍是 ad-hoc/未公证版本。
+
+## 已实现能力
+
+- URL 导入：先写入持久化任务队列，再用 Mozilla Readability 抽取标题、作者、摘要和正文，转换为 GFM Markdown；代表图片和最多 16 张正文图片通过安全下载、文件签名检查与哈希去重后保存在本机。
+- 微信公众号：使用专用解析器识别账号、作者、标题、正文与延迟加载图片；微信验证页不会入库。旧版本误存的验证页会自动恢复原链接，重新导入时保留历史版本并原地修复。
+- 离线完整度：阅读页明确显示离线完整、部分离线或仅正文离线；下载失败的图片降级为可点击在线链接，不会在阅读时静默发起远程图片请求。
+- 附件：支持 PDF、图片、视频、Markdown 和文本；单文件最大 100 MB，使用 SHA-256 幂等入库。
+- PDF：使用本地 PDF.js 抽取文字并加入全文索引，原文件保留在本机。
+- 媒体缩略图：图片和 PDF 首次展示时在本机生成 640×360 WebP 缓存并按内容哈希复用；视频由本地媒体端点解码首帧。缩略图可随时重建，不进入备份。
+- Markdown：任意文章都能进入双栏编辑器；可选择或拖入多张图片，图片经过签名校验、SHA-256 去重后挂在原文章并插入光标处。停笔 1.4 秒自动保存，实时预览不执行原始 HTML。
+- 版本历史：内容字段发生变化时自动生成本地快照；可预览并恢复任意旧版本，恢复本身也会生成新版本，因此可逆。
+- 高亮与批注：在正文中选中任意文字，可使用四种颜色高亮并写下批注；锚点、原文和批注写入 SQLite，刷新后自动重建正文着色。正文编辑后会按原文与最近位置重新定位，无法匹配时保留批注并明确提示。高亮进入完整备份，也会附在可迁移 Markdown 导出末尾及 manifest 中。
+- 导入队列：等待、运行、完成、失败和重试状态全部落库；应用重启后自动恢复未完成任务。
+- 自动订阅：RSS/Atom、YouTube、X 公开账号和微博账号统一入库；X 使用官方 API 与 `since_id` 增量游标，微博调用开放平台官方 CLI。后台调度保存平台游标、配额和失败退避状态。
+- 订阅中心：开关、15 分钟到每周的同步频率、立即同步、错误/限流状态、删除来源，以及 OPML 2.0 导入导出。删除来源或断开连接器不会删除已经保存的文章。
+- 资料管理：可创建、改名、嵌套和安全删除的树形资料夹；父资料夹可聚合子树内容。支持单篇和批量移动、添加/移除标签、收藏、已读、归档与恢复。
+- 智能整理：可以把关键词、内容类型、标签、来源、原资料夹、阅读/收藏状态、高亮、附件和保存时间组合成“全部满足”或“任一满足”的动态资料夹；规则、结果计数和自定义顺序都保存在本地。文章卡片可直接拖到普通资料夹，同级资料夹与智能资料夹可拖动排序。
+- 资料视图：网页、订阅、附件、笔记与媒体筛选；列表和双列画廊可切换，画廊直接使用本地图片、PDF 缩略图和视频首帧。
+- 选择性导出：多选任意内容，生成标准 Markdown ZIP；可选携带原始附件，正文中的本地资源改写为相对路径，manifest 保留来源、标签和附件 SHA-256。
+- 重复治理：按规范化原链接、完整正文或标题摘要检测重复组；用户明确选择保留版本后合并标签、收藏、摘要与阅读进度，副本仅归档且可恢复。
+- 检索：SQLite FTS5；中文查询自动使用 `LIKE` 兼容路径。
+- 阅读器：三栏桌面布局、明暗主题、文章助手和键盘入口。
+- AI：默认完全本地的提取式摘要、多资料结构化整理与 RAG 问答；可在当前文章或整个资料库中检索，回答附带可点击的原文片段。文章新增、编辑、导入完成和版本恢复会在同一事务中重建分块索引。启用远程网关后只发送本地命中的有限片段，密钥存入 macOS Keychain。
+- 安全：阻止 localhost、私网 IP 与云元数据地址；限制跳转、超时和 4 MB 正文响应体；单张图片 12 MB、单篇本地化预算 48 MB。
+- 媒体读取：同源私有文件端点，支持 HTTP Range，可流畅拖动本地视频。
+- 数据安全：一键生成包含 SQLite、附件和 SHA-256 清单的完整备份；默认可使用口令创建 `.readerbackup.enc` 认证加密文件，也兼容明文 `.readerbackup.zip`。恢复前完成解密、哈希与 SQLite 完整性校验，并在下次启动时原子替换。
+
+## 数据与备份
+
+- Mac App 数据根目录：`~/Library/Application Support/Reader/ReaderData/`
+- 源码模式数据根目录：项目目录
+- 主数据库：`data/reader.sqlite3`
+- 原始附件：`data/files/`
+- 导入暂存：`data/imports/`
+- 完整备份：`data/backups/`
+- 可再生缩略图：`data/thumbnails/`
+- 待恢复暂存：`data/restore/`
+- 非敏感运行时设置：`data/settings.json`（权限 `0600`；不保存 API 密钥，也不进入备份或导出）
+- 敏感凭据：AI API Key 与 X Bearer Token 分别写入 macOS Keychain；微博 OAuth 令牌由官方 CLI 自行写入系统 Keychain，Reader 不读取令牌。
+- 数据库采用 WAL 模式，运行时可能出现 `-wal` 和 `-shm` 文件。
+- 在左侧“数据安全”打开数据安全中心。Reader 使用 SQLite `VACUUM INTO` 创建一致快照，再打包附件和校验清单；加密备份使用 scrypt 派生密钥与 AES-256-GCM 整包认证加密，Reader 不保存口令。
+- 恢复不会覆盖正在运行的数据库：上传包通过路径、大小、哈希和 SQLite 完整性校验后，Reader 先创建安全备份，再安排下次启动原子恢复。
+- `schema.mjs` 中的迁移表是后续版本升级的唯一入口；不要手工修改已发布迁移。
+
+## AI 服务配置
+
+默认摘要和结构化整理无需联网。翻译要求兼容的远程 AI 网关；Reader 不会用词语替换伪装本地翻译。推荐点击标题栏“设置”，填写网关地址、按需保存 API 密钥并先执行隐私连接测试。macOS 上密钥写入系统 Keychain，`settings.json`、备份、导出和设置 API 都不会返回它。
+
+也可在启动前用环境变量提供默认值；一旦保存 Reader 设置，运行时设置优先：
+
+```bash
+READER_AI_ENDPOINT=https://your-gateway.example/v1/respond \
+READER_AI_API_KEY=replace-me \
+npm start
+```
+
+网关统一接收 `{ "action", ...payload }`：
+
+- `summarize`：输入 `article`，返回 `{ "summary", "points", "model" }`。
+- `chat`：输入 `prompt`、`scope`、`context`（本地命中的有限片段），返回 `{ "answer", "model", "citationIds" }`。未命中证据时 Reader 不调用远程服务。
+- `translate`：输入 `article`、`targetLanguage`，返回 `{ "title", "excerpt", "content", "language", "model" }`。
+- `compose`：输入 `articles`、`prompt`、`format`、`language`，返回 `{ "title", "excerpt", "content", "language", "model" }`。
+
+请求超时为 60 秒，响应最大 2 MB；单次创作最多 20 篇来源、约 24 万字符。非本机网关必须使用 HTTPS；HTTP 只允许 `localhost`、`127.0.0.1` 或 `::1`。连接测试只发送 Reader 内置文本，不读取资料库正文。
+
+## 社交连接器
+
+Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添加 → 自动订阅 → 配置社交连接器”：
+
+- X：在 X Developer Console 获取应用 Bearer Token，先测试再保存。Token 只进入独立的 macOS Keychain 项；同步使用官方用户查询和用户动态端点，保存 `since_id` 与限流重置时间。
+- 微博：安装开放平台官方 CLI：`npm install -g @weibo-ai/weibo-cli`，在终端运行 `weibo auth login --device`，再回到 Reader 检查连接。Reader 只调用 `weibo statuses user_timeline --output json`，不读取或复制 CLI 的 OAuth 令牌。
+- 环境变量：源码运行时可用 `READER_X_BEARER_TOKEN` 提供 X 凭据，或用绝对路径 `READER_WEIBO_CLI` 指定官方 CLI。
+
+断开连接器只会暂停后续同步，已经本地化的正文、图片、标签与目录不会被删除。平台 API 的可用权限、配额和费用由对应开发者账号决定。
+
+## API 概览
+
+- `GET /api/health`：运行状态与数据库路径。
+- `GET /api/stats`：收件箱、未读、收藏等计数。
+- `GET/POST /api/articles`：查询或创建内容。
+- `GET/PATCH /api/articles/:id`：读取或更新文章。
+- `POST /api/articles/batch`：原子批量移动、标签、收藏、已读、归档或恢复。
+- `POST /api/articles/:id/attachments`：向既有文章安全上传并挂载本地图片。
+- `POST /api/exports/markdown`：选择性导出普通 Markdown、附件和可校验 manifest。
+- `GET /api/duplicates`：检测活动资料中的高置信重复组。
+- `POST /api/duplicates/resolve`：保留指定版本并非破坏性归档其余副本。
+- `GET /api/articles/:id/revisions`：文章版本列表。
+- `GET /api/articles/:id/revisions/:version`：读取版本快照。
+- `POST /api/articles/:id/revisions/:version/restore`：恢复旧版本并生成新快照。
+- `POST/PATCH /api/articles/:id/tags`：添加或移除标签。
+- `GET /api/tags`：列出标签与有效内容计数。
+- `POST /api/articles/:id/ai/summary`：生成并保存摘要。
+- `POST /api/articles/:id/ai/chat`：在当前文章或整个资料库中检索后回答，并返回段落级引用。
+- `GET /api/ai/status`：读取 AI 能力和远程服务配置状态，不返回密钥或端点。
+- `GET /api/ai/index`：读取本地分块索引版本、文章数、片段数和待索引状态。
+- `POST /api/ai/search`：只执行本地片段检索，返回带原文偏移的候选引用。
+- `GET/PUT/DELETE /api/settings/ai`：读取、更新或恢复 AI 运行时设置；响应不返回密钥。
+- `POST /api/settings/ai/test`：使用内置测试文本验证候选网关，不发送资料库内容。
+- `POST /api/ai/translate`：翻译一篇文章，并保存带来源记录的本地 Markdown 草稿。
+- `POST /api/ai/compose`：基于最多 20 篇来源生成可编辑、可回链的创作草稿。
+- `GET/POST /api/import-jobs`：查看队列或创建 URL 导入任务。
+- `POST /api/import-jobs/upload`：流式上传附件并创建任务。
+- `GET /api/import-jobs/:id`：读取任务状态。
+- `POST /api/import-jobs/:id/retry`：重试失败任务。
+- `GET /api/attachments/:id/content`：读取附件，支持字节范围请求。
+- `GET/POST /api/collections`：列出树形资料夹或创建资料夹。
+- `PATCH/DELETE /api/collections/:id`：改名、移动或安全删除资料夹子树。
+- `GET/POST /api/sources`：列出或创建 RSS/YouTube/X/微博来源。
+- `PATCH/DELETE /api/sources/:id`：更新频率/开关或删除来源。
+- `POST /api/sources/:id/sync`：立即同步来源。
+- `GET/POST /api/sources/opml`：导出或导入 OPML。
+- `GET /api/settings/connectors`：读取 X 与微博连接状态，不返回令牌。
+- `PUT/DELETE /api/settings/connectors/x`：保存或移除 Keychain 中的 X Bearer Token。
+- `POST /api/settings/connectors/x/test`：用候选或已保存凭据测试 X 官方 API。
+- `POST /api/settings/connectors/weibo/test`：检查微博官方 CLI 登录态。
+- `DELETE /api/settings/connectors/weibo`：调用官方 CLI 撤销本机登录。
+- `GET/POST /api/backups`：列出或创建完整备份。
+- `GET /api/backups/:id/download`：下载本地备份包。
+- `POST /api/backups/restore`：校验备份并安排下次启动恢复。
+- `DELETE /api/backups/restore`：取消尚未执行的恢复。
+
+详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

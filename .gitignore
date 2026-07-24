@@ -1,0 +1,14 @@
+node_modules/
+data/
+dist/
+release/
+build/
+coverage/
+*.tsbuildinfo
+*.log
+*.dmg
+*.zip
+.env
+.env.*
+!.env.example
+.DS_Store

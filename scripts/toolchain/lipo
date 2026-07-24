@@ -1,0 +1,157 @@
+#!/usr/bin/env node
+import { chmod, open, rename, stat, unlink } from 'node:fs/promises';
+import path from 'node:path';
+
+const FAT_MAGIC = 0xcafebabe;
+const FAT_CIGAM = 0xbebafeca;
+const MH_MAGIC = 0xfeedface;
+const MH_MAGIC_64 = 0xfeedfacf;
+const ALIGN_POWER = 14;
+const ALIGNMENT = 2 ** ALIGN_POWER;
+const CPU_NAMES = new Map([
+  [0x01000007, 'x86_64'],
+  [0x0100000c, 'arm64']
+]);
+
+function align(value, alignment = ALIGNMENT) {
+  return Math.ceil(value / alignment) * alignment;
+}
+
+async function readExactly(file, length, position) {
+  const buffer = Buffer.alloc(length);
+  let offset = 0;
+  while (offset < length) {
+    const { bytesRead } = await file.read(buffer, offset, length - offset, position + offset);
+    if (!bytesRead) throw new Error('Mach-O 文件意外结束');
+    offset += bytesRead;
+  }
+  return buffer;
+}
+
+async function inspect(inputPath) {
+  const file = await open(inputPath, 'r');
+  try {
+    const info = await file.stat();
+    const first = await readExactly(file, 12, 0);
+    const magicBE = first.readUInt32BE(0);
+    if (magicBE === FAT_MAGIC || magicBE === FAT_CIGAM) {
+      const little = magicBE === FAT_CIGAM;
+      const readUInt32 = (buffer, offset) => little ? buffer.readUInt32LE(offset) : buffer.readUInt32BE(offset);
+      const readInt32 = (buffer, offset) => little ? buffer.readInt32LE(offset) : buffer.readInt32BE(offset);
+      const count = readUInt32(first, 4);
+      if (!count || count > 32) throw new Error(`无效的通用 Mach-O 架构数：${count}`);
+      const table = await readExactly(file, count * 20, 8);
+      return Array.from({ length: count }, (_, index) => {
+        const offset = index * 20;
+        return {
+          source: inputPath,
+          cputype: readInt32(table, offset),
+          cpusubtype: readInt32(table, offset + 4),
+          offset: readUInt32(table, offset + 8),
+          size: readUInt32(table, offset + 12),
+          alignPower: readUInt32(table, offset + 16)
+        };
+      });
+    }
+
+    const magicLE = first.readUInt32LE(0);
+    const little = magicLE === MH_MAGIC || magicLE === MH_MAGIC_64;
+    const big = magicBE === MH_MAGIC || magicBE === MH_MAGIC_64;
+    if (!little && !big) throw new Error(`不是受支持的 Mach-O 文件：${inputPath}`);
+    return [{
+      source: inputPath,
+      cputype: little ? first.readInt32LE(4) : first.readInt32BE(4),
+      cpusubtype: little ? first.readInt32LE(8) : first.readInt32BE(8),
+      offset: 0,
+      size: info.size,
+      alignPower: ALIGN_POWER
+    }];
+  } finally {
+    await file.close();
+  }
+}
+
+async function copyRange(sourcePath, destination, sourceOffset, destinationOffset, length) {
+  const source = await open(sourcePath, 'r');
+  const buffer = Buffer.allocUnsafe(4 * 1024 * 1024);
+  try {
+    let copied = 0;
+    while (copied < length) {
+      const chunkLength = Math.min(buffer.length, length - copied);
+      const { bytesRead } = await source.read(buffer, 0, chunkLength, sourceOffset + copied);
+      if (!bytesRead) throw new Error(`读取 Mach-O 切片失败：${sourcePath}`);
+      await destination.write(buffer, 0, bytesRead, destinationOffset + copied);
+      copied += bytesRead;
+    }
+  } finally {
+    await source.close();
+  }
+}
+
+async function createUniversal(inputPaths, outputPath) {
+  const slices = (await Promise.all(inputPaths.map(inspect))).flat();
+  const unique = [];
+  for (const slice of slices) {
+    if (unique.some((item) => item.cputype === slice.cputype)) throw new Error(`重复的 Mach-O 架构：${CPU_NAMES.get(slice.cputype) || slice.cputype}`);
+    unique.push(slice);
+  }
+  if (unique.length < 2) throw new Error('至少需要两个不同架构的 Mach-O 输入');
+
+  const headerSize = 8 + unique.length * 20;
+  let cursor = align(headerSize);
+  unique.forEach((slice, index) => {
+    slice.outputOffset = cursor;
+    cursor += slice.size;
+    if (index < unique.length - 1) cursor = align(cursor);
+  });
+  if (cursor > 0xffffffff) throw new Error('通用 Mach-O 超过 4 GiB，当前构建工具不支持');
+
+  const header = Buffer.alloc(headerSize);
+  header.writeUInt32BE(FAT_MAGIC, 0);
+  header.writeUInt32BE(unique.length, 4);
+  unique.forEach((slice, index) => {
+    const offset = 8 + index * 20;
+    header.writeInt32BE(slice.cputype, offset);
+    header.writeInt32BE(slice.cpusubtype, offset + 4);
+    header.writeUInt32BE(slice.outputOffset, offset + 8);
+    header.writeUInt32BE(slice.size, offset + 12);
+    header.writeUInt32BE(ALIGN_POWER, offset + 16);
+  });
+
+  const temporary = path.join(path.dirname(outputPath), `.${path.basename(outputPath)}.reader-lipo-${process.pid}`);
+  const mode = (await stat(inputPaths[0])).mode & 0o777;
+  const output = await open(temporary, 'w', mode);
+  try {
+    await output.truncate(cursor);
+    await output.write(header, 0, header.length, 0);
+    for (const slice of unique) await copyRange(slice.source, output, slice.offset, slice.outputOffset, slice.size);
+    await output.sync();
+  } catch (error) {
+    await output.close();
+    await unlink(temporary).catch(() => {});
+    throw error;
+  }
+  await output.close();
+  await chmod(temporary, mode);
+  await rename(temporary, outputPath);
+}
+
+async function main(args) {
+  if (args[0] === '-archs' && args.length === 2) {
+    const names = (await inspect(args[1])).map((slice) => CPU_NAMES.get(slice.cputype) || String(slice.cputype));
+    process.stdout.write(`${names.join(' ')}\n`);
+    return;
+  }
+  const createIndex = args.indexOf('-create');
+  const outputIndex = args.indexOf('-output');
+  if (createIndex < 1 || outputIndex < 0 || !args[outputIndex + 1]) {
+    throw new Error('用法：lipo <输入…> -create -output <输出>，或 lipo -archs <文件>');
+  }
+  const inputs = args.slice(0, createIndex);
+  await createUniversal(inputs, args[outputIndex + 1]);
+}
+
+main(process.argv.slice(2)).catch((error) => {
+  console.error(error.message || error);
+  process.exitCode = 1;
+});

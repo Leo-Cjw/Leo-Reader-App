@@ -1,0 +1,77 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createReaderServer } from '../src/server/server.mjs';
+import { isAllowedAppURL, isSafeExternalURL, resolveDesktopDataRoot } from '../desktop/security.mjs';
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('desktop navigation only trusts the exact local app origin', () => {
+  const origin = 'http://127.0.0.1:43129';
+  assert.equal(isAllowedAppURL(`${origin}/?desktop=1`, origin), true);
+  assert.equal(isAllowedAppURL(`${origin}/api/health`, origin), true);
+  assert.equal(isAllowedAppURL('http://127.0.0.1:43128/', origin), false);
+  assert.equal(isAllowedAppURL('http://127.0.0.1:43129.evil.example/', origin), false);
+  assert.equal(isAllowedAppURL('http://127.0.0.1:43129@evil.example/', origin), false);
+  assert.equal(isAllowedAppURL('javascript:alert(1)', origin), false);
+
+  assert.equal(isSafeExternalURL('https://example.com/article'), true);
+  assert.equal(isSafeExternalURL('http://example.com/article'), true);
+  assert.equal(isSafeExternalURL('file:///tmp/private'), false);
+  assert.equal(isSafeExternalURL('data:text/html,hello'), false);
+  assert.equal(isSafeExternalURL('javascript:alert(1)'), false);
+});
+
+test('desktop data root is isolated and overrides must be absolute', () => {
+  assert.equal(resolveDesktopDataRoot('/Users/test/Library/Application Support/Reader'), '/Users/test/Library/Application Support/Reader/ReaderData');
+  assert.equal(resolveDesktopDataRoot('/ignored', '/tmp/reader-desktop-test'), '/tmp/reader-desktop-test');
+  assert.throws(() => resolveDesktopDataRoot('/ignored', 'relative/path'), /必须是绝对路径/);
+});
+
+test('server can serve packaged web assets while writing only to the user data root', async (t) => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'reader-desktop-'));
+  t.after(() => rm(tempRoot, { recursive: true, force: true }));
+  const dataRoot = path.join(tempRoot, 'user-data');
+  const webRoot = path.join(tempRoot, 'read-only-app', 'dist');
+  await mkdir(webRoot, { recursive: true });
+  await writeFile(path.join(webRoot, 'index.html'), '<!doctype html><title>Packaged Reader</title>');
+
+  const dbPath = path.join(dataRoot, 'data', 'reader.sqlite3');
+  const app = await createReaderServer({ rootDir: dataRoot, webRoot, dbPath, port: 0 });
+  const address = await app.listen();
+  t.after(() => app.close());
+
+  const response = await fetch(`http://127.0.0.1:${address.port}/`);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Packaged Reader/);
+  await access(dbPath);
+  await assert.rejects(access(path.join(webRoot, 'reader.sqlite3')));
+});
+
+test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', async () => {
+  const packageJSON = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
+  assert.equal(packageJSON.main, 'desktop/main.mjs');
+  assert.equal(packageJSON.build.appId, 'com.reader.localfirst');
+  assert.equal(packageJSON.build.mac.identity, null);
+  assert.equal(packageJSON.build.afterPack, 'scripts/after-pack.cjs');
+
+  const main = await readFile(path.join(projectRoot, 'desktop', 'main.mjs'), 'utf8');
+  assert.match(main, /app\.enableSandbox\(\)/);
+  assert.match(main, /nodeIntegration:\s*false/);
+  assert.match(main, /contextIsolation:\s*true/);
+  assert.match(main, /sandbox:\s*true/);
+  assert.match(main, /setPermissionRequestHandler/);
+
+  const html = await readFile(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(html, /Content-Security-Policy/);
+  assert.match(html, /frame-src 'none'/);
+  assert.match(html, /base-uri 'none'/);
+
+  const afterPack = await readFile(path.join(projectRoot, 'scripts', 'after-pack.cjs'), 'utf8');
+  assert.match(afterPack, /NSAllowsArbitraryLoads bool false/);
+  assert.match(afterPack, /NSCameraUsageDescription/);
+  assert.match(afterPack, /NSMicrophoneUsageDescription/);
+});

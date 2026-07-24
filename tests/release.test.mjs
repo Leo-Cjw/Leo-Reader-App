@@ -1,0 +1,59 @@
+import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmod, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+const projectRoot = path.resolve(import.meta.dirname, '..');
+const lipo = path.join(projectRoot, 'scripts', 'toolchain', 'lipo');
+
+function thinMachO(cputype, cpusubtype, marker) {
+  const binary = Buffer.alloc(96, marker);
+  binary.writeUInt32LE(0xfeedfacf, 0);
+  binary.writeInt32LE(cputype, 4);
+  binary.writeInt32LE(cpusubtype, 8);
+  return binary;
+}
+
+test('自带 lipo 能无尾部填充地合并并检查 x64/arm64 Mach-O', async () => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'reader-lipo-test-'));
+  const x64Path = path.join(temporary, 'x64');
+  const arm64Path = path.join(temporary, 'arm64');
+  const universalPath = path.join(temporary, 'universal');
+  const x64 = thinMachO(0x01000007, 3, 0x78);
+  const arm64 = thinMachO(0x0100000c, 0, 0x61);
+  await writeFile(x64Path, x64);
+  await writeFile(arm64Path, arm64);
+  await chmod(x64Path, 0o755);
+
+  execFileSync(lipo, [x64Path, arm64Path, '-create', '-output', universalPath]);
+  assert.equal(execFileSync(lipo, ['-archs', universalPath], { encoding: 'utf8' }).trim(), 'x86_64 arm64');
+
+  const output = await readFile(universalPath);
+  assert.equal(output.readUInt32BE(0), 0xcafebabe);
+  assert.equal(output.readUInt32BE(4), 2);
+  const firstOffset = output.readUInt32BE(16);
+  const firstSize = output.readUInt32BE(20);
+  const secondOffset = output.readUInt32BE(36);
+  const secondSize = output.readUInt32BE(40);
+  assert.equal(firstOffset % 16384, 0);
+  assert.equal(secondOffset % 16384, 0);
+  assert.deepEqual(output.subarray(firstOffset, firstOffset + firstSize), x64);
+  assert.deepEqual(output.subarray(secondOffset, secondOffset + secondSize), arm64);
+  assert.equal(output.length, secondOffset + secondSize);
+  assert.equal((await stat(universalPath)).mode & 0o777, 0o755);
+});
+
+test('自带 lipo 拒绝重复架构', async () => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'reader-lipo-duplicate-'));
+  const first = path.join(temporary, 'first');
+  const second = path.join(temporary, 'second');
+  await writeFile(first, thinMachO(0x01000007, 3, 0x31));
+  await writeFile(second, thinMachO(0x01000007, 3, 0x32));
+  const result = spawnSync(lipo, [first, second, '-create', '-output', path.join(temporary, 'out')], {
+    encoding: 'utf8'
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /重复的 Mach-O 架构/);
+});

@@ -1,0 +1,117 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { AIService } from '../src/server/ai.mjs';
+import { AISettingsManager } from '../src/server/ai-settings.mjs';
+import { MacOSKeychainCredentialStore } from '../src/server/credentials.mjs';
+import { createReaderServer } from '../src/server/server.mjs';
+import { normalizeAIEndpoint, SettingsStore } from '../src/server/settings.mjs';
+
+class MemoryCredentialStore {
+  constructor() { this.value = null; }
+  describe() { return { backend: 'memory-test', writable: true }; }
+  async get() { return this.value; }
+  async set(value) { this.value = value; }
+  async delete() { const existed = Boolean(this.value); this.value = null; return existed; }
+}
+
+async function json(url, init) {
+  const response = await fetch(url, init);
+  const body = await response.json();
+  return { response, body };
+}
+
+async function createGateway(t) {
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    requests.push({ body, authorization: request.headers.authorization });
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ summary: 'Reader gateway connection is healthy.', points: [], model: 'settings-contract-model' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return { endpoint: `http://127.0.0.1:${server.address().port}/gateway`, requests };
+}
+
+test('AI settings keep secrets out of the local settings file and enforce secure endpoints', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-settings-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const filePath = path.join(dir, 'data', 'settings.json');
+  const settingsStore = await new SettingsStore(filePath).initialize();
+  const credentialStore = new MemoryCredentialStore();
+  const aiService = new AIService({ endpoint: '', apiKey: '' });
+  const manager = await new AISettingsManager({ settingsStore, credentialStore, aiService, environment: {} }).initialize();
+  const gateway = await createGateway(t);
+
+  const saved = await manager.update({ enabled: true, endpoint: gateway.endpoint, apiKey: 'keychain-only-secret' });
+  assert.equal(saved.apiKeyStored, true);
+  assert.equal(saved.apiKeySource, 'keychain');
+  assert.equal(aiService.status().remoteConfigured, true);
+  assert.equal(credentialStore.value, 'keychain-only-secret');
+  const disk = await readFile(filePath, 'utf8');
+  assert.doesNotMatch(disk, /keychain-only-secret/);
+  assert.equal((await stat(filePath)).mode & 0o777, 0o600);
+
+  const tested = await manager.test({ endpoint: gateway.endpoint });
+  assert.equal(tested.ok, true);
+  assert.equal(tested.model, 'settings-contract-model');
+  assert.equal(gateway.requests[0].body.action, 'summarize');
+  assert.match(gateway.requests[0].body.article.content, /connection test/i);
+  assert.equal(gateway.requests[0].authorization, 'Bearer keychain-only-secret');
+  assert.throws(() => normalizeAIEndpoint('http://example.com/ai'), /必须使用 HTTPS/);
+  assert.throws(() => normalizeAIEndpoint('https://example.com/ai?api_key=secret'), /不能在查询参数中包含密钥/);
+  assert.equal(normalizeAIEndpoint('http://localhost:1234/ai'), 'http://localhost:1234/ai');
+
+  const unavailableKeychain = new MacOSKeychainCredentialStore({ platform: 'linux' });
+  assert.deepEqual(unavailableKeychain.describe(), { backend: 'environment-only', writable: false });
+  assert.equal(await unavailableKeychain.get(), null);
+  await assert.rejects(() => unavailableKeychain.set('secret'), (error) => error.status === 501);
+
+  const reset = await manager.reset();
+  assert.equal(reset.configured, false);
+  assert.equal(credentialStore.value, null);
+  assert.equal(aiService.status().remoteConfigured, false);
+});
+
+test('AI settings HTTP API updates runtime configuration without exposing the API key', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-settings-api-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const credentialStore = new MemoryCredentialStore();
+  const gateway = await createGateway(t);
+  const app = await createReaderServer({ rootDir: dir, dbPath: path.join(dir, 'reader.sqlite3'), port: 0, credentialStore, aiEnvironment: {} });
+  const address = await app.listen();
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${address.port}`;
+
+  const initial = await json(`${base}/api/settings/ai`);
+  assert.equal(initial.body.settings.enabled, false);
+  assert.equal(initial.body.settings.credentialBackend, 'memory-test');
+  const updated = await json(`${base}/api/settings/ai`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true, endpoint: gateway.endpoint, api_key: 'route-secret' }) });
+  assert.equal(updated.response.status, 200);
+  assert.equal(updated.body.settings.apiKeyStored, true);
+  assert.equal(updated.body.status.remoteConfigured, true);
+  assert.doesNotMatch(JSON.stringify(updated.body), /route-secret/);
+  const invalidType = await json(`${base}/api/settings/ai`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: 'true', endpoint: gateway.endpoint }) });
+  assert.equal(invalidType.response.status, 400);
+
+  const connection = await json(`${base}/api/settings/ai/test`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: gateway.endpoint }) });
+  assert.equal(connection.body.result.ok, true);
+  assert.equal(connection.body.result.model, 'settings-contract-model');
+  const status = await json(`${base}/api/ai/status`);
+  assert.equal(status.body.remoteConfigured, true);
+  assert.equal(status.body.credentialBackend, 'memory-test');
+
+  const publicSettings = await json(`${base}/api/settings/ai`);
+  assert.equal(publicSettings.body.settings.endpoint, `${gateway.endpoint}`);
+  assert.doesNotMatch(JSON.stringify(publicSettings.body), /route-secret/);
+  const reset = await json(`${base}/api/settings/ai`, { method: 'DELETE' });
+  assert.equal(reset.body.settings.configured, false);
+  assert.equal(reset.body.status.remoteConfigured, false);
+  assert.equal(credentialStore.value, null);
+});

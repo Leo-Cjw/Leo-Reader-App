@@ -1,0 +1,52 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { chunkArticleMarkdown, ragQueryTerms, scoreRagChunk } from '../src/server/chunks.mjs';
+import { ReaderDatabase } from '../src/server/db.mjs';
+
+test('Markdown chunking is deterministic, heading-aware and bounded', () => {
+  const content = `# 本地优先\n\nReader 先把文章、标签和阅读进度写入本机 SQLite。\n\n## AI 隐私\n\n${'远程服务只接收本地检索命中的原文片段。'.repeat(120)}`;
+  const first = chunkArticleMarkdown({ id: 'reader', title: 'Reader 架构', content });
+  const second = chunkArticleMarkdown({ id: 'reader', title: 'Reader 架构', content });
+  assert.deepEqual(first, second);
+  assert.ok(first.length > 2);
+  assert.equal(first[0].heading, '本地优先');
+  assert.ok(first.some((chunk) => chunk.heading === 'AI 隐私'));
+  assert.ok(first.every((chunk) => chunk.content.length <= 1400 && chunk.startOffset <= chunk.endOffset));
+  assert.ok(first.every((chunk, index) => chunk.id.startsWith(`reader:${index}:`)));
+  assert.deepEqual(ragQueryTerms('本地数据保存在哪里？'), ['本地', '数据', '保存', '在哪']);
+  const relevant = scoreRagChunk({ content: '数据保存在本机 SQLite。', heading: '存储', article_title: 'Reader', chunk_index: 0 }, '数据保存');
+  const unrelated = scoreRagChunk({ content: 'RSS 按时间顺序同步。', heading: '订阅', article_title: 'Reader', chunk_index: 0 }, '数据保存');
+  assert.ok(relevant > unrelated);
+});
+
+test('chunk index backfills, searches locally and follows edits and restores', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-chunks-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const db = await new ReaderDatabase(path.join(dir, 'reader.sqlite3')).initialize();
+  const article = await db.createArticle({ title: '隐私架构', source: 'Reader 文档', content: '# 存储\n\nReader 把密钥保存在 macOS Keychain，而不是数据库。\n\n# 请求\n\n远程回答只接收命中的片段。' });
+  const status = await db.getChunkIndexStatus();
+  assert.equal(status.pendingArticles, 0);
+  assert.ok(status.chunkCount >= 5);
+  const keychain = await db.searchArticleChunks('密钥保存在哪里', { articleId: article.id });
+  assert.equal(keychain[0].articleId, article.id);
+  assert.match(keychain[0].quote, /Keychain/);
+  assert.equal(keychain[0].heading, '存储');
+  const originalId = keychain[0].id;
+  await db.updateArticle(article.id, { content: '# 存储\n\nReader 现在把凭据保存在系统钥匙串。' });
+  const edited = await db.searchArticleChunks('系统钥匙串', { articleId: article.id });
+  assert.match(edited[0].quote, /系统钥匙串/);
+  assert.notEqual(edited[0].id, originalId);
+  await db.restoreArticleRevision(article.id, 1);
+  const restored = await db.searchArticleChunks('macOS Keychain', { articleId: article.id });
+  assert.match(restored[0].quote, /macOS Keychain/);
+  const library = await db.searchArticleChunks('远程回答 命中 片段', { limit: 4 });
+  assert.ok(library.some((citation) => citation.articleId === article.id));
+  assert.deepEqual(await db.searchArticleChunks('量子火星香蕉', { articleId: article.id }), []);
+  await db.execute(`INSERT INTO chunk_search(chunk_search) VALUES ('delete-all');`);
+  assert.equal(Number((await db.one('SELECT count(*) AS count FROM chunk_search_docsize;')).count), 0);
+  const reopened = await new ReaderDatabase(path.join(dir, 'reader.sqlite3')).initialize();
+  assert.match((await reopened.searchArticleChunks('macOS Keychain', { articleId: article.id }))[0].quote, /macOS Keychain/);
+});
