@@ -196,9 +196,9 @@ export async function createReaderServer({
   }
   await diagnostics.record('app_started', { version: APP_VERSION, schemaVersion: SCHEMA_VERSION, restored: Boolean(appliedRestore) });
   const runtimeAIService = aiService || new AIService({ endpoint: '', apiKey: '' });
+  const runtimeSettingsStore = settingsStore || await new SettingsStore(defaultSettingsPath(rootDir)).initialize();
   let aiSettingsManager = null;
   if (!aiService) {
-    const runtimeSettingsStore = settingsStore || await new SettingsStore(defaultSettingsPath(rootDir)).initialize();
     const runtimeCredentialStore = credentialStore || new MacOSKeychainCredentialStore();
     aiSettingsManager = await new AISettingsManager({ settingsStore: runtimeSettingsStore, credentialStore: runtimeCredentialStore, aiService: runtimeAIService, environment: aiEnvironment }).initialize();
   }
@@ -215,7 +215,8 @@ export async function createReaderServer({
     }),
     environment: socialEnvironment
   });
-  const importWorker = createImportWorker(database, { stagingDir, filesDir });
+  const importQueueSettings = runtimeSettingsStore.getImportQueue();
+  const importWorker = createImportWorker(database, { stagingDir, filesDir }, { initiallyPaused: importQueueSettings.paused });
   const sourceSync = createSourceSyncService(database, {
     socialConnectors: runtimeSocialConnectors,
     paths: { stagingDir, filesDir }
@@ -223,6 +224,7 @@ export async function createReaderServer({
   const sourceScheduler = createSourceScheduler(database, sourceSync);
   sourceScheduler.start();
   const backgroundWork = createBackgroundWorkPolicy(importWorker, sourceScheduler);
+  if (importQueueSettings.paused) await backgroundWork.update({ importUserPaused: true });
   let dataRepairPromise = null;
   let restoreWriteLocked = false;
   let diagnosticsStopped = false;
@@ -329,6 +331,21 @@ export async function createReaderServer({
 
       if (pathname === '/api/import-jobs' && method === 'GET') {
         return sendJSON(response, 200, { jobs: (await database.listImportJobs(url.searchParams.get('limit') || 40)).map(publicImportJob) });
+      }
+
+      if (pathname === '/api/import-jobs/state' && method === 'PUT') {
+        const body = await readJSON(request);
+        if (typeof body.paused !== 'boolean') throw new HTTPError(400, 'paused 必须是布尔值');
+        const previous = backgroundWork.snapshot().importUserPaused;
+        try {
+          await runtimeSettingsStore.saveImportQueue(body.paused);
+          const state = await backgroundWork.update({ importUserPaused: body.paused });
+          return sendJSON(response, 200, { background: state });
+        } catch (error) {
+          await runtimeSettingsStore.saveImportQueue(previous).catch(() => {});
+          await backgroundWork.update({ importUserPaused: previous }).catch(() => {});
+          throw error;
+        }
       }
 
       if (pathname === '/api/articles/batch' && method === 'POST') {

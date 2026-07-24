@@ -4,7 +4,8 @@ import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promi
 
 const DEFAULT_SETTINGS = Object.freeze({
   version: 1,
-  ai: { configured: false, enabled: false, endpoint: '', hasApiKey: false, updatedAt: null }
+  ai: { configured: false, enabled: false, endpoint: '', hasApiKey: false, updatedAt: null },
+  imports: { paused: false, updatedAt: null }
 });
 
 function settingsError(message, status = 400) {
@@ -47,11 +48,15 @@ export class SettingsStore {
       const ai = parsed?.ai && typeof parsed.ai === 'object' ? parsed.ai : {};
       const endpoint = normalizeAIEndpoint(ai.endpoint);
       if (ai.enabled && !endpoint) throw new Error('enabled AI endpoint is missing');
+      const imports = parsed?.imports && typeof parsed.imports === 'object' ? parsed.imports : {};
       this.value = {
         version: 1,
         ai: {
           configured: Boolean(ai.configured), enabled: Boolean(ai.enabled), endpoint,
           hasApiKey: Boolean(ai.hasApiKey), updatedAt: typeof ai.updatedAt === 'string' ? ai.updatedAt : null
+        },
+        imports: {
+          paused: Boolean(imports.paused), updatedAt: typeof imports.updatedAt === 'string' ? imports.updatedAt : null
         }
       };
       await chmod(this.filePath, 0o600).catch(() => {});
@@ -62,10 +67,11 @@ export class SettingsStore {
   }
 
   getAI() { return clone(this.value.ai); }
+  getImportQueue() { return clone(this.value.imports); }
 
   async saveAI(input) {
     const next = {
-      version: 1,
+      ...clone(this.value),
       ai: {
         configured: true, enabled: Boolean(input.enabled), endpoint: String(input.endpoint || ''),
         hasApiKey: Boolean(input.hasApiKey), updatedAt: new Date().toISOString()
@@ -78,11 +84,22 @@ export class SettingsStore {
   }
 
   async resetAI() {
-    const next = clone(DEFAULT_SETTINGS);
+    const next = { ...clone(this.value), ai: clone(DEFAULT_SETTINGS.ai) };
     await this.persist(next);
     this.value = next;
     this.loadError = null;
     return this.getAI();
+  }
+
+  async saveImportQueue(paused) {
+    const next = {
+      ...clone(this.value),
+      imports: { paused: Boolean(paused), updatedAt: new Date().toISOString() }
+    };
+    await this.persist(next);
+    this.value = next;
+    this.loadError = null;
+    return this.getImportQueue();
   }
 
   async persist(value = this.value) {

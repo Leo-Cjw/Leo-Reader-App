@@ -41,6 +41,28 @@ test('background policy combines restore, sleep, connectivity and power constrai
   assert.equal(policy.snapshot().sourceSyncPaused, false);
 });
 
+test('user pause affects imports only and cannot bypass a restore lock', async () => {
+  const imports = worker();
+  const sources = worker();
+  const policy = createBackgroundWorkPolicy(imports, sources);
+
+  await policy.update({ importUserPaused: true });
+  assert.equal(imports.pauses, 1);
+  assert.equal(sources.pauses, 0);
+  assert.equal(policy.snapshot().importUserPaused, true);
+  assert.deepEqual(policy.snapshot().importPauseReasons, ['user']);
+
+  await policy.update({ restoreLocked: true });
+  await policy.update({ importUserPaused: false });
+  assert.equal(imports.resumes, 0);
+  assert.equal(policy.snapshot().importsPaused, true);
+  assert.deepEqual(policy.snapshot().importPauseReasons, ['restore']);
+
+  await policy.update({ restoreLocked: false });
+  assert.equal(imports.resumes, 1);
+  assert.equal(policy.snapshot().importsPaused, false);
+});
+
 test('macOS battery parser only constrains a low discharging battery', () => {
   assert.deepEqual(
     parseMacOSBatteryStatus("Now drawing from 'Battery Power'\n -InternalBattery-0\t19%; discharging; 1:12 remaining present: true"),

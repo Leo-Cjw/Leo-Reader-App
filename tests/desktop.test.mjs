@@ -121,6 +121,9 @@ test('screen reader state mirrors visual selection and article metadata', async 
   assert.match(app, /article\.is_read \? '已读' : '未读'/);
   assert.match(app, /article\.is_favorite \? '，已收藏'/);
   assert.match(app, /article\.excerpt\.slice\(0, 180\)/);
+  assert.match(app, /aria-pressed=\{background\.importUserPaused\}/);
+  assert.match(app, /className="queue-summary" aria-live="polite"/);
+  assert.match(app, /backgroundWork\.importsPaused \? `\$\{activeJobCount\} 个导入任务已暂停`/);
 });
 
 test('editor and highlights keep their declared keyboard and announcement contract', async () => {

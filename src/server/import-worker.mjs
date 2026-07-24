@@ -130,9 +130,9 @@ export async function processImportJob(database, job, paths) {
   throw new Error(`未知导入任务类型：${job.kind}`);
 }
 
-export function createImportWorker(database, paths, { idleIntervalMs = 4000 } = {}) {
+export function createImportWorker(database, paths, { idleIntervalMs = 4000, initiallyPaused = false } = {}) {
   let active = false;
-  let paused = false;
+  let paused = Boolean(initiallyPaused);
   let stopped = false;
   let timer;
   let activeRun = null;

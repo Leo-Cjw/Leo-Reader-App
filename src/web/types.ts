@@ -412,6 +412,7 @@ export interface BackgroundWorkState {
   lowBattery: boolean;
   powerConstrained: boolean;
   restoreLocked: boolean;
+  importUserPaused: boolean;
   importsPaused: boolean;
   sourceSyncPaused: boolean;
   importPauseReasons: string[];

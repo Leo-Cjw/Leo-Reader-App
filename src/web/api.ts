@@ -77,6 +77,9 @@ export const api = {
   async retryImportJob(id: string) {
     return (await request<{ job: ImportJob }>(`/api/import-jobs/${encodeURIComponent(id)}/retry`, { method: 'POST' })).job;
   },
+  async updateImportQueueState(paused: boolean) {
+    return (await request<{ background: BackgroundWorkState }>('/api/import-jobs/state', { method: 'PUT', body: JSON.stringify({ paused }) })).background;
+  },
   async createMarkdown(title: string, content: string, collectionId?: string) {
     return (await request<{ article: Article }>('/api/articles', { method: 'POST', body: JSON.stringify({ mode: 'markdown', title, content, collection_id: collectionId }) })).article;
   },

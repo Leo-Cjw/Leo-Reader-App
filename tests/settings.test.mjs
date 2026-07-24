@@ -44,6 +44,7 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   t.after(() => rm(dir, { recursive: true, force: true }));
   const filePath = path.join(dir, 'data', 'settings.json');
   const settingsStore = await new SettingsStore(filePath).initialize();
+  await settingsStore.saveImportQueue(true);
   const credentialStore = new MemoryCredentialStore();
   const aiService = new AIService({ endpoint: '', apiKey: '' });
   const manager = await new AISettingsManager({ settingsStore, credentialStore, aiService, environment: {} }).initialize();
@@ -54,6 +55,7 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   assert.equal(saved.apiKeySource, 'keychain');
   assert.equal(aiService.status().remoteConfigured, true);
   assert.equal(credentialStore.value, 'keychain-only-secret');
+  assert.equal(settingsStore.getImportQueue().paused, true);
   const disk = await readFile(filePath, 'utf8');
   assert.doesNotMatch(disk, /keychain-only-secret/);
   assert.equal((await stat(filePath)).mode & 0o777, 0o600);
@@ -77,6 +79,7 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   assert.equal(reset.configured, false);
   assert.equal(credentialStore.value, null);
   assert.equal(aiService.status().remoteConfigured, false);
+  assert.equal(settingsStore.getImportQueue().paused, true);
 });
 
 test('AI settings HTTP API updates runtime configuration without exposing the API key', async (t) => {

@@ -1,4 +1,5 @@
 const initialState = Object.freeze({
+  importUserPaused: false,
   restoreLocked: false,
   suspended: false,
   online: true,
@@ -8,6 +9,7 @@ const initialState = Object.freeze({
 
 function pauseReasons(state, sourceSync = false) {
   const reasons = [];
+  if (!sourceSync && state.importUserPaused) reasons.push('user');
   if (state.restoreLocked) reasons.push('restore');
   if (state.suspended) reasons.push('suspended');
   if (state.powerConstrained) reasons.push('system-constrained');
@@ -31,6 +33,7 @@ export function createBackgroundWorkPolicy(importWorker, sourceScheduler) {
       lowBattery: state.lowBattery,
       powerConstrained: state.powerConstrained,
       restoreLocked: state.restoreLocked,
+      importUserPaused: state.importUserPaused,
       importsPaused,
       sourceSyncPaused,
       importPauseReasons,

@@ -1,4 +1,4 @@
-# Reader for Mac 0.32.0
+# Reader for Mac 0.33.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.32.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.33.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -70,7 +70,7 @@ npm run desktop:pack
 - Markdown：任意文章都能进入双栏编辑器；可选择或拖入多张图片，图片经过签名校验、SHA-256 去重后挂在原文章并插入光标处。停笔 1.4 秒自动保存，实时预览不执行原始 HTML。
 - 版本历史：内容字段发生变化时自动生成本地快照；可预览并恢复任意旧版本，恢复本身也会生成新版本，因此可逆。
 - 高亮与批注：鼠标可直接选中任意文字；纯键盘可开启只读选取模式，用方向键移动、Shift+方向键选择、Option+方向键逐词移动，并按 Enter 创建高亮。四种颜色、原文锚点和批注写入 SQLite，刷新后自动重建正文着色；正文编辑后会按原文与最近位置重新定位。高亮进入完整备份，也会附在可迁移 Markdown 导出末尾及 manifest 中。
-- 导入队列：等待、运行、完成、失败和重试状态全部落库；应用重启后自动恢复未完成任务。
+- 导入队列：等待、运行、完成、失败和重试状态全部落库；队列窗口可手动暂停或继续，暂停偏好保存在本机且重启后保持。手动继续只解除用户暂停，不会绕过资料恢复、睡眠或系统资源限制。
 - 自动订阅：RSS/Atom、YouTube、X 公开账号和微博账号统一入库；X 使用官方 API 与 `since_id` 增量游标，微博调用开放平台官方 CLI。后台调度保存平台游标、配额和失败退避状态，并在 Mac 睡眠、离线、电量不高于 20% 或系统严重受限时安全暂停。
 - 订阅中心：开关、15 分钟到每周的同步频率、立即同步、错误/限流状态、删除来源，以及 OPML 2.0 导入导出。删除来源或断开连接器不会删除已经保存的文章。
 - 资料管理：可创建、改名、嵌套和安全删除的树形资料夹；父资料夹可聚合子树内容。支持单篇和批量移动、添加/移除标签、收藏、已读、归档与恢复。
@@ -147,6 +147,7 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 ## API 概览
 
 - `GET /api/health`：运行版本、存储类型与脱敏后台暂停状态。
+- `PUT /api/import-jobs/state`：持久化暂停或继续导入队列；响应返回合并后的后台状态。
 - `GET /api/stats`：收件箱、未读、收藏等计数。
 - `GET/POST /api/articles`：查询或创建内容；查询响应包含不带 `content` 的文章摘要、`total`、`hasMore` 和不透明的 `nextCursor`，后续页把游标原样传回 `cursor`。
 - `GET/PATCH /api/articles/:id`：读取或更新文章。
@@ -201,4 +202,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.32.0 变更见 [docs/RELEASE_NOTES_0.32.0.md](docs/RELEASE_NOTES_0.32.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.33.0 变更见 [docs/RELEASE_NOTES_0.33.0.md](docs/RELEASE_NOTES_0.33.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
