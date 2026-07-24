@@ -3,6 +3,7 @@ import { chmod, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { SCHEMA_VERSION, schemaSQL } from './schema.mjs';
+import { applyPendingMigrations } from './migrations.mjs';
 import { chunkArticleMarkdown, ragQueryTerms, scoreRagChunk } from './chunks.mjs';
 
 const SQLITE_BINARY = process.env.READER_SQLITE_BINARY || '/usr/bin/sqlite3';
@@ -218,14 +219,15 @@ export class ReaderDatabase {
   constructor(dbPath) {
     this.path = path.resolve(dbPath);
     this.lastMigrationSnapshot = null;
+    this.appliedMigrations = [];
   }
 
   async initialize() {
     await mkdir(path.dirname(this.path), { recursive: true });
-    this.lastMigrationSnapshot = await this.createPreMigrationSnapshot();
-    await this.execute(schemaSQL);
-    await this.migrate();
-    await this.execute(`INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (${SCHEMA_VERSION}, ${sqlValue(now())});`);
+    const migration = await this.prepareMigration();
+    this.lastMigrationSnapshot = migration.snapshot;
+    if (migration.fromVersion < SCHEMA_VERSION) await this.execute(schemaSQL);
+    this.appliedMigrations = await applyPendingMigrations(this, migration.fromVersion);
     await this.execute("UPDATE import_jobs SET status='pending', updated_at=datetime('now') WHERE status='running';");
     await this.seed();
     await this.backfillArticleRevisions();
@@ -245,21 +247,22 @@ export class ReaderDatabase {
     return version;
   }
 
-  async createPreMigrationSnapshot() {
+  async prepareMigration() {
     let info;
     try {
       info = await stat(this.path);
     } catch (error) {
-      if (error?.code === 'ENOENT') return null;
+      if (error?.code === 'ENOENT') return { fromVersion: 0, snapshot: null };
       throw error;
     }
-    if (!info.isFile() || info.size === 0) return null;
+    if (!info.isFile() || info.size === 0) return { fromVersion: 0, snapshot: null };
 
     const fromVersion = await this.existingSchemaVersion();
-    if (fromVersion === null || fromVersion === SCHEMA_VERSION) return null;
+    if (fromVersion === null) return { fromVersion: 0, snapshot: null };
     if (fromVersion > SCHEMA_VERSION) {
       throw new Error(`资料库 schema v${fromVersion} 高于当前 Reader 支持的 v${SCHEMA_VERSION}；为避免数据损坏，已拒绝降级打开`);
     }
+    if (fromVersion === SCHEMA_VERSION) return { fromVersion, snapshot: null };
 
     const backupDirectory = migrationSnapshotDirectory(this.path);
     await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
@@ -275,47 +278,18 @@ export class ReaderDatabase {
       const integrity = await snapshot.one('PRAGMA integrity_check;');
       if (integrity?.integrity_check !== 'ok') throw new Error('升级前数据库快照完整性校验失败');
       return {
-        path: snapshotPath,
         fromVersion,
-        toVersion: SCHEMA_VERSION,
-        createdAt: new Date().toISOString()
+        snapshot: {
+          path: snapshotPath,
+          fromVersion,
+          toVersion: SCHEMA_VERSION,
+          createdAt: new Date().toISOString()
+        }
       };
     } catch (error) {
       await rm(snapshotPath, { force: true });
       throw error;
     }
-  }
-
-  async migrate() {
-    const sourceColumns = new Set((await this.query('PRAGMA table_info(sources);')).map((column) => column.name));
-    const additions = [
-      ['sync_interval_minutes', 'INTEGER NOT NULL DEFAULT 60 CHECK (sync_interval_minutes >= 15 AND sync_interval_minutes <= 10080)'],
-      ['next_fetch_at', 'TEXT'],
-      ['etag', 'TEXT'],
-      ['last_modified', 'TEXT'],
-      ['consecutive_failures', 'INTEGER NOT NULL DEFAULT 0 CHECK (consecutive_failures >= 0)'],
-      ['last_status', "TEXT NOT NULL DEFAULT 'idle' CHECK (last_status IN ('idle','syncing','ok','error','not_modified'))"],
-      ['last_sync_count', 'INTEGER NOT NULL DEFAULT 0 CHECK (last_sync_count >= 0)'],
-      ['last_http_status', 'INTEGER'],
-      ['external_id', 'TEXT'],
-      ['sync_cursor', 'TEXT'],
-      ['rate_limit_remaining', 'INTEGER'],
-      ['rate_limit_reset_at', 'TEXT']
-    ];
-    const statements = additions
-      .filter(([name]) => !sourceColumns.has(name))
-      .map(([name, definition]) => `ALTER TABLE sources ADD COLUMN ${name} ${definition};`);
-    if (statements.length) await this.execute(`BEGIN IMMEDIATE;\n${statements.join('\n')}\nCOMMIT;`);
-    await this.execute(`
-      CREATE INDEX IF NOT EXISTS idx_sources_due ON sources(enabled, next_fetch_at);
-      CREATE INDEX IF NOT EXISTS idx_highlights_article ON highlights(article_id, created_at);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_smart_collections_name ON smart_collections(name COLLATE NOCASE);
-      CREATE INDEX IF NOT EXISTS idx_smart_collections_position ON smart_collections(position, name COLLATE NOCASE);
-      UPDATE sources
-      SET next_fetch_at=coalesce(next_fetch_at, datetime('now')),
-          last_status=CASE WHEN last_status='syncing' THEN 'idle' ELSE last_status END,
-          updated_at=CASE WHEN last_status='syncing' THEN datetime('now') ELSE updated_at END;
-    `);
   }
 
   async raw(sql, { json = false } = {}) {

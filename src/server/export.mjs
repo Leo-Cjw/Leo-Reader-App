@@ -3,6 +3,7 @@ import { access, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { once } from 'node:events';
 import archiver from 'archiver';
+import { APP_VERSION } from './version.mjs';
 
 const MAX_EXPORT_ARTICLES = 500;
 
@@ -136,7 +137,7 @@ export async function prepareMarkdownExport({ database, filesDir, ids, includeAt
 
   const createdAt = new Date().toISOString();
   const manifest = {
-    format: 'reader-markdown-export', formatVersion: 2, appVersion: '0.17.0', createdAt,
+    format: 'reader-markdown-export', formatVersion: 2, appVersion: APP_VERSION, createdAt,
     options: { includeAttachments: Boolean(includeAttachments) },
     counts: { articles: articles.length, highlights: highlightCount, attachments: attachmentCount, attachmentBytes },
     articles: manifestArticles

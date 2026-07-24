@@ -4,6 +4,7 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { listMigrationSnapshots, ReaderDatabase, resolveMigrationSnapshot } from '../src/server/db.mjs';
+import { schemaSQL } from '../src/server/schema.mjs';
 import { createSourceScheduler, createSourceSyncService } from '../src/server/source-sync.mjs';
 
 async function temporaryDatabase(t, prefix = 'reader-source-') {
@@ -12,7 +13,7 @@ async function temporaryDatabase(t, prefix = 'reader-source-') {
   return await new ReaderDatabase(path.join(dir, 'reader.sqlite3')).initialize();
 }
 
-test('schema v8 migrates legacy source rows, builds chunks and schedules every connector safely', async (t) => {
+test('sequential migrations preserve a v7 snapshot, audit v8-v9 and remain idempotent', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-migrate-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const db = new ReaderDatabase(path.join(dir, 'reader.sqlite3'));
@@ -27,7 +28,7 @@ test('schema v8 migrates legacy source rows, builds chunks and schedules every c
   await db.initialize();
   assert.deepEqual(
     { fromVersion: db.lastMigrationSnapshot.fromVersion, toVersion: db.lastMigrationSnapshot.toVersion },
-    { fromVersion: 7, toVersion: 8 }
+    { fromVersion: 7, toVersion: 9 }
   );
   assert.equal((await stat(path.dirname(db.lastMigrationSnapshot.path))).mode & 0o777, 0o700);
   assert.equal((await stat(db.lastMigrationSnapshot.path)).mode & 0o777, 0o600);
@@ -35,7 +36,7 @@ test('schema v8 migrates legacy source rows, builds chunks and schedules every c
   assert.equal(listedSnapshots.length, 1);
   assert.deepEqual(
     { from: listedSnapshots[0].from_schema_version, to: listedSnapshots[0].to_schema_version, bytes: listedSnapshots[0].byte_size > 0 },
-    { from: 7, to: 8, bytes: true }
+    { from: 7, to: 9, bytes: true }
   );
   assert.equal((await resolveMigrationSnapshot(db.path, listedSnapshots[0].id)).path, db.lastMigrationSnapshot.path);
   assert.equal(await resolveMigrationSnapshot(db.path, '../reader.sqlite3'), null);
@@ -48,8 +49,20 @@ test('schema v8 migrates legacy source rows, builds chunks and schedules every c
   assert.equal(source.last_status, 'idle');
   assert.ok(source.next_fetch_at);
   assert.ok((await db.listDueSources(new Date(Date.now() + 60_000).toISOString())).some((item) => item.id === 'legacy'));
-  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 8);
+  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 9);
+  assert.deepEqual(db.appliedMigrations.map((migration) => migration.version), [8, 9]);
+  const audit = await db.query('SELECT version,name,checksum FROM schema_migration_audit ORDER BY version;');
+  assert.deepEqual(audit.map(({ version, name }) => ({ version, name })), [
+    { version: 8, name: 'v8-smart-collections-and-source-state' },
+    { version: 9, name: 'v9-migration-audit' }
+  ]);
+  assert.ok(audit.every((migration) => /^[0-9a-f]{64}$/.test(migration.checksum)));
   assert.equal((await db.getChunkIndexStatus()).pendingArticles, 0);
+
+  const reopened = await new ReaderDatabase(db.path).initialize();
+  assert.equal(reopened.lastMigrationSnapshot, null);
+  assert.deepEqual(reopened.appliedMigrations, []);
+  assert.equal((await reopened.one('SELECT count(*) AS count FROM schema_migration_audit;')).count, 2);
 });
 
 test('database refuses to open a newer schema without modifying it', async (t) => {
@@ -57,13 +70,69 @@ test('database refuses to open a newer schema without modifying it', async (t) =
   t.after(() => rm(dir, { recursive: true, force: true }));
   const db = new ReaderDatabase(path.join(dir, 'reader.sqlite3'));
   await db.execute(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-  INSERT INTO schema_migrations(version,applied_at) VALUES (9,'2026-01-01');
+  INSERT INTO schema_migrations(version,applied_at) VALUES (10,'2026-01-01');
   CREATE TABLE future_data (value TEXT NOT NULL);
   INSERT INTO future_data(value) VALUES ('preserve-me');`);
 
-  await assert.rejects(db.initialize(), /schema v9.*v8.*拒绝降级/);
+  await assert.rejects(db.initialize(), /schema v10.*v9.*拒绝降级/);
   assert.equal((await db.one('SELECT value FROM future_data;')).value, 'preserve-me');
+  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 10);
+});
+
+test('schema v8 upgrades to v9 without changing user data', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-v8-to-v9-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const db = new ReaderDatabase(path.join(dir, 'reader.sqlite3'));
+  await db.execute(schemaSQL);
+  await db.execute(`INSERT INTO schema_migrations(version,applied_at) VALUES (8,'2026-01-01');
+  INSERT INTO collections(id,name,position,created_at,updated_at) VALUES ('kept','保留资料夹',0,'2026-01-01','2026-01-01');
+  INSERT INTO articles(id,title,content,collection_id,created_at,updated_at)
+  VALUES ('kept-article','升级前文章','不可丢失的正文','kept','2026-01-01','2026-01-01');`);
+
+  await db.initialize();
+  assert.deepEqual(
+    { fromVersion: db.lastMigrationSnapshot.fromVersion, toVersion: db.lastMigrationSnapshot.toVersion },
+    { fromVersion: 8, toVersion: 9 }
+  );
+  assert.deepEqual(db.appliedMigrations.map((migration) => migration.version), [9]);
+  assert.equal((await db.one("SELECT content FROM articles WHERE id='kept-article';")).content, '不可丢失的正文');
   assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 9);
+  assert.deepEqual((await db.query('SELECT version FROM schema_migration_audit ORDER BY version;')).map((row) => row.version), [8, 9]);
+  const snapshot = new ReaderDatabase(db.lastMigrationSnapshot.path);
+  assert.equal((await snapshot.one('SELECT max(version) AS version FROM schema_migrations;')).version, 8);
+  assert.equal((await snapshot.one("SELECT content FROM articles WHERE id='kept-article';")).content, '不可丢失的正文');
+});
+
+test('a failed v9 migration rolls back its schema version and audit writes', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-v9-rollback-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const db = new ReaderDatabase(path.join(dir, 'reader.sqlite3'));
+  await db.execute(schemaSQL);
+  await db.execute(`INSERT INTO schema_migrations(version,applied_at) VALUES (8,'2026-01-01');
+  CREATE TABLE schema_migration_audit (wrong_column TEXT NOT NULL);
+  INSERT INTO schema_migration_audit(wrong_column) VALUES ('preserve-me');`);
+
+  await assert.rejects(db.initialize(), /schema_migration_audit already exists/);
+  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 8);
+  assert.equal((await db.one('SELECT wrong_column FROM schema_migration_audit;')).wrong_column, 'preserve-me');
+  assert.deepEqual(await db.query('SELECT version FROM schema_migrations ORDER BY version;'), [{ version: 8 }]);
+  assert.deepEqual(
+    { fromVersion: db.lastMigrationSnapshot.fromVersion, toVersion: db.lastMigrationSnapshot.toVersion },
+    { fromVersion: 8, toVersion: 9 }
+  );
+});
+
+test('a modified migration audit fails closed before changing a current database', async (t) => {
+  const db = await temporaryDatabase(t, 'reader-source-audit-tamper-');
+  await db.execute(`UPDATE schema_migration_audit SET checksum='${'0'.repeat(64)}' WHERE version=8;`);
+  const before = await stat(db.path);
+  const reopened = new ReaderDatabase(db.path);
+
+  await assert.rejects(reopened.initialize(), /schema v8.*审计记录不匹配/);
+  assert.equal(reopened.lastMigrationSnapshot, null);
+  assert.equal((await reopened.one('SELECT max(version) AS version FROM schema_migrations;')).version, 9);
+  assert.equal((await reopened.one('SELECT checksum FROM schema_migration_audit WHERE version=8;')).checksum, '0'.repeat(64));
+  assert.equal((await stat(db.path)).size, before.size);
 });
 
 test('source sync imports once, honors HTTP 304 and resets health state', async (t) => {

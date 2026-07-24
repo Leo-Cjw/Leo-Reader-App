@@ -42,7 +42,8 @@ flowchart LR
 - `article_revisions`：文章内容字段的不可变快照；恢复旧版本时追加新快照而不改写历史。
 - `article_search`：FTS5 虚拟表，由触发器与文章表保持一致。
 - `article_chunks` / `chunk_search`：按 Markdown 标题和段落生成的本地检索片段，以及由触发器维护的 FTS5 索引；记录原文偏移、内容哈希和稳定引用 ID。
-- `migrations`：记录已应用的 schema 版本。
+- `schema_migrations`：记录已经提交的 schema 版本。
+- `schema_migration_audit`：从 schema v9 起保存迁移的固定名称、SHA-256 校验值和应用时间；启动时与代码中的注册表逐项核对。
 
 所有布尔值在 SQLite 中使用 0/1。API 对外转换为 JSON 布尔值，避免前端依赖数据库表示。
 
@@ -87,7 +88,7 @@ Schema v8 的智能资料夹只保存经过规范化的规则，不复制文章�
 - URL 和附件先创建任务，再由单并发后台 worker 处理；空闲时自适应降低轮询频率。
 - 附件使用内容哈希生成稳定文章 ID；重复提交不会制造重复文件或附件记录。
 - PDF 先在暂存区完成文字抽取，再原子移动到文件区；worker 在移动后中断也可以幂等重试。
-- schema 演进只通过顺序迁移；检测到旧 schema 时，会在执行任何新建表或迁移 SQL 前使用 `VACUUM INTO` 创建权限为 `0600` 的一致性数据库快照，并通过 `integrity_check` 后才继续。快照以受限文件名枚举，可在数据安全中心查看和导出，API 不返回真实磁盘路径。高于当前应用支持版本的资料库会被原样拒绝，避免旧版应用破坏新结构。
+- schema v8 是不可变 bootstrap，v9 及后续版本只允许追加到显式迁移注册表。检测到旧 schema 时，Reader 会在执行任何新建表或迁移 SQL 前使用 `VACUUM INTO` 创建权限为 `0600` 的一致性数据库快照，并通过 `integrity_check` 后才继续。每个待执行版本使用独立的 `BEGIN IMMEDIATE` 事务，同时写入版本号和迁移审计；任一 SQL 失败时，该版本的结构、版本号与审计记录一起回滚。启动完成前还会校验迁移版本连续、目标版本准确，以及已发布名称和 SHA-256 未被改写。快照以受限文件名枚举，可在数据安全中心查看和导出，API 不返回真实磁盘路径。高于当前应用支持版本或审计历史不匹配的资料库会停止打开，避免不兼容代码继续写入。
 - 完整备份通过 `VACUUM INTO` 取得一致 SQLite 快照，归档中带数据库与附件 SHA-256 清单。
 - 恢复包拒绝绝对路径、路径穿越、符号链接、未知顶层路径、超大条目和压缩炸弹；校验通过后才写入待恢复标记。
 - 数据库和附件只在下次启动、数据库连接建立前原子替换；安排恢复时会额外创建一份恢复前安全备份。
@@ -118,11 +119,11 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 ## Mac 桌面边界
 
-0.17 的 Electron Mac 外壳提供单实例、原生菜单、Dock 生命周期、隐藏式标题栏、系统另存为、外链交给默认浏览器，以及沙箱化 preload 的固定命令桥。渲染进程关闭 Node integration、启用 context isolation 与 sandbox；权限请求统一拒绝，导航只信任启动时生成的精确本地 origin。
+0.18 的 Electron Mac 外壳提供单实例、原生菜单、Dock 生命周期、隐藏式标题栏、系统另存为、外链交给默认浏览器，以及沙箱化 preload 的固定命令桥。渲染进程关闭 Node integration、启用 context isolation 与 sandbox；权限请求统一拒绝，导航只信任启动时生成的精确本地 origin。
 
 发行流水线分别构建 x86_64 与 arm64 应用，再用项目内的流式 Mach-O 合并工具生成通用主程序和 Helper；两套 `@napi-rs/canvas` 原生模块按架构保留在独立包路径，由运行时选择。Electron 压缩包必须匹配依赖自带的官方 SHA-256 清单。合并后执行 ad-hoc 深度签名、严格验证，并生成带“应用程序”快捷方式且通过 `hdiutil verify` 的压缩 DMG。
 
-0.17 延续 Intel/Apple Silicon 通用 DMG，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
+0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
 
 - Apple Developer ID 签名、公证和自动更新。
 - Share Extension、Spotlight、系统通知和更完整的文件导入器。

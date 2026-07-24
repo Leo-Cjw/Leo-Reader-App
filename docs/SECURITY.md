@@ -56,6 +56,7 @@ Reader 默认只监听 `127.0.0.1`。本地 HTTP API 没有账号系统，安全
 
 - 备份使用 SQLite 一致快照，不直接复制运行中的 WAL 数据库。
 - schema 升级同样在任何结构变更前使用 `VACUUM INTO` 创建一致快照，校验 `integrity_check` 后以 `0600` 权限保存在 `data/migration-backups/`；快照列表只接受 Reader 生成的严格文件名，下载以不缓存、`nosniff` 的私有端点提供且不暴露磁盘路径。检测到高于当前支持版本的 schema 时拒绝降级打开，不执行写入或迁移。
+- schema v8 作为不可变 bootstrap；后续迁移按连续版本注册，每个版本在单独事务内同时提交结构、版本号与审计记录。启动时核对迁移的固定名称和 SHA-256，已发布历史缺失、未知或被改写时停止打开。
 - 归档只允许 `reader.sqlite3`、`manifest.json` 和 `files/`；拒绝绝对路径、`..`、反斜杠、符号链接和未知路径。
 - 解压限制条目数、单条目声明大小和总展开大小，防止路径穿越与压缩炸弹。
 - 恢复前验证 manifest 版本、数据库哈希、每个附件哈希和 SQLite `integrity_check`。
@@ -92,4 +93,4 @@ npm test
 npm run build
 ```
 
-0.17.0 的依赖审计为 0 已知漏洞，55 项自动测试全部通过；覆盖精确 origin 导航、外链协议、数据目录隔离、Electron 沙箱、CSP、Keychain 凭据不泄漏、智能规则规范化/动态匹配/排序/备份恢复、高亮 CRUD/级联删除/备份恢复/Markdown 导出、社交游标、官方 CLI 参数，以及通用 Mach-O 的架构、对齐、权限和无尾部填充合并。10,003 片段、30 次查询的本地检索基准 p95 为 75 ms，低于 250 ms 门禁。x64 Mac 真机从旧资料库升级后保留文章和高亮，并通过鼠标拖放、智能规则筛选及重启持久化复测。通用 `.app` 使用 ad-hoc 深度签名，DMG 必须通过 `hdiutil verify`；Apple Developer ID 签名、公证和自动更新仍属于 M3 正式发行里程碑。
+0.18.0 的依赖审计为 0 已知漏洞，60 项自动测试全部通过；新增覆盖 v7→v9、v8→v9、升级前一致快照、迁移审计、防篡改停止打开、重复启动幂等、未来 schema 拒绝和故障事务回滚，并继续覆盖精确 origin 导航、外链协议、数据目录隔离、Electron 沙箱、CSP、Keychain 凭据不泄漏、智能规则、批注、备份恢复、Markdown 导出、社交游标、官方 CLI 参数及通用 Mach-O 合并。10,003 片段、30 次查询的本地检索基准 p95 为 39.13 ms，低于 250 ms 门禁。0.18 Universal App 的 x86_64/arm64 架构与 ad-hoc 深度签名验证通过，DMG 通过 `hdiutil verify`。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.18 仍需双架构真机安装与升级复测。Apple Developer ID 签名、公证和自动更新仍属于 M3 正式发行里程碑。

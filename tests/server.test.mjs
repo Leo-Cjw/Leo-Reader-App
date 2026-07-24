@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
 import yauzl from 'yauzl';
 import { ReaderDatabase } from '../src/server/db.mjs';
 import { createReaderServer } from '../src/server/server.mjs';
+import { APP_VERSION } from '../src/server/version.mjs';
 
 async function json(url, init) {
   const response = await fetch(url, init);
@@ -47,7 +48,10 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   const health = await json(`${base}/api/health`);
   assert.equal(health.response.status, 200);
   assert.equal(health.body.storage, 'sqlite');
-  assert.equal(health.body.version, '0.17.0');
+  assert.equal(health.body.version, APP_VERSION);
+  const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(APP_VERSION, '0.18.0');
+  assert.equal(packageMetadata.version, APP_VERSION);
 
   const created = await json(`${base}/api/articles`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'markdown', title: '成熟产品测试', content: 'Reader 使用本地 SQLite 保存内容，并提供全文搜索、收藏和摘要功能。' }) });
   assert.equal(created.response.status, 201);
@@ -133,6 +137,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.ok(exportedArticleName);
   assert.match(exportEntries.get(exportedArticleName).toString('utf8'), /reader_id:/);
   const exportManifest = JSON.parse(exportEntries.get('manifest.json').toString('utf8'));
+  assert.equal(exportManifest.appVersion, APP_VERSION);
   assert.equal(exportManifest.counts.articles, 1);
   assert.equal(exportManifest.options.includeAttachments, false);
 
@@ -240,12 +245,12 @@ test('migration snapshots are listed without private paths and can be exported s
   const snapshot = listed.body.snapshots[0];
   assert.deepEqual(
     { from: snapshot.from_schema_version, to: snapshot.to_schema_version, privatePath: snapshot.path },
-    { from: 7, to: 8, privatePath: undefined }
+    { from: 7, to: 9, privatePath: undefined }
   );
   const download = await fetch(`${base}/api/migration-snapshots/${snapshot.id}/download`);
   assert.equal(download.status, 200);
   assert.equal(download.headers.get('content-type'), 'application/vnd.sqlite3');
-  assert.match(download.headers.get('content-disposition') || '', /reader-before-schema-v7-to-v8/);
+  assert.match(download.headers.get('content-disposition') || '', /reader-before-schema-v7-to-v9/);
   assert.equal(Buffer.from(await download.arrayBuffer()).subarray(0, 16).toString(), 'SQLite format 3\u0000');
   assert.equal((await fetch(`${base}/api/migration-snapshots/00000000-0000-4000-8000-000000000000/download`)).status, 404);
 });

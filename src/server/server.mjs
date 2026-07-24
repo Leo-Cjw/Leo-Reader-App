@@ -17,6 +17,7 @@ import { createSourceScheduler, createSourceSyncService, normalizeSourceURL } fr
 import { SocialConnectorManager } from './social-connectors.mjs';
 import { exportOPML, parseOPML } from './opml.mjs';
 import { prepareMarkdownExport, streamMarkdownExport } from './export.mjs';
+import { APP_VERSION } from './version.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -207,7 +208,7 @@ export async function createReaderServer({
       const pathname = decodeURIComponent(url.pathname);
 
       if (pathname === '/api/health' && method === 'GET') {
-        return sendJSON(response, 200, { ok: true, version: '0.17.0', storage: 'sqlite', restoredOnStart: Boolean(appliedRestore), time: new Date().toISOString() });
+        return sendJSON(response, 200, { ok: true, version: APP_VERSION, storage: 'sqlite', restoredOnStart: Boolean(appliedRestore), time: new Date().toISOString() });
       }
 
       if (pathname === '/api/stats' && method === 'GET') {
@@ -724,7 +725,7 @@ export async function createReaderServer({
         if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再创建备份');
         const body = await readJSON(request);
         const passphrase = body.encrypted ? requiredString(body.passphrase, '备份口令', 1024) : '';
-        return sendJSON(response, 201, { backup: await createBackup({ database, rootDir, appVersion: '0.17.0', passphrase }) });
+        return sendJSON(response, 201, { backup: await createBackup({ database, rootDir, appVersion: APP_VERSION, passphrase }) });
       }
 
       if (pathname === '/api/migration-snapshots' && method === 'GET') {
@@ -761,7 +762,7 @@ export async function createReaderServer({
         const activeJobs = (await database.listImportJobs(200)).filter((job) => job.status === 'pending' || job.status === 'running');
         if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再恢复数据');
         const passphrase = decodeBase64SecretHeader(request, 'x-reader-backup-passphrase');
-        const pendingRestore = await scheduleRestore({ request, database, rootDir, appVersion: '0.17.0', passphrase });
+        const pendingRestore = await scheduleRestore({ request, database, rootDir, appVersion: APP_VERSION, passphrase });
         return sendJSON(response, 202, { pendingRestore: publicPendingRestore(pendingRestore), restartRequired: true });
       }
 
