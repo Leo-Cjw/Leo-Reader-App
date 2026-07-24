@@ -104,6 +104,25 @@ test('sidebar collections keep their declared keyboard tree contract', async () 
   assert.match(styles, /\.collection-nav \[role="treeitem"\]:focus-visible/);
 });
 
+test('screen reader state mirrors visual selection and article metadata', async () => {
+  const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
+
+  assert.match(app, /aria-current=\{view === item\.view/);
+  assert.match(app, /aria-current=\{smartCollectionId === collection\.id/);
+  assert.match(app, /aria-current=\{tagFilter === tag\.name/);
+  for (const label of ['内容类型', '文章助手功能', '检索范围', '添加内容类型', '规则匹配方式']) {
+    assert.match(app, new RegExp(`role="group" aria-label="${label}"`));
+  }
+  assert.ok((app.match(/aria-pressed=/g) || []).length >= 10);
+  assert.match(app, /const descriptionId = `article-description-\$\{article\.id\}`/);
+  assert.equal((app.match(/aria-describedby=\{descriptionId\}/g) || []).length, 2);
+  assert.match(app, /<span id=\{descriptionId\} hidden>/);
+  assert.match(app, /aria-current=\{selectedId === article\.id/);
+  assert.match(app, /article\.is_read \? '已读' : '未读'/);
+  assert.match(app, /article\.is_favorite \? '，已收藏'/);
+  assert.match(app, /article\.excerpt\.slice\(0, 180\)/);
+});
+
 test('editor and highlights keep their declared keyboard and announcement contract', async () => {
   const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
   const styles = await readFile(path.join(projectRoot, 'src', 'web', 'styles.css'), 'utf8');
