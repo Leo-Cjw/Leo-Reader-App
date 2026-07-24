@@ -634,12 +634,12 @@ export class ReaderDatabase {
 
   async stats() {
     return await this.one(`
-      SELECT count(*) AS total,
-        coalesce(sum(CASE WHEN is_read=0 THEN 1 ELSE 0 END),0) AS unread,
-        coalesce(sum(CASE WHEN is_favorite=1 THEN 1 ELSE 0 END),0) AS favorites,
-        coalesce(sum(CASE WHEN type='markdown' THEN 1 ELSE 0 END),0) AS notes,
-        (SELECT count(*) FROM articles WHERE archived=1) AS archived
-      FROM articles WHERE archived=0;
+      SELECT
+        (SELECT count(*) FROM articles WHERE archived=0) AS total,
+        (SELECT count(*) FROM articles WHERE archived=0 AND is_read=0) AS unread,
+        (SELECT count(*) FROM articles WHERE archived=0 AND is_favorite=1) AS favorites,
+        (SELECT count(*) FROM articles WHERE archived=0 AND type='markdown') AS notes,
+        (SELECT count(*) FROM articles WHERE archived=1) AS archived;
     `);
   }
 

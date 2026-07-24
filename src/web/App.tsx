@@ -122,6 +122,9 @@ const highlightColors: Array<{ value: HighlightColor; label: string }> = [
 
 type NativeHighlightRegistry = { set(name: string, value: unknown): void; delete(name: string): void };
 type NativeHighlightConstructor = new (...ranges: Range[]) => unknown;
+type ModifiableSelection = Selection & {
+  modify?: (alter: 'move' | 'extend', direction: 'forward' | 'backward', granularity: 'character' | 'word' | 'line') => void;
+};
 
 function highlightRegistry() {
   return (CSS as unknown as { highlights?: NativeHighlightRegistry }).highlights || null;
@@ -462,10 +465,16 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
   const articleBodyRef = useRef<HTMLDivElement>(null);
   const annotationsRef = useRef<HTMLElement>(null);
   const selectionOpenerRef = useRef<HTMLElement | null>(null);
+  const keyboardSelectionButtonRef = useRef<HTMLButtonElement>(null);
   const [tagInput, setTagInput] = useState('');
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [highlightBusy, setHighlightBusy] = useState(false);
   const [highlightAnnouncement, setHighlightAnnouncement] = useState('');
+  const [keyboardSelectionMode, setKeyboardSelectionMode] = useState(false);
+  const [keyboardSelectionStatus, setKeyboardSelectionStatus] = useState('');
+  const [keyboardSelectionCandidate, setKeyboardSelectionCandidate] = useState<{
+    quote: string; start: number; end: number;
+  } | null>(null);
   const [selectionDraft, setSelectionDraft] = useState<{
     quote: string; startOffset: number; endOffset: number; color: HighlightColor; note: string; top: number; left: number;
   } | null>(null);
@@ -473,6 +482,9 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
     let cancelled = false;
     setHighlights([]);
     setSelectionDraft(null);
+    setKeyboardSelectionMode(false);
+    setKeyboardSelectionStatus('');
+    setKeyboardSelectionCandidate(null);
     if (!article) return;
     void api.listHighlights(article.id)
       .then((next) => { if (!cancelled) setHighlights(next); })
@@ -512,17 +524,15 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
   const captureSelection = () => {
     const root = articleBodyRef.current;
     const selection = window.getSelection();
-    if (!root || !selection || selection.isCollapsed || !selection.rangeCount) {
-      setSelectionDraft(null);
-      return;
-    }
-    const range = selection.getRangeAt(0);
-    const offsets = selectionOffsets(root, range);
+    if (!root) return false;
+    const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null;
+    const selectedOffsets = range ? selectionOffsets(root, range) : null;
+    const offsets = selectedOffsets?.quote ? selectedOffsets : keyboardSelectionCandidate;
     if (!offsets || !offsets.quote || offsets.quote.length > 5000 || offsets.end <= offsets.start) {
       setSelectionDraft(null);
-      return;
+      return false;
     }
-    const rect = range.getBoundingClientRect();
+    const rect = range?.getBoundingClientRect() || root.getBoundingClientRect();
     const activeElement = document.activeElement;
     selectionOpenerRef.current = activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : root;
     setSelectionDraft({
@@ -534,13 +544,107 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
       top: Math.min(window.innerHeight - 185, Math.max(12, rect.bottom + 9)),
       left: Math.min(window.innerWidth - 310, Math.max(12, rect.left + rect.width / 2 - 145))
     });
+    return true;
+  };
+  const updateKeyboardSelection = () => {
+    const root = articleBodyRef.current;
+    const selection = window.getSelection();
+    const range = root && selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const offsets = root && range ? selectionOffsets(root, range) : null;
+    const registry = highlightRegistry();
+    registry?.delete('reader-keyboard-caret');
+    if (!offsets) {
+      setKeyboardSelectionCandidate(null);
+      setKeyboardSelectionStatus('用方向键移动光标，按住 Shift 并配合方向键选择文字。');
+      return;
+    }
+    if (!offsets.quote || offsets.end <= offsets.start) {
+      setKeyboardSelectionCandidate(null);
+      const fullText = root?.textContent || '';
+      if (fullText && registry) {
+        const markerStart = Math.min(offsets.start, fullText.length - 1);
+        const marker = textRangeFromOffsets(root!, markerStart, markerStart + 1);
+        const HighlightClass = nativeHighlightConstructor();
+        if (marker && HighlightClass) registry.set('reader-keyboard-caret', new HighlightClass(marker));
+      }
+      setKeyboardSelectionStatus(`光标位置：${(fullText.slice(offsets.start, offsets.start + 40) || '正文末尾').trim()}`);
+      return;
+    }
+    setKeyboardSelectionCandidate(offsets);
+    setKeyboardSelectionStatus(`已选择 ${offsets.quote.length} 个字符：${offsets.quote.slice(0, 80)}`);
+  };
+  const startKeyboardSelection = () => {
+    setSelectionDraft(null);
+    setKeyboardSelectionCandidate(null);
+    setKeyboardSelectionStatus('用方向键移动光标，按住 Shift 并配合方向键选择文字。');
+    setKeyboardSelectionMode(true);
+    window.requestAnimationFrame(() => {
+      const root = articleBodyRef.current;
+      if (!root) return;
+      root.focus();
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let first = walker.nextNode() as Text | null;
+      while (first && !first.data.length) first = walker.nextNode() as Text | null;
+      if (!first) return;
+      const range = document.createRange();
+      range.setStart(first, 0);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      updateKeyboardSelection();
+    });
+  };
+  const exitKeyboardSelection = () => {
+    setKeyboardSelectionMode(false);
+    setKeyboardSelectionCandidate(null);
+    setKeyboardSelectionStatus('');
+    highlightRegistry()?.delete('reader-keyboard-caret');
+    window.getSelection()?.removeAllRanges();
+    window.requestAnimationFrame(() => keyboardSelectionButtonRef.current?.focus());
+  };
+  const handleArticleBodyKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!keyboardSelectionMode) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      exitKeyboardSelection();
+      return;
+    }
+    if (
+      ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+      && !event.metaKey
+      && !(event.ctrlKey && event.altKey)
+    ) {
+      const selection = window.getSelection() as ModifiableSelection | null;
+      if (!selection?.modify) {
+        setKeyboardSelectionStatus('当前系统无法启动键盘选区，请继续使用鼠标或触控板。');
+        return;
+      }
+      event.preventDefault();
+      const direction = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 'forward' : 'backward';
+      const granularity = event.altKey ? 'word' : event.key === 'ArrowUp' || event.key === 'ArrowDown' ? 'line' : 'character';
+      selection.modify(event.shiftKey ? 'extend' : 'move', direction, granularity);
+      updateKeyboardSelection();
+      return;
+    }
+    if (event.key !== 'Enter' || event.metaKey || event.ctrlKey || event.altKey) return;
+    event.preventDefault();
+    if (!captureSelection()) setKeyboardSelectionStatus('请先按住 Shift 并配合方向键选择要高亮的文字。');
   };
   const dismissSelection = useCallback(() => {
     setSelectionDraft(null);
     window.getSelection()?.removeAllRanges();
-    const target = selectionOpenerRef.current?.isConnected ? selectionOpenerRef.current : articleBodyRef.current;
+    const target = keyboardSelectionMode
+      ? keyboardSelectionButtonRef.current
+      : selectionOpenerRef.current?.isConnected ? selectionOpenerRef.current : articleBodyRef.current;
+    if (keyboardSelectionMode) {
+      setKeyboardSelectionMode(false);
+      setKeyboardSelectionCandidate(null);
+      setKeyboardSelectionStatus('');
+      highlightRegistry()?.delete('reader-keyboard-caret');
+    }
     window.requestAnimationFrame(() => target?.focus());
-  }, []);
+  }, [keyboardSelectionMode]);
   useEffect(() => {
     if (!selectionDraft) return;
     const handleSelectionEscape = (event: KeyboardEvent) => {
@@ -623,6 +727,7 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
       <div className="toolbar-spacer"></div>
       <button className={`button ${article.archived ? '' : 'quiet-danger'}`} type="button" onClick={() => void onPatch({ archived: !article.archived })}>{article.archived ? '恢复' : '归档'}</button>
       <button className="button" type="button" onClick={focusAnnotations}>高亮 <span className="button-count">{highlights.length}</span></button>
+      <button ref={keyboardSelectionButtonRef} className="button" type="button" aria-pressed={keyboardSelectionMode} onClick={keyboardSelectionMode ? exitKeyboardSelection : startKeyboardSelection}>键盘选取</button>
       <button className="button" type="button" onClick={onHistory}>历史 <span className="button-count">{article.revision_count || 1}</span></button>
       <button className="button" type="button" onClick={onEdit}>编辑 <kbd>⌘E</kbd></button>
       {article.url && <a className="button" href={article.url} target="_blank" rel="noreferrer">原文 ↗</a>}
@@ -643,7 +748,19 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
           {attachment.mime_type.startsWith('video/') && <video controls preload="metadata" src={attachment.url}></video>}
           {attachment.mime_type === 'application/pdf' && <object data={attachment.url} type="application/pdf" aria-label={attachment.file_name}><a href={attachment.url}>打开 PDF</a></object>}
         </section>)}</div> : null}
-        <div className="article-body" ref={articleBodyRef} role="region" tabIndex={0} aria-label="文章正文，可选择文字创建高亮" onMouseUp={captureSelection} onKeyUp={captureSelection}><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ node: _node, ...props }) => <span className="inline-figure" role="group"><img {...props} loading="lazy"/><span className="image-caption">{props.alt || '正文图片'} · 已保存在本机</span></span> }}>{article.content}</ReactMarkdown></div>
+        <p id="article-selection-help" className="sr-only">鼠标或触控板可直接选择文字。纯键盘使用时，请先按工具栏的“键盘选取”，再用方向键移动光标，按住 Shift 并配合方向键选择；Option 加方向键可逐词移动。按 Enter 创建高亮，按 Escape 退出。</p>
+        {keyboardSelectionMode && <div className="keyboard-selection-bar"><span><strong>键盘选取已开启</strong><small role="status" aria-live="polite" aria-atomic="true">{keyboardSelectionStatus}</small></span><button className="button primary" type="button" disabled={!keyboardSelectionCandidate} onClick={() => captureSelection()}>创建高亮</button><button className="button" type="button" onClick={exitKeyboardSelection}>退出</button></div>}
+        <div
+          className={`article-body ${keyboardSelectionMode ? 'keyboard-selecting' : ''}`}
+          ref={articleBodyRef}
+          role={keyboardSelectionMode ? 'document' : 'region'}
+          tabIndex={0}
+          aria-label={keyboardSelectionMode ? '文章正文键盘选取区，只读' : '文章正文，可选择文字创建高亮'}
+          aria-describedby="article-selection-help"
+          onMouseUp={keyboardSelectionMode ? updateKeyboardSelection : captureSelection}
+          onKeyDown={handleArticleBodyKeyDown}
+          onKeyUp={(event) => { if (keyboardSelectionMode && event.key !== 'Enter' && event.key !== 'Escape') updateKeyboardSelection(); }}
+        ><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ node: _node, ...props }) => <span className="inline-figure" role="group"><img {...props} loading="lazy"/><span className="image-caption">{props.alt || '正文图片'} · 已保存在本机</span></span> }}>{article.content}</ReactMarkdown></div>
         <section className="annotations" ref={annotationsRef} tabIndex={-1} aria-label="高亮与批注">
           <header><span><small>LOCAL ANNOTATIONS</small><strong>高亮与批注</strong></span><em aria-live="polite">{highlights.length ? `${highlights.length} 条 · 全部保存在本机` : '选中正文即可开始'}</em></header>
           {!highlights.length ? <div className="annotations-empty"><span>✦</span><div><strong>让收藏变成自己的理解</strong><p>在上方正文中选中一句话，选择颜色并写下批注。高亮会随资料库备份迁移。</p></div></div> :

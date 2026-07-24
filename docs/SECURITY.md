@@ -86,6 +86,12 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 - 正式更新 ZIP 只在 Developer ID 签名与 App 公证均成功后生成。脚本要求公证票据可验证，压缩后再解压，并对解压 App 重做深度严格签名和票据验证；ad-hoc 流水线主动删除同版本残留 ZIP。
 - Electron 下载更新后不会直接中断用户工作。只有用户确认“重启并安装”，Reader 才先停止后台任务、刷新诊断缓冲并关闭本地服务，再调用系统更新器。更新包不包含独立存放在 Application Support 下的资料库。
 
+## 只读正文键盘选区
+
+- 键盘选取模式不设置 `contenteditable`，不向静态正文开放输入、删除、粘贴、拖放或输入法编辑面。方向键只通过浏览器原生 Selection/Range 改变临时选区；正文和文章版本均不写入。
+- 只有用户在保存浮层确认后，受限的 quote、起止偏移、颜色与可选批注才通过既有高亮 API 写入 SQLite。Escape 或取消会清除 Range 且不创建记录。
+- Control+Option 方向键不被 Reader 拦截，避免覆盖 VoiceOver 导航组合键。选区状态只播报当前本机正文的有限可见片段，不进入诊断日志、设置或网络请求。
+
 ## 可迁移导入导出与重复治理
 
 - 导出仅接受本地文章 ID，单次最多 500 条；附件路径必须解析在 `data/files/` 内，缺失或越界会拒绝整次导出。
@@ -119,4 +125,4 @@ npm test
 npm run build
 ```
 
-0.28.0 的依赖审计、自动测试、性能基准及 Universal App 验证结果记录在对应发行说明。更新控制器测试覆盖 Developer ID/Team ID 门禁、ad-hoc 零连接、固定 universal feed、单一调度、用户确认、安装前安全关闭及监听器清理；正式 ZIP 脚本要求 App 与解压副本同时通过签名和公证票据验证。既有测试继续覆盖后台状态合并、摘要/详情边界、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移回滚/审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.28.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon Gatekeeper 与跨版本自动升级实测。
+0.29.0 的依赖审计、自动测试、性能基准、隔离资料库真实浏览器回归及 Universal App 验证结果记录在对应发行说明。键盘选区回归覆盖字符/逐词 Range、Enter 保存、Escape 取消、焦点恢复、SQLite 持久化与字符输入不修改 DOM；既有测试继续覆盖更新签名门禁、后台状态合并、摘要/详情边界、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.29.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon Gatekeeper、跨版本自动升级和完整 VoiceOver 真机审计。

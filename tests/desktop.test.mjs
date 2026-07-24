@@ -115,9 +115,16 @@ test('editor and highlights keep their declared keyboard and announcement contra
   assert.match(app, /aria-describedby="selection-popover-quote"/);
   assert.match(app, /handleSelectionEscape/);
   assert.match(app, /document\.addEventListener\('keydown', handleSelectionEscape, true\)/);
+  assert.match(app, /startKeyboardSelection/);
+  assert.match(app, /selection\.modify\(event\.shiftKey \? 'extend' : 'move'/);
+  assert.match(app, /!\(event\.ctrlKey && event\.altKey\)/);
+  assert.match(app, /reader-keyboard-caret/);
+  assert.doesNotMatch(app, /contentEditable=\{keyboardSelectionMode\}/);
+  assert.match(app, /按住 Shift 并配合方向键选择/);
   assert.match(app, /aria-pressed=/);
-  assert.match(app, /role="region" tabIndex=\{0\} aria-label="文章正文，可选择文字创建高亮"/);
+  assert.match(app, /role=\{keyboardSelectionMode \? 'document' : 'region'\}/);
   assert.match(app, /tabIndex=\{-1\} aria-label="高亮与批注"/);
   assert.match(styles, /\.editor-image-upload:focus-within/);
+  assert.match(styles, /\.article-body\.keyboard-selecting/);
   assert.match(styles, /\.annotations:focus-visible/);
 });
