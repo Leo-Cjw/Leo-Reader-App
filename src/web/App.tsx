@@ -220,6 +220,81 @@ function TrafficLights() {
   return <div className="traffic-lights" aria-hidden="true"><i></i><i></i><i></i></div>;
 }
 
+const dialogFocusableSelector = [
+  'a[href]', 'button:not([disabled])', 'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])'
+].join(',');
+
+function DialogAccessibilityManager() {
+  useEffect(() => {
+    let activeDialog: HTMLElement | null = null;
+    let opener: HTMLElement | null = null;
+    let reconcileFrame = 0;
+    let lastOutsideFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const topDialog = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')].at(-1) || null;
+    const focusableElements = (dialog: HTMLElement) => [...dialog.querySelectorAll<HTMLElement>(dialogFocusableSelector)].filter((element) => element.getClientRects().length > 0);
+    const reconcile = () => {
+      const dialog = topDialog();
+      if (dialog === activeDialog) return;
+      if (!activeDialog && dialog) opener = lastOutsideFocus;
+      activeDialog = dialog;
+      if (dialog) {
+        if (!dialog.hasAttribute('tabindex')) dialog.tabIndex = -1;
+        if (!dialog.contains(document.activeElement)) (focusableElements(dialog)[0] || dialog).focus();
+      } else if (opener?.isConnected) {
+        opener.focus();
+        opener = null;
+      }
+    };
+    const scheduleReconcile = () => {
+      window.cancelAnimationFrame(reconcileFrame);
+      reconcileFrame = window.requestAnimationFrame(reconcile);
+    };
+    const trackOutsideFocus = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && !target.closest('[role="dialog"]')) lastOutsideFocus = target;
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const dialog = topDialog();
+      if (!dialog) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        dialog.querySelector<HTMLButtonElement>('button[aria-label^="关闭"]:not([disabled])')?.click();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = focusableElements(dialog);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    const observer = new MutationObserver(scheduleReconcile);
+    observer.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener('focusin', trackOutsideFocus, true);
+    document.addEventListener('keydown', handleKeyDown, true);
+    reconcile();
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('focusin', trackOutsideFocus, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
+      window.cancelAnimationFrame(reconcileFrame);
+    };
+  }, []);
+  return null;
+}
+
 function Sidebar({ view, setView, collectionId, setCollectionId, smartCollectionId, setSmartCollectionId, collections, smartCollections, tags, tagFilter, setTagFilter, stats, sources, onAdd, onSources, onCollections, onSmartCollections, onDuplicates, onDataSafety, onMoveArticles }: {
   view: View; setView: (view: View) => void; collectionId: string | null; setCollectionId: (id: string | null) => void;
   smartCollectionId: string | null; setSmartCollectionId: (id: string | null) => void;
@@ -1429,6 +1504,7 @@ export function App() {
   }, [selected, notify]);
 
   return <div className="app-stage" data-theme={theme} data-desktop={isDesktop ? 'true' : 'false'}>
+    <DialogAccessibilityManager/>
     <div className="app-window">
       <header className="titlebar"><TrafficLights/><div className="save-state"><i></i><span>{activeJobCount ? `${activeJobCount} 个导入任务处理中` : '本地资料库已保存'}</span></div><div className="title-actions"><button className="button queue-button" type="button" onClick={() => setQueueOpen(true)}>导入队列{activeJobCount ? <b>{activeJobCount}</b> : null}</button><button className="button" type="button" onClick={() => setSettingsOpen(true)}>设置</button><button className="button" type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '深色' : '浅色'}</button><button className="button primary" type="button" onClick={() => setAddOpen(true)}>＋ 添加 <kbd>⌘N</kbd></button></div></header>
       <div className={`workspace ${aiOpen ? 'with-ai' : ''}`}>
