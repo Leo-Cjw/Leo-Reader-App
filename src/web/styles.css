@@ -250,6 +250,9 @@ button, select { cursor: pointer; }
 .data-health-card > header > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .data-health-card > header strong { font-size: 10px; }
 .data-health-card > header small { overflow: hidden; color: var(--muted); font-size: 7.6px; text-overflow: ellipsis; white-space: nowrap; }
+.health-actions { display: flex; align-items: center; gap: 6px; }
+.health-repair-note { margin: 0; padding: 8px 9px; border-radius: 8px; background: rgba(80,144,92,.09); color: #4d7554; font-size: 7.5px; line-height: 1.5; }
+.health-repair-note.blocked { background: rgba(160,68,55,.09); color: #8f493f; }
 .data-health-checks { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
 .data-health-checks > span { min-width: 0; padding: 7px; border: 1px solid var(--line); border-radius: 8px; display: grid; grid-template-columns: 17px minmax(0,1fr); align-items: start; gap: 6px; background: color-mix(in srgb, var(--reader) 65%, transparent); }
 .data-health-checks > span > i { width: 17px; height: 17px; border-radius: 6px; display: grid; place-items: center; background: rgba(80,144,92,.12); color: #548a5d; font-size: 8px; font-style: normal; font-weight: 800; }

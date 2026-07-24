@@ -1031,7 +1031,7 @@ function VersionHistoryModal({ article, revisions, preview, busy, onClose, onSel
   </section></div>;
 }
 
-function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, busy, onClose, onCheck, onCreate, onScheduleRestore, onCancelRestore }: { backups: Backup[]; migrationSnapshots: MigrationSnapshot[]; health: DataHealth | null; pendingRestore: PendingRestore | null; busy: boolean; onClose: () => void; onCheck: () => void; onCreate: (passphrase?: string) => void; onScheduleRestore: (file: File, passphrase?: string) => void; onCancelRestore: () => void }) {
+function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, busy, onClose, onCheck, onRepair, onCreate, onScheduleRestore, onCancelRestore }: { backups: Backup[]; migrationSnapshots: MigrationSnapshot[]; health: DataHealth | null; pendingRestore: PendingRestore | null; busy: boolean; onClose: () => void; onCheck: () => void; onRepair: () => void; onCreate: (passphrase?: string) => void; onScheduleRestore: (file: File, passphrase?: string) => void; onCancelRestore: () => void }) {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [confirmation, setConfirmation] = useState('');
   const [encryptBackup, setEncryptBackup] = useState(true);
@@ -1047,8 +1047,10 @@ function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, 
     <div className="safety-grid">
       <section className="safety-section"><header><span><strong>资料库与备份</strong><small>先检查，再创建可验证恢复点</small></span></header>
         <div className={`data-health-card ${health?.status || 'checking'}`} aria-live="polite">
-          <header><span className="health-mark">{health?.status === 'healthy' ? '✓' : health?.status === 'warning' ? '!' : health?.status === 'error' ? '×' : '···'}</span><span><strong>{health?.status === 'healthy' ? '资料库状态正常' : health?.status === 'warning' ? '资料库有待处理项' : health?.status === 'error' ? '资料库发现问题' : '正在检查资料库'}</strong><small>{health ? `${new Date(health.checked_at).toLocaleString('zh-CN')} · ${health.duration_ms} ms · ${formatBytes(health.database.byte_size)}` : '完整性、关联、迁移、权限、附件与索引'}</small></span><button className="button" type="button" disabled={busy} onClick={onCheck}>{busy ? '检查中…' : '重新检查'}</button></header>
+          <header><span className="health-mark">{health?.status === 'healthy' ? '✓' : health?.status === 'warning' ? '!' : health?.status === 'error' ? '×' : '···'}</span><span><strong>{health?.status === 'healthy' ? '资料库状态正常' : health?.status === 'warning' ? '资料库有待处理项' : health?.status === 'error' ? '资料库发现问题' : '正在检查资料库'}</strong><small>{health ? `${new Date(health.checked_at).toLocaleString('zh-CN')} · ${health.duration_ms} ms · ${formatBytes(health.database.byte_size)}` : '完整性、关联、迁移、权限、附件与索引'}</small></span><span className="health-actions"><button className="button" type="button" disabled={busy} onClick={onCheck}>{busy ? '处理中…' : '重新检查'}</button>{health?.repair.available && <button className="button primary" type="button" disabled={busy} onClick={onRepair}>{busy ? '修复中…' : '安全修复'}</button>}</span></header>
           {health && <div className="data-health-checks">{health.checks.map((item) => <span key={item.id} data-status={item.status}><i>{item.status === 'pass' ? '✓' : item.status === 'warning' ? '!' : '×'}</i><span><strong>{item.label}</strong><small>{item.detail}</small></span></span>)}</div>}
+          {health?.repair.available && <p className="health-repair-note">只处理可重建的本地权限与搜索索引；不会改动正文或附件。写入索引前会自动创建完整安全备份。</p>}
+          {health && health.repair.blockers.length > 0 && <p className="health-repair-note blocked">结构、关联、迁移或附件异常不会自动修复，请优先使用可靠备份恢复。</p>}
         </div>
         <div className="backup-creator">
           <label className="security-toggle"><input type="checkbox" checked={encryptBackup} onChange={(event) => setEncryptBackup(event.target.checked)}/><span><strong>使用口令加密</strong><small>推荐。下载或复制备份后，只有持有口令的人可以恢复。</small></span></label>
@@ -1262,6 +1264,20 @@ export function App() {
   const restoreRevision = async (version: number) => { if (!selected) return; setBusyHistory(true); try { const article = await api.restoreRevision(selected.id, version); updateArticleInState(article); const next = await api.listRevisions(article.id); setRevisions(next); setRevisionPreview(await api.getRevision(article.id, next[0].version)); notify(`已恢复版本 ${version}，原内容仍保留在历史中`); } catch (error) { notify(error instanceof Error ? error.message : '版本恢复失败', 'error'); } finally { setBusyHistory(false); } };
   const openSafety = async () => { setSafetyOpen(true); setBusySafety(true); try { const [result, snapshots, health] = await Promise.all([api.listBackups(), api.listMigrationSnapshots(), api.checkDataHealth()]); setBackups(result.backups); setMigrationSnapshots(snapshots); setDataHealth(health); setPendingRestore(result.pendingRestore); } catch (error) { notify(error instanceof Error ? error.message : '数据安全信息加载失败', 'error'); } finally { setBusySafety(false); } };
   const checkLocalData = async () => { setBusySafety(true); try { const health = await api.checkDataHealth(); setDataHealth(health); notify(health.status === 'healthy' ? '资料库检查通过' : health.status === 'warning' ? '资料库检查完成，有待处理项' : '资料库检查发现问题', health.status === 'error' ? 'error' : 'normal'); } catch (error) { notify(error instanceof Error ? error.message : '资料库检查失败', 'error'); } finally { setBusySafety(false); } };
+  const repairLocalData = async () => {
+    if (!dataHealth?.repair.available) return;
+    const labels = dataHealth.repair.actions.map((action) => action === 'storage_permissions' ? '本地文件权限' : '全文与 RAG 索引').join('、');
+    if (!window.confirm(`Reader 将修复${labels}。不会改动正文或附件；如需重建索引，会先创建完整安全备份。继续吗？`)) return;
+    setBusySafety(true);
+    try {
+      const result = await api.repairDataHealth();
+      setDataHealth(result.health);
+      if (result.backup) setBackups((current) => [result.backup!, ...current.filter((item) => item.id !== result.backup!.id)]);
+      await Promise.all([refreshArticles(), refreshChrome()]);
+      notify(result.backup ? '安全修复完成，修复前备份可随时下载' : '本地文件权限已安全修复');
+    } catch (error) { notify(error instanceof Error ? error.message : '资料库修复失败', 'error'); }
+    finally { setBusySafety(false); }
+  };
   const createLocalBackup = async (passphrase?: string) => { setBusySafety(true); try { const backup = await api.createBackup(passphrase); setBackups((current) => [backup, ...current.filter((item) => item.id !== backup.id)]); notify(backup.encrypted ? '加密备份已创建并通过校验' : '明文备份已创建并通过校验'); } catch (error) { notify(error instanceof Error ? error.message : '备份创建失败', 'error'); } finally { setBusySafety(false); } };
   const scheduleLocalRestore = async (file: File, passphrase?: string) => { setBusySafety(true); try { const result = await api.scheduleRestore(file, passphrase); setPendingRestore(result.pendingRestore); const next = await api.listBackups(); setBackups(next.backups); notify('恢复包已解密并通过校验，将在下次启动时应用'); } catch (error) { notify(error instanceof Error ? error.message : '恢复校验失败', 'error'); } finally { setBusySafety(false); } };
   const cancelLocalRestore = async () => { setBusySafety(true); try { await api.cancelRestore(); setPendingRestore(null); notify('已取消待执行恢复'); } catch (error) { notify(error instanceof Error ? error.message : '取消恢复失败', 'error'); } finally { setBusySafety(false); } };
@@ -1304,7 +1320,7 @@ export function App() {
     {composeOpen && selectedArticles.length > 0 && <ComposeModal articles={selectedArticles} collections={collections} busy={busyCompose} onClose={() => setComposeOpen(false)} onCreate={(options) => void composeSelected(options)}/>}
     {duplicatesOpen && <DuplicateManagerModal groups={duplicateGroups} busy={busyDuplicates} onClose={() => setDuplicatesOpen(false)} onRefresh={() => void refreshDuplicates()} onResolve={resolveDuplicateGroup}/>}
     {queueOpen && <ImportQueueModal jobs={jobs} onClose={() => setQueueOpen(false)} onRetry={(job) => void retryJob(job)}/>}
-    {safetyOpen && <DataSafetyModal backups={backups} migrationSnapshots={migrationSnapshots} health={dataHealth} pendingRestore={pendingRestore} busy={busySafety} onClose={() => setSafetyOpen(false)} onCheck={() => void checkLocalData()} onCreate={(passphrase) => void createLocalBackup(passphrase)} onScheduleRestore={(file, passphrase) => void scheduleLocalRestore(file, passphrase)} onCancelRestore={() => void cancelLocalRestore()}/>}
+    {safetyOpen && <DataSafetyModal backups={backups} migrationSnapshots={migrationSnapshots} health={dataHealth} pendingRestore={pendingRestore} busy={busySafety} onClose={() => setSafetyOpen(false)} onCheck={() => void checkLocalData()} onRepair={() => void repairLocalData()} onCreate={(passphrase) => void createLocalBackup(passphrase)} onScheduleRestore={(file, passphrase) => void scheduleLocalRestore(file, passphrase)} onCancelRestore={() => void cancelLocalRestore()}/>}
     {settingsOpen && <AISettingsModal onClose={() => setSettingsOpen(false)} onConfigurationChanged={() => setAIConfigurationVersion((value) => value + 1)} notify={notify}/>}
     {connectorSettingsOpen && <ConnectorSettingsModal onClose={() => setConnectorSettingsOpen(false)} notify={notify}/>}
     {toast && <div className={`toast ${toast.tone === 'error' ? 'error' : ''}`} role="status">{toast.message}</div>}

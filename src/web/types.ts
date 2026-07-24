@@ -57,6 +57,9 @@ export interface RAGIndexStatus {
   indexedArticles: number;
   articleCount: number;
   pendingArticles: number;
+  articleSearchRows: number;
+  chunkSearchRows: number;
+  consistent: boolean;
 }
 
 export interface RAGCitation {
@@ -255,7 +258,19 @@ export interface DataHealth {
     orphan_files: number;
   };
   search: RAGIndexStatus | null;
+  repair: {
+    available: boolean;
+    actions: Array<'storage_permissions' | 'search_index'>;
+    blockers: Array<'database_integrity' | 'foreign_keys' | 'migration_history' | 'attachment_files'>;
+  };
   checks: DataHealthCheck[];
+}
+
+export interface DataRepairResult {
+  repaired_at: string;
+  actions: Array<'storage_permissions' | 'search_index'>;
+  backup: Backup | null;
+  health: DataHealth;
 }
 
 export interface PendingRestore {

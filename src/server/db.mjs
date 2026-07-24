@@ -391,19 +391,43 @@ export class ReaderDatabase {
     return { indexedArticles: articles.length, rebuiltSearch };
   }
 
+  async rebuildDerivedSearchIndexes() {
+    const articles = await this.query('SELECT id,title,excerpt,content FROM articles ORDER BY rowid;');
+    for (const article of articles) {
+      await this.execute(`BEGIN IMMEDIATE;\n${chunkIndexSQL(article)}\nCOMMIT;`);
+    }
+    await this.execute(`BEGIN IMMEDIATE;
+      INSERT INTO article_search(article_search) VALUES ('rebuild');
+      INSERT INTO chunk_search(chunk_search) VALUES ('rebuild');
+      COMMIT;
+      PRAGMA optimize;`);
+    return await this.getChunkIndexStatus();
+  }
+
   async getChunkIndexStatus() {
     const row = await this.one(`SELECT
       (SELECT count(*) FROM article_chunks c JOIN articles a ON a.id=c.article_id WHERE a.archived=0) AS chunk_count,
       (SELECT count(DISTINCT c.article_id) FROM article_chunks c JOIN articles a ON a.id=c.article_id WHERE a.archived=0) AS indexed_articles,
       (SELECT count(*) FROM articles WHERE archived=0) AS article_count,
+      (SELECT count(*) FROM articles) AS total_articles,
+      (SELECT count(*) FROM article_chunks) AS total_chunks,
+      (SELECT count(*) FROM article_search_docsize) AS article_search_rows,
+      (SELECT count(*) FROM chunk_search_docsize) AS chunk_search_rows,
       (SELECT count(*) FROM articles a WHERE a.archived=0 AND length(trim(a.content))>0 AND NOT EXISTS (SELECT 1 FROM article_chunks c WHERE c.article_id=a.id)) AS pending_articles;`);
+    const totalArticles = Number(row?.total_articles || 0);
+    const totalChunks = Number(row?.total_chunks || 0);
+    const articleSearchRows = Number(row?.article_search_rows || 0);
+    const chunkSearchRows = Number(row?.chunk_search_rows || 0);
     return {
       version: 1,
       mode: 'local-lexical',
       chunkCount: Number(row?.chunk_count || 0),
       indexedArticles: Number(row?.indexed_articles || 0),
       articleCount: Number(row?.article_count || 0),
-      pendingArticles: Number(row?.pending_articles || 0)
+      pendingArticles: Number(row?.pending_articles || 0),
+      articleSearchRows,
+      chunkSearchRows,
+      consistent: totalArticles === articleSearchRows && totalChunks === chunkSearchRows
     };
   }
 

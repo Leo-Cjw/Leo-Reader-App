@@ -1,4 +1,4 @@
-# Reader for Mac 0.19.0
+# Reader for Mac 0.19.1
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.19.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.19.1-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -83,6 +83,7 @@ npm run desktop:pack
 - 媒体读取：同源私有文件端点，支持 HTTP Range，可流畅拖动本地视频。
 - 数据安全：一键生成包含 SQLite、附件和 SHA-256 清单的完整备份；默认可使用口令创建 `.readerbackup.enc` 认证加密文件，也兼容明文 `.readerbackup.zip`。恢复前完成解密、哈希与 SQLite 完整性校验，并在下次启动时原子替换。
 - 资料库体检：在数据安全中心检查 SQLite 页结构、外键、迁移审计、本机文件权限、附件可用性和本地检索索引；结果只返回汇总，不包含正文、附件名、记录 ID 或磁盘路径。
+- 受控修复：只有在核心完整性、关联、迁移与附件检查均通过时，才能收紧本地权限或从正文重建全文/RAG 索引。索引写入前自动创建完整备份；正文、状态和附件不会被修复流程改写。
 
 ## 数据与备份
 
@@ -100,6 +101,7 @@ npm run desktop:pack
 - 敏感凭据：AI API Key 与 X Bearer Token 分别写入 macOS Keychain；微博 OAuth 令牌由官方 CLI 自行写入系统 Keychain，Reader 不读取令牌。
 - 数据库采用 WAL 模式，运行时可能出现 `-wal` 和 `-shm` 文件。
 - Reader 启动时把默认数据目录权限收紧为 `0700`，数据库及现有 WAL/SHM 文件收紧为 `0600`，避免其他本机用户读取资料库。
+- 数据安全中心只自动修复可重建派生状态：本地文件权限、全文索引和 RAG 分块索引。数据库页损坏、失效外键、迁移历史异常、缺失/大小不符的附件及未引用文件不会被自动改写或删除；索引修复前的完整备份可在同一界面下载。
 - Reader 检测到旧版 schema 时，会在任何结构变更前通过 SQLite `VACUUM INTO` 创建权限为 `0600` 的一致性数据库快照；文件名记录原 schema、目标 schema 和创建时间。“数据安全中心”可查看并导出这些数据库级恢复点。随后按版本顺序逐项事务迁移，并核对固定名称与 SHA-256 审计记录；若历史不匹配，或资料库来自比当前应用更新的 schema，Reader 会停止打开且不继续写入。
 - 在左侧“数据安全”打开数据安全中心。Reader 使用 SQLite `VACUUM INTO` 创建一致快照，再打包附件和校验清单；加密备份使用 scrypt 派生密钥与 AES-256-GCM 整包认证加密，Reader 不保存口令。
 - 恢复不会覆盖正在运行的数据库：上传包通过路径、大小、哈希和 SQLite 完整性校验后，Reader 先创建安全备份，再安排下次启动原子恢复。
@@ -185,7 +187,8 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `GET /api/migration-snapshots`：列出 schema 升级前自动创建的数据库快照，不返回磁盘路径。
 - `GET /api/migration-snapshots/:id/download`：导出指定升级快照。
 - `POST /api/data-health`：只读检查数据库、迁移、权限、附件和检索索引，仅返回脱敏汇总。
+- `POST /api/data-health/repair`：在核心检查通过后修复权限或重建本地索引；响应不含磁盘路径、正文或备份 manifest。
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.19.0 变更见 [docs/RELEASE_NOTES_0.19.0.md](docs/RELEASE_NOTES_0.19.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.19.1 变更见 [docs/RELEASE_NOTES_0.19.1.md](docs/RELEASE_NOTES_0.19.1.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

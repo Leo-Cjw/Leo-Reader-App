@@ -29,6 +29,8 @@ test('data health verifies a private current database without exposing local pat
   assert.equal(health.database.private_permissions, true);
   assert.equal(health.attachments.missing_files, 0);
   assert.equal(health.search.pendingArticles, 0);
+  assert.equal(health.search.consistent, true);
+  assert.deepEqual(health.repair, { available: false, actions: [], blockers: [] });
   assert.ok(health.checks.every((item) => item.status === 'pass'));
   assert.doesNotMatch(JSON.stringify(health), new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.equal((await stat(database.path)).mtimeMs, before.mtimeMs);
@@ -57,6 +59,8 @@ test('data health reports broken relations and unavailable attachments without r
   assert.equal(health.attachments.missing_files, 1);
   assert.equal(health.checks.find((item) => item.id === 'foreign_keys').status, 'fail');
   assert.equal(health.checks.find((item) => item.id === 'attachment_files').status, 'fail');
+  assert.ok(health.repair.blockers.includes('foreign_keys'));
+  assert.ok(health.repair.blockers.includes('attachment_files'));
   assert.doesNotMatch(serialized, /健康检查私有文章|private-name|broken-health-link|missing-article|private quote/);
 });
 
@@ -69,4 +73,5 @@ test('data health detects database permissions that allow other local users', as
   assert.equal(health.status, 'error');
   assert.equal(health.database.private_permissions, false);
   assert.equal(health.checks.find((item) => item.id === 'storage_permissions').status, 'fail');
+  assert.deepEqual(health.repair, { available: true, actions: ['storage_permissions'], blockers: [] });
 });

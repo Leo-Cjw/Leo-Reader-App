@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -266,6 +266,9 @@ export const api = {
   },
   async checkDataHealth() {
     return (await request<{ health: DataHealth }>('/api/data-health', { method: 'POST' })).health;
+  },
+  async repairDataHealth() {
+    return (await request<{ result: DataRepairResult }>('/api/data-health/repair', { method: 'POST' })).result;
   },
   async createBackup(passphrase?: string) {
     return (await request<{ backup: Backup }>('/api/backups', { method: 'POST', body: JSON.stringify({ encrypted: Boolean(passphrase), passphrase: passphrase || '' }) })).backup;

@@ -20,6 +20,7 @@ import { prepareMarkdownExport, streamMarkdownExport } from './export.mjs';
 import { APP_VERSION } from './version.mjs';
 import { inspectDataHealth } from './data-health.mjs';
 import { cancelPortableImport, commitPortableImport, stagePortableImport } from './portable-import.mjs';
+import { repairDerivedData } from './data-repair.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -205,6 +206,7 @@ export async function createReaderServer({
   });
   const sourceScheduler = createSourceScheduler(database, sourceSync);
   sourceScheduler.start();
+  let dataRepairPromise = null;
 
   const server = http.createServer(async (request, response) => {
     try {
@@ -760,6 +762,25 @@ export async function createReaderServer({
           return sendJSON(response, 200, { health: await inspectDataHealth({ database, filesDir }) });
         } catch {
           throw Object.assign(new HTTPError(500, '无法完成资料库检查'), { expected: true });
+        }
+      }
+
+      if (pathname === '/api/data-health/repair' && method === 'POST') {
+        if (dataRepairPromise) throw new HTTPError(409, '资料库修复正在进行');
+        dataRepairPromise = (async () => {
+          if (await getPendingRestore(rootDir)) throw new HTTPError(409, '请先完成或取消等待重启的恢复任务');
+          const activeJobs = (await database.listImportJobs(200)).filter((job) => job.status === 'pending' || job.status === 'running');
+          if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再修复资料库');
+          return await repairDerivedData({ database, rootDir, filesDir, appVersion: APP_VERSION });
+        })();
+        try {
+          return sendJSON(response, 200, { result: await dataRepairPromise });
+        } catch (error) {
+          if (error instanceof HTTPError) throw error;
+          if (error.expected) throw Object.assign(new HTTPError(error.status || 500, error.message || '资料库修复失败'), { expected: true });
+          throw Object.assign(new HTTPError(500, '无法完成资料库修复；现有安全备份不会删除'), { expected: true });
+        } finally {
+          dataRepairPromise = null;
         }
       }
 

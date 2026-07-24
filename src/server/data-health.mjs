@@ -105,17 +105,29 @@ export async function inspectDataHealth({ database, filesDir }) {
   let searchIndex = null;
   try {
     searchIndex = await database.getChunkIndexStatus();
+    const searchHealthy = searchIndex.pendingArticles === 0 && searchIndex.consistent;
     checks.push(check(
       'search_index',
       '本地检索索引',
-      searchIndex.pendingArticles === 0 ? 'pass' : 'warning',
-      searchIndex.pendingArticles === 0
+      searchHealthy ? 'pass' : 'warning',
+      searchHealthy
         ? `${searchIndex.indexedArticles} 篇内容已建立 ${searchIndex.chunkCount} 个片段`
-        : `${searchIndex.pendingArticles} 篇内容等待重新索引`
+        : !searchIndex.consistent
+          ? '全文或分块索引记录不一致，可以安全重建'
+          : `${searchIndex.pendingArticles} 篇内容等待重新索引`
     ));
   } catch {
     checks.push(check('search_index', '本地检索索引', 'fail', '无法读取本地检索索引'));
   }
+
+  const repairActions = [];
+  if (!permissionsPrivate) repairActions.push('storage_permissions');
+  if (!searchIndex || searchIndex.pendingArticles > 0 || !searchIndex.consistent) repairActions.push('search_index');
+  const repairBlockers = [];
+  if (!integrity) repairBlockers.push('database_integrity');
+  if (foreignKeyViolations !== 0) repairBlockers.push('foreign_keys');
+  if (!migrationHistoryVerified) repairBlockers.push('migration_history');
+  if (missingFiles || sizeMismatches) repairBlockers.push('attachment_files');
 
   const status = checks.some((item) => item.status === 'fail')
     ? 'error'
@@ -141,6 +153,11 @@ export async function inspectDataHealth({ database, filesDir }) {
       orphan_files: orphanFiles
     },
     search: searchIndex,
+    repair: {
+      available: repairActions.length > 0 && repairBlockers.length === 0,
+      actions: repairActions,
+      blockers: repairBlockers
+    },
     checks
   };
 }
