@@ -21,13 +21,15 @@ async function fixture(t) {
 async function removeDerivedIndexRows(database, articleId) {
   await database.execute(`INSERT INTO article_search(article_search,rowid,title,excerpt,content,author,source)
     SELECT 'delete',rowid,title,excerpt,content,author,source FROM articles WHERE id=${sqlValue(articleId)};
+    INSERT INTO article_search_trigram(article_search_trigram,rowid,title,excerpt,content,author,source)
+    SELECT 'delete',rowid,title,excerpt,content,author,source FROM articles WHERE id=${sqlValue(articleId)};
     DELETE FROM article_chunks WHERE article_id=${sqlValue(articleId)};`);
 }
 
 test('controlled repair backs up before rebuilding indexes and preserves articles and attachments byte-for-byte', async (t) => {
   const { root, database, filesDir } = await fixture(t);
   const article = await database.createArticle({
-    title: 'Controlled repair sentinel',
+    title: 'Controlled repair sentinel 性能修复标记',
     excerpt: 'Immutable repair evidence',
     content: '# Repair\n\nThe RepairSentinelToken must remain searchable and unchanged.',
     author: 'Local Reader',
@@ -58,6 +60,7 @@ test('controlled repair backs up before rebuilding indexes and preserves article
   assert.equal(damaged.search.consistent, false);
   assert.equal(damaged.search.pendingArticles, 1);
   assert.equal((await database.listArticles({ query: 'RepairSentinelToken' })).length, 0);
+  assert.equal((await database.listArticles({ query: '性能修复标记' })).length, 0);
 
   const result = await repairDerivedData({ database, rootDir: root, filesDir, appVersion: APP_VERSION });
 
@@ -74,6 +77,7 @@ test('controlled repair backs up before rebuilding indexes and preserves article
   assert.deepEqual(await database.one(`SELECT * FROM attachments WHERE article_id=${sqlValue(article.id)};`), attachmentBefore);
   assert.deepEqual(await readFile(path.join(filesDir, storageName)), attachmentBytes);
   assert.equal((await database.listArticles({ query: 'RepairSentinelToken' }))[0].id, article.id);
+  assert.equal((await database.listArticles({ query: '性能修复标记' }))[0].id, article.id);
   assert.equal((await database.searchArticleChunks('RepairSentinelToken'))[0].articleId, article.id);
 
   const backup = await resolveBackup(root, result.backup.id);

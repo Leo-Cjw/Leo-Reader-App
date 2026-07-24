@@ -371,6 +371,9 @@ button, select { cursor: pointer; }
 .article-list.gallery .card-excerpt { font-size: 8.5px; -webkit-line-clamp: 2; }
 .article-list.gallery .card-footer { margin-top: auto; }
 .article-list.gallery .chip:nth-of-type(n+3) { display: none; }
+.load-more-row { padding: 14px 8px 5px; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--faint); font-size: 8.5px; }
+.load-more-row .button { min-width: 108px; background: var(--button); }
+.article-list.gallery .load-more-row { grid-column: 1 / -1; }
 .batch-toolbar { min-height: 84px; padding: 8px 9px; border-top: 1px solid var(--line); display: flex; align-content: center; align-items: center; flex-wrap: wrap; gap: 6px; overflow: hidden; background: color-mix(in srgb, var(--library) 92%, var(--accent-soft)); box-shadow: 0 -8px 22px rgba(35,32,27,.045); }
 .batch-toolbar > * { flex: 0 0 auto; }
 .batch-count { padding: 0 4px; display: flex; flex-direction: column; align-items: center; color: var(--muted); font-size: 7.5px; line-height: 1.05; }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { legacyWeChatTarget, ReaderDatabase, sqlValue } from '../src/server/db.mjs';
+import { decodeArticleCursor, encodeArticleCursor, legacyWeChatTarget, ReaderDatabase, sqlValue } from '../src/server/db.mjs';
 
 test('sqlValue safely quotes text and primitive values', () => {
   assert.equal(sqlValue("O'Reilly"), "'O''Reilly'");
@@ -37,6 +37,35 @@ test('SQLite data layer supports create, search, tags and durable flags', async 
   const stats = await db.stats();
   assert.equal(stats.total, 4);
   assert.equal(stats.favorites, 1);
+});
+
+test('article pages are stable, complete and reject invalid cursors', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-pages-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const db = await new ReaderDatabase(path.join(dir, 'reader.sqlite3')).initialize();
+  const timestamp = '2030-01-01T00:00:00.000Z';
+  await db.execute(`BEGIN IMMEDIATE;
+    ${Array.from({ length: 125 }, (_, index) => `INSERT INTO articles(id,title,content,created_at,updated_at) VALUES (${[
+      `page-${String(index).padStart(3, '0')}`, `分页资料 ${index}`, index === 42 ? '前缀性能标记后缀' : '本地分页正文', timestamp, timestamp
+    ].map(sqlValue).join(',')});`).join('\n')}
+    COMMIT;`);
+
+  const first = await db.listArticlePage({ limit: 50 });
+  const second = await db.listArticlePage({ limit: 50, cursor: first.nextCursor });
+  const third = await db.listArticlePage({ limit: 50, cursor: second.nextCursor });
+  const ids = [...first.articles, ...second.articles, ...third.articles].map((article) => article.id);
+  assert.equal(first.total, 128);
+  assert.deepEqual([first.articles.length, second.articles.length, third.articles.length], [50, 50, 28]);
+  assert.equal(new Set(ids).size, 128);
+  assert.equal(third.hasMore, false);
+  assert.equal(third.nextCursor, null);
+  assert.deepEqual(decodeArticleCursor(first.nextCursor), {
+    createdAt: first.articles.at(-1).created_at,
+    id: first.articles.at(-1).id
+  });
+  assert.equal(typeof encodeArticleCursor(first.articles[0]), 'string');
+  assert.equal((await db.listArticlePage({ query: '性能标记' })).articles[0].id, 'page-042');
+  await assert.rejects(db.listArticlePage({ cursor: 'not-a-cursor' }), /分页游标无效/);
 });
 
 test('import jobs persist state, results and retry transitions', async (t) => {

@@ -70,9 +70,51 @@ const v9Migration = {
 };
 v9Migration.checksum = migrationChecksum(v9Migration.signature);
 
+const v10Migration = {
+  version: 10,
+  name: 'v10-library-pagination-indexes',
+  signature: 'reader-schema-v10-library-pagination-indexes:1',
+  async buildSQL() {
+    return `
+      CREATE INDEX IF NOT EXISTS idx_articles_archive_created ON articles(archived, created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_articles_unread_created ON articles(archived, is_read, created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_articles_favorite_created ON articles(archived, is_favorite, created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_articles_type_created ON articles(archived, type, created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_articles_collection_created ON articles(collection_id, archived, created_at DESC, id DESC);
+      CREATE VIRTUAL TABLE IF NOT EXISTS article_search_trigram USING fts5(
+        title,
+        excerpt,
+        content,
+        author,
+        source,
+        content='articles',
+        content_rowid='rowid',
+        tokenize='trigram'
+      );
+      CREATE TRIGGER IF NOT EXISTS articles_trigram_ai AFTER INSERT ON articles BEGIN
+        INSERT INTO article_search_trigram(rowid, title, excerpt, content, author, source)
+        VALUES (new.rowid, new.title, new.excerpt, new.content, new.author, new.source);
+      END;
+      CREATE TRIGGER IF NOT EXISTS articles_trigram_ad AFTER DELETE ON articles BEGIN
+        INSERT INTO article_search_trigram(article_search_trigram, rowid, title, excerpt, content, author, source)
+        VALUES ('delete', old.rowid, old.title, old.excerpt, old.content, old.author, old.source);
+      END;
+      CREATE TRIGGER IF NOT EXISTS articles_trigram_au AFTER UPDATE OF title,excerpt,content,author,source ON articles BEGIN
+        INSERT INTO article_search_trigram(article_search_trigram, rowid, title, excerpt, content, author, source)
+        VALUES ('delete', old.rowid, old.title, old.excerpt, old.content, old.author, old.source);
+        INSERT INTO article_search_trigram(rowid, title, excerpt, content, author, source)
+        VALUES (new.rowid, new.title, new.excerpt, new.content, new.author, new.source);
+      END;
+      INSERT INTO article_search_trigram(article_search_trigram) VALUES ('rebuild');
+    `;
+  }
+};
+v10Migration.checksum = migrationChecksum(v10Migration.signature);
+
 export const MIGRATION_REGISTRY = Object.freeze([
   Object.freeze(v8Migration),
-  Object.freeze(v9Migration)
+  Object.freeze(v9Migration),
+  Object.freeze(v10Migration)
 ]);
 
 function validateMigrationRegistry() {

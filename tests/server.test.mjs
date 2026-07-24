@@ -51,7 +51,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(health.body.storage, 'sqlite');
   assert.equal(health.body.version, APP_VERSION);
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.21.0');
+  assert.equal(APP_VERSION, '0.22.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -107,6 +107,19 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
 
   const search = await json(`${base}/api/articles?q=成熟`);
   assert.ok(search.body.articles.some((article) => article.id === created.body.article.id));
+  assert.equal(search.body.total, 1);
+  assert.equal(search.body.hasMore, false);
+  assert.equal(search.body.nextCursor, null);
+  const firstPage = await json(`${base}/api/articles?limit=2`);
+  assert.equal(firstPage.body.articles.length, 2);
+  assert.equal(firstPage.body.total, 4);
+  assert.equal(firstPage.body.hasMore, true);
+  const secondPage = await json(`${base}/api/articles?limit=2&cursor=${encodeURIComponent(firstPage.body.nextCursor)}`);
+  assert.equal(secondPage.body.articles.length, 2);
+  assert.ok(secondPage.body.articles.every((article) => !firstPage.body.articles.some((first) => first.id === article.id)));
+  const invalidCursor = await json(`${base}/api/articles?cursor=not-a-cursor`);
+  assert.equal(invalidCursor.response.status, 400);
+  assert.deepEqual(invalidCursor.body, { error: '分页游标无效' });
 
   const summary = await json(`${base}/api/articles/${created.body.article.id}/ai/summary`, { method: 'POST' });
   assert.equal(summary.response.status, 200);
@@ -262,12 +275,12 @@ test('migration snapshots are listed without private paths and can be exported s
   const snapshot = listed.body.snapshots[0];
   assert.deepEqual(
     { from: snapshot.from_schema_version, to: snapshot.to_schema_version, privatePath: snapshot.path },
-    { from: 7, to: 9, privatePath: undefined }
+    { from: 7, to: 10, privatePath: undefined }
   );
   const download = await fetch(`${base}/api/migration-snapshots/${snapshot.id}/download`);
   assert.equal(download.status, 200);
   assert.equal(download.headers.get('content-type'), 'application/vnd.sqlite3');
-  assert.match(download.headers.get('content-disposition') || '', /reader-before-schema-v7-to-v9/);
+  assert.match(download.headers.get('content-disposition') || '', /reader-before-schema-v7-to-v10/);
   assert.equal(Buffer.from(await download.arrayBuffer()).subarray(0, 16).toString(), 'SQLite format 3\u0000');
   assert.equal((await fetch(`${base}/api/migration-snapshots/00000000-0000-4000-8000-000000000000/download`)).status, 404);
 
@@ -285,7 +298,7 @@ test('migration snapshots are listed without private paths and can be exported s
       privatePath: scheduled.body.pendingRestore.pendingDir,
       privateHash: scheduled.body.pendingRestore.databaseSha256
     },
-    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 7, to: 9, restartRequired: true, privatePath: undefined, privateHash: undefined }
+    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 7, to: 10, restartRequired: true, privatePath: undefined, privateHash: undefined }
   );
   const safety = await json(`${base}/api/backups`);
   assert.equal(safety.body.pendingRestore.kind, 'migration_snapshot');

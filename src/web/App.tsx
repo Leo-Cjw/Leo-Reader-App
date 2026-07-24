@@ -260,8 +260,8 @@ function Sidebar({ view, setView, collectionId, setCollectionId, smartCollection
   </aside>;
 }
 
-function ArticleList({ articles, selectedId, onSelect, loading, title, query, setQuery, contentFilter, setContentFilter, layout, setLayout, selectedIds, onToggleSelection, onSelectAll, onClearSelection, onBatch, onExport, onCompose, collections, tags, archiveView }: {
-  articles: Article[]; selectedId: string | null; onSelect: (article: Article) => void; loading: boolean; title: string; query: string; setQuery: (value: string) => void;
+function ArticleList({ articles, total, hasMore, loadingMore, onLoadMore, selectedId, onSelect, loading, title, query, setQuery, contentFilter, setContentFilter, layout, setLayout, selectedIds, onToggleSelection, onSelectAll, onClearSelection, onBatch, onExport, onCompose, collections, tags, archiveView }: {
+  articles: Article[]; total: number; hasMore: boolean; loadingMore: boolean; onLoadMore: () => void; selectedId: string | null; onSelect: (article: Article) => void; loading: boolean; title: string; query: string; setQuery: (value: string) => void;
   contentFilter: ContentFilter; setContentFilter: (value: ContentFilter) => void; layout: LibraryLayout; setLayout: (value: LibraryLayout) => void;
   selectedIds: Set<string>; onToggleSelection: (id: string) => void; onSelectAll: () => void; onClearSelection: () => void;
   onBatch: (patch: { collection_id?: string; is_favorite?: boolean; is_read?: boolean; archived?: boolean; tags_add?: string[]; tags_remove?: string[] }, message: string) => void;
@@ -278,7 +278,7 @@ function ArticleList({ articles, selectedId, onSelect, loading, title, query, se
     setBatchTag('');
   };
   return <section className="library-pane" data-screen-label="内容队列">
-    <header className="library-header"><div><h1>{title}</h1><p>{loading ? '正在读取本地资料库…' : selectedIds.size ? `已选择 ${selectedIds.size} / ${articles.length} 条` : `${articles.length} 条内容`}</p></div><div className="library-header-actions"><button className="icon-button" type="button" aria-label={selectedIds.size ? '取消选择' : '选择全部内容'} onClick={selectedIds.size ? onClearSelection : onSelectAll}>{selectedIds.size ? '×' : '✓'}</button><button className="icon-button" type="button" aria-label={layout === 'list' ? '切换到画廊视图' : '切换到列表视图'} onClick={() => setLayout(layout === 'list' ? 'gallery' : 'list')}>{layout === 'list' ? '▦' : '☷'}</button></div></header>
+    <header className="library-header"><div><h1>{title}</h1><p>{loading ? '正在读取本地资料库…' : selectedIds.size ? `已选择 ${selectedIds.size} / 已加载 ${articles.length} 条` : hasMore ? `已加载 ${articles.length} / 共 ${total} 条` : `${total} 条内容`}</p></div><div className="library-header-actions"><button className="icon-button" type="button" aria-label={selectedIds.size ? '取消选择' : '选择已加载内容'} onClick={selectedIds.size ? onClearSelection : onSelectAll}>{selectedIds.size ? '×' : '✓'}</button><button className="icon-button" type="button" aria-label={layout === 'list' ? '切换到画廊视图' : '切换到列表视图'} onClick={() => setLayout(layout === 'list' ? 'gallery' : 'list')}>{layout === 'list' ? '▦' : '☷'}</button></div></header>
     <div className="search-box"><span>⌕</span><input aria-label="搜索资料库" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索全文、标题或作者"/><kbd>⌘K</kbd></div>
     <div className="library-filters" role="group" aria-label="内容类型">{filters.map((filter) => <button type="button" key={filter.value} className={contentFilter === filter.value ? 'active' : ''} onClick={() => { setContentFilter(filter.value); if (filter.value === 'media') setLayout('gallery'); }}>{filter.label}</button>)}</div>
     <div className={`article-list ${layout === 'gallery' ? 'gallery' : ''}`}>
@@ -297,6 +297,7 @@ function ArticleList({ articles, selectedId, onSelect, loading, title, query, se
           {preview && <span className="card-preview" data-kind={preview.mime_type === 'application/pdf' ? 'pdf' : preview.mime_type.split('/')[0]}>{preview.mime_type.startsWith('video/') ? <video src={preview.url} muted playsInline preload="metadata" aria-hidden="true" onLoadedData={(event) => { if (event.currentTarget.duration > 0.02) event.currentTarget.currentTime = 0.01; }}></video> : <img src={preview.thumbnail_url || preview.url} alt="" loading="lazy"/>}<i>{preview.mime_type === 'application/pdf' ? 'PDF' : preview.mime_type.startsWith('video/') ? 'VIDEO' : ''}</i></span>}
         </article>;
       })}
+      {hasMore && <div className="load-more-row"><button className="button" type="button" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? '正在加载…' : '加载更多'}</button><span>还有 {(total - articles.length).toLocaleString()} 条内容</span></div>}
     </div>
     {selectedIds.size > 0 && <div className="batch-toolbar" aria-label="批量整理"><div className="batch-count"><strong>{selectedIds.size}</strong><span>条已选</span></div><button type="button" className="button primary" onClick={onCompose}>✦ 创作</button><select aria-label="批量移动到资料夹" defaultValue="" onChange={(event) => { if (event.target.value) onBatch({ collection_id: event.target.value }, `已移动 ${selectedIds.size} 条内容`); event.currentTarget.value = ''; }}><option value="" disabled>移动到…</option>{collectionRows.map((collection) => <option key={collection.id} value={collection.id}>{'— '.repeat(collection.depth)}{collection.name}</option>)}</select><button type="button" className="button" onClick={() => onBatch({ is_favorite: true }, `已收藏 ${selectedIds.size} 条内容`)}>收藏</button><button type="button" className="button" onClick={() => onBatch({ is_read: true }, `已标记 ${selectedIds.size} 条为已读`)}>已读</button><button type="button" className="button" onClick={onExport}>导出</button><span className="batch-tag"><input aria-label="批量添加标签" value={batchTag} onChange={(event) => setBatchTag(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && submitBatchTag()} placeholder="＋ 标签"/><button type="button" onClick={submitBatchTag}>添加</button></span>{tags.length > 0 && <select aria-label="批量移除标签" defaultValue="" onChange={(event) => { if (event.target.value) onBatch({ tags_remove: [event.target.value] }, `已移除标签 ${event.target.value}`); event.currentTarget.value = ''; }}><option value="" disabled>移除标签…</option>{tags.map((tag) => <option key={tag.id} value={tag.name}>{tag.name}</option>)}</select>}<button type="button" className={`button ${archiveView ? '' : 'danger'}`} onClick={() => onBatch({ archived: !archiveView }, archiveView ? `已恢复 ${selectedIds.size} 条内容` : `已归档 ${selectedIds.size} 条内容`)}>{archiveView ? '恢复' : '归档'}</button></div>}
   </section>;
@@ -1139,6 +1140,7 @@ function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, 
 export function App() {
   const isDesktop = new URLSearchParams(window.location.search).get('desktop') === '1';
   const [articles, setArticles] = useState<Article[]>([]); const [collections, setCollections] = useState<Collection[]>([]); const [smartCollections, setSmartCollections] = useState<SmartCollection[]>([]); const [tags, setTags] = useState<Tag[]>([]); const [sources, setSources] = useState<Source[]>([]); const [jobs, setJobs] = useState<ImportJob[]>([]); const [stats, setStats] = useState(initialStats);
+  const [articleTotal, setArticleTotal] = useState(0); const [articleCursor, setArticleCursor] = useState<string | null>(null); const [loadingMore, setLoadingMore] = useState(false);
   const [revisions, setRevisions] = useState<ArticleRevisionSummary[]>([]); const [revisionPreview, setRevisionPreview] = useState<ArticleRevision | null>(null); const [backups, setBackups] = useState<Backup[]>([]); const [migrationSnapshots, setMigrationSnapshots] = useState<MigrationSnapshot[]>([]); const [dataHealth, setDataHealth] = useState<DataHealth | null>(null); const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null); const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
   const [view, setView] = useState<View>('inbox'); const [collectionId, setCollectionId] = useState<string | null>(null); const [smartCollectionId, setSmartCollectionId] = useState<string | null>(null); const [tagFilter, setTagFilter] = useState(''); const [contentFilter, setContentFilter] = useState<ContentFilter>('all'); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(null); const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -1146,6 +1148,7 @@ export function App() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false); const [busyDiagnostics, setBusyDiagnostics] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('reader-theme') || 'light'); const [libraryLayout, setLibraryLayout] = useState<LibraryLayout>(() => localStorage.getItem('reader-library-layout') === 'gallery' ? 'gallery' : 'list'); const [toast, setToast] = useState<Toast | null>(null);
   const jobStates = useRef(new Map<string, ImportJob['status']>());
+  const articleRequestId = useRef(0);
   const notify = useCallback((message: string, tone: Toast['tone'] = 'normal') => setToast({ id: Date.now(), message, tone }), []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), 2600); return () => window.clearTimeout(timer); }, [toast]);
   useEffect(() => { localStorage.setItem('reader-theme', theme); }, [theme]);
@@ -1163,26 +1166,40 @@ export function App() {
   }, [notify]);
 
   const refreshArticles = useCallback(async () => {
+    const requestId = ++articleRequestId.current;
+    setLoadingMore(false);
     setLoading(true);
     try {
-      const next = await api.listArticles(view, query, collectionId, articleFilters, smartCollectionId); setArticles(next);
-      setSelectedId((current) => current && next.some((item) => item.id === current) ? current : next[0]?.id || null);
-    } catch (error) { notify(error instanceof Error ? error.message : '内容加载失败', 'error'); }
-    finally { setLoading(false); }
+      const page = await api.listArticles(view, query, collectionId, articleFilters, smartCollectionId);
+      if (requestId !== articleRequestId.current) return;
+      setArticles(page.articles); setArticleTotal(page.total); setArticleCursor(page.nextCursor);
+      setSelectedId((current) => current && page.articles.some((item) => item.id === current) ? current : page.articles[0]?.id || null);
+    } catch (error) { if (requestId === articleRequestId.current) notify(error instanceof Error ? error.message : '内容加载失败', 'error'); }
+    finally { if (requestId === articleRequestId.current) setLoading(false); }
   }, [view, query, collectionId, smartCollectionId, articleFilters, notify]);
+
+  const loadMoreArticles = useCallback(async () => {
+    if (!articleCursor || loadingMore) return;
+    const requestId = articleRequestId.current;
+    setLoadingMore(true);
+    try {
+      const page = await api.listArticles(view, query, collectionId, articleFilters, smartCollectionId, articleCursor);
+      if (requestId !== articleRequestId.current) return;
+      setArticles((current) => {
+        const known = new Set(current.map((article) => article.id));
+        return [...current, ...page.articles.filter((article) => !known.has(article.id))];
+      });
+      setArticleTotal(page.total); setArticleCursor(page.nextCursor);
+    } catch (error) { if (requestId === articleRequestId.current) notify(error instanceof Error ? error.message : '更多内容加载失败', 'error'); }
+    finally { if (requestId === articleRequestId.current) setLoadingMore(false); }
+  }, [articleCursor, loadingMore, view, query, collectionId, smartCollectionId, articleFilters, notify]);
 
   useEffect(() => { void refreshChrome(); }, [refreshChrome]);
   useEffect(() => { const timer = window.setTimeout(() => void refreshArticles(), query ? 220 : 0); return () => window.clearTimeout(timer); }, [refreshArticles, query]);
   useEffect(() => {
-    const timer = window.setInterval(async () => {
-      try {
-        const [nextSources, nextArticles, nextStats, nextTags] = await Promise.all([api.listSources(), api.listArticles(view, query, collectionId, articleFilters, smartCollectionId), api.getStats(), api.listTags()]);
-        setSources(nextSources); setArticles(nextArticles); setStats(nextStats); setTags(nextTags);
-        setSelectedId((current) => current && nextArticles.some((item) => item.id === current) ? current : nextArticles[0]?.id || null);
-      } catch {}
-    }, 30_000);
+    const timer = window.setInterval(() => void refreshChrome(), 30_000);
     return () => window.clearInterval(timer);
-  }, [view, query, collectionId, smartCollectionId, articleFilters]);
+  }, [refreshChrome]);
   useEffect(() => { setSelectedIds(new Set()); }, [view, collectionId, smartCollectionId, tagFilter, contentFilter, query]);
 
   const refreshJobs = useCallback(async () => {
@@ -1300,9 +1317,9 @@ export function App() {
       await api.deleteSmartCollection(collection.id);
       if (smartCollectionId === collection.id) {
         setSmartCollectionId(null);
-        const next = await api.listArticles(view, query, collectionId, articleFilters, null);
-        setArticles(next);
-        setSelectedId(next[0]?.id || null);
+        const page = await api.listArticles(view, query, collectionId, articleFilters, null);
+        setArticles(page.articles); setArticleTotal(page.total); setArticleCursor(page.nextCursor);
+        setSelectedId(page.articles[0]?.id || null);
       } else await refreshArticles();
       await refreshChrome();
       notify('智能资料夹已删除，文章保持原位');
@@ -1388,7 +1405,7 @@ export function App() {
       <header className="titlebar"><TrafficLights/><div className="save-state"><i></i><span>{activeJobCount ? `${activeJobCount} 个导入任务处理中` : '本地资料库已保存'}</span></div><div className="title-actions"><button className="button queue-button" type="button" onClick={() => setQueueOpen(true)}>导入队列{activeJobCount ? <b>{activeJobCount}</b> : null}</button><button className="button" type="button" onClick={() => setSettingsOpen(true)}>设置</button><button className="button" type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '深色' : '浅色'}</button><button className="button primary" type="button" onClick={() => setAddOpen(true)}>＋ 添加 <kbd>⌘N</kbd></button></div></header>
       <div className={`workspace ${aiOpen ? 'with-ai' : ''}`}>
         <Sidebar view={view} setView={setView} collectionId={collectionId} setCollectionId={setCollectionId} smartCollectionId={smartCollectionId} setSmartCollectionId={setSmartCollectionId} collections={collections} smartCollections={smartCollections} tags={tags} tagFilter={tagFilter} setTagFilter={setTagFilter} stats={stats} sources={sources} onAdd={() => setAddOpen(true)} onSources={() => setSourcesOpen(true)} onCollections={() => setCollectionsOpen(true)} onSmartCollections={() => setSmartCollectionsOpen(true)} onDuplicates={openDuplicates} onDataSafety={() => void openSafety()} onMoveArticles={(ids, targetCollectionId) => void moveDraggedArticles(ids, targetCollectionId)}/>
-        <ArticleList articles={articles} selectedId={selectedId} onSelect={selectArticle} loading={loading} title={title} query={query} setQuery={setQuery} contentFilter={contentFilter} setContentFilter={setContentFilter} layout={libraryLayout} setLayout={setLibraryLayout} selectedIds={selectedIds} onToggleSelection={toggleSelection} onSelectAll={selectAll} onClearSelection={() => setSelectedIds(new Set())} onBatch={(patch, message) => void batchOrganize(patch, message)} onExport={() => setExportOpen(true)} onCompose={() => setComposeOpen(true)} collections={collections} tags={tags} archiveView={view === 'archive'}/>
+        <ArticleList articles={articles} total={articleTotal} hasMore={Boolean(articleCursor)} loadingMore={loadingMore} onLoadMore={() => void loadMoreArticles()} selectedId={selectedId} onSelect={selectArticle} loading={loading} title={title} query={query} setQuery={setQuery} contentFilter={contentFilter} setContentFilter={setContentFilter} layout={libraryLayout} setLayout={setLibraryLayout} selectedIds={selectedIds} onToggleSelection={toggleSelection} onSelectAll={selectAll} onClearSelection={() => setSelectedIds(new Set())} onBatch={(patch, message) => void batchOrganize(patch, message)} onExport={() => setExportOpen(true)} onCompose={() => setComposeOpen(true)} collections={collections} tags={tags} archiveView={view === 'archive'}/>
         <ReaderPane article={selected} collections={collections} focusedCitation={focusedCitation} onDismissCitation={() => setFocusedCitation(null)} onPatch={patchSelected} onAddTags={addTags} onRemoveTags={removeTags} onToggleAI={() => setAIOpen((value) => !value)} onEdit={() => setEditOpen(true)} onHistory={() => void openHistory()} onOpenSource={(id) => void openSourceArticle(id)} notify={notify}/>
         {aiOpen && <AIPanel article={selected} onClose={() => setAIOpen(false)} onArticleUpdated={updateArticleInState} onDerivedCreated={showDerivedArticle} onOpenCitation={(citation) => void openCitation(citation)} configurationVersion={aiConfigurationVersion} notify={notify}/>}
       </div>

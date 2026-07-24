@@ -27,6 +27,13 @@ export interface Article {
   metadata?: Record<string, unknown>;
 }
 
+export interface ArticlePage {
+  articles: Article[];
+  total: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
 export type HighlightColor = 'amber' | 'green' | 'blue' | 'pink';
 
 export interface Highlight {
@@ -58,6 +65,7 @@ export interface RAGIndexStatus {
   articleCount: number;
   pendingArticles: number;
   articleSearchRows: number;
+  articleSearchTrigramRows: number;
   chunkSearchRows: number;
   consistent: boolean;
 }

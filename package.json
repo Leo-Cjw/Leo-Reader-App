@@ -1,6 +1,6 @@
 {
   "name": "reader-local-first",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "A private, local-first reading and knowledge workspace for macOS.",
   "author": "Reader",
   "private": true,
@@ -12,6 +12,7 @@
     "build": "tsc -b && vite build",
     "start": "node src/server/server.mjs",
     "test": "node --test tests/*.test.mjs",
+    "benchmark:library": "node scripts/benchmark-library.mjs",
     "benchmark:rag": "node scripts/benchmark-rag.mjs",
     "icon:mac": "node scripts/build-mac-icon.mjs",
     "desktop": "npm run build && electron .",

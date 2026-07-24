@@ -255,14 +255,19 @@ export async function createReaderServer({
       }
 
       if (pathname === '/api/articles' && method === 'GET') {
-        const articles = await database.listArticles({
-          view: url.searchParams.get('view') || 'inbox', query: url.searchParams.get('q') || '',
-          collectionId: url.searchParams.get('collection') || null, types: url.searchParams.get('types') || '',
-          smartCollectionId: url.searchParams.get('smart') || null,
-          tag: url.searchParams.get('tag') || '', mediaOnly: url.searchParams.get('media') === '1',
-          limit: url.searchParams.get('limit') || 100
-        });
-        return sendJSON(response, 200, { articles });
+        try {
+          const page = await database.listArticlePage({
+            view: url.searchParams.get('view') || 'inbox', query: url.searchParams.get('q') || '',
+            collectionId: url.searchParams.get('collection') || null, types: url.searchParams.get('types') || '',
+            smartCollectionId: url.searchParams.get('smart') || null,
+            tag: url.searchParams.get('tag') || '', mediaOnly: url.searchParams.get('media') === '1',
+            limit: url.searchParams.get('limit') || 100, cursor: url.searchParams.get('cursor') || null
+          });
+          return sendJSON(response, 200, page);
+        } catch (error) {
+          if (error instanceof TypeError && /游标/.test(error.message || '')) throw new HTTPError(400, error.message);
+          throw error;
+        }
       }
 
       if (pathname === '/api/articles' && method === 'POST') {

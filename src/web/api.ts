@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -24,7 +24,7 @@ function encodeSecretHeader(value: string) {
 }
 
 export const api = {
-  async listArticles(view: View, query = '', collectionId?: string | null, filters: { types?: string[]; tag?: string; mediaOnly?: boolean } = {}, smartCollectionId?: string | null) {
+  async listArticles(view: View, query = '', collectionId?: string | null, filters: { types?: string[]; tag?: string; mediaOnly?: boolean } = {}, smartCollectionId?: string | null, cursor?: string | null) {
     const params = new URLSearchParams({ view });
     if (query) params.set('q', query);
     if (collectionId) params.set('collection', collectionId);
@@ -32,7 +32,8 @@ export const api = {
     if (filters.types?.length) params.set('types', filters.types.join(','));
     if (filters.tag) params.set('tag', filters.tag);
     if (filters.mediaOnly) params.set('media', '1');
-    return (await request<{ articles: Article[] }>(`/api/articles?${params}`)).articles;
+    if (cursor) params.set('cursor', cursor);
+    return await request<ArticlePage>(`/api/articles?${params}`);
   },
   async updateArticle(id: string, patch: Partial<Article>) {
     return (await request<{ article: Article }>(`/api/articles/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) })).article;

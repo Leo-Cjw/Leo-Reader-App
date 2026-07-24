@@ -1,4 +1,4 @@
-# Reader for Mac 0.21.0
+# Reader for Mac 0.22.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.21.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.22.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -73,11 +73,11 @@ npm run desktop:pack
 - 订阅中心：开关、15 分钟到每周的同步频率、立即同步、错误/限流状态、删除来源，以及 OPML 2.0 导入导出。删除来源或断开连接器不会删除已经保存的文章。
 - 资料管理：可创建、改名、嵌套和安全删除的树形资料夹；父资料夹可聚合子树内容。支持单篇和批量移动、添加/移除标签、收藏、已读、归档与恢复。
 - 智能整理：可以把关键词、内容类型、标签、来源、原资料夹、阅读/收藏状态、高亮、附件和保存时间组合成“全部满足”或“任一满足”的动态资料夹；规则、结果计数和自定义顺序都保存在本地。文章卡片可直接拖到普通资料夹，同级资料夹与智能资料夹可拖动排序。
-- 资料视图：网页、订阅、附件、笔记与媒体筛选；列表和双列画廊可切换，画廊直接使用本地图片、PDF 缩略图和视频首帧。
+- 资料视图：网页、订阅、附件、笔记与媒体筛选；列表和双列画廊可切换，画廊直接使用本地图片、PDF 缩略图和视频首帧。列表使用稳定游标分页，明确显示已加载数和命中总数，不会在 100 条后静默截断。
 - 选择性导出：多选任意内容，生成标准 Markdown ZIP；可选携带原始附件，正文中的本地资源改写为相对路径，manifest 保留来源、标签和附件 SHA-256。v3 包同时包含 Reader 专用 sidecar，使正文、摘要、阅读状态和扩展元数据可以无损往返而不影响 Markdown 的独立使用。
 - 选择性导入：在“添加 → Reader ZIP”中先安全预检，再逐篇勾选并指定目标资料夹；已有 Reader ID 或原链接默认跳过，不隐式覆盖。支持 v3 无损包和既有 v2 Markdown 包的兼容恢复。
 - 重复治理：按规范化原链接、完整正文或标题摘要检测重复组；用户明确选择保留版本后合并标签、收藏、摘要与阅读进度，副本仅归档且可恢复。
-- 检索：SQLite FTS5；中文查询自动使用 `LIKE` 兼容路径。
+- 检索：拉丁文字使用 SQLite FTS5 词法索引；三个及以上字符的中文词组使用 FTS5 trigram 子串索引，短词保留兼容路径。
 - 阅读器：三栏桌面布局、明暗主题、文章助手和键盘入口。
 - AI：默认完全本地的提取式摘要、多资料结构化整理与 RAG 问答；可在当前文章或整个资料库中检索，回答附带可点击的原文片段。文章新增、编辑、导入完成和版本恢复会在同一事务中重建分块索引。启用远程网关后只发送本地命中的有限片段，密钥存入 macOS Keychain。
 - 安全：阻止 localhost、私网 IP 与云元数据地址；限制跳转、超时和 4 MB 正文响应体；单张图片 12 MB、单篇本地化预算 48 MB。
@@ -145,7 +145,7 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 
 - `GET /api/health`：运行状态与数据库路径。
 - `GET /api/stats`：收件箱、未读、收藏等计数。
-- `GET/POST /api/articles`：查询或创建内容。
+- `GET/POST /api/articles`：查询或创建内容；查询响应包含 `articles`、`total`、`hasMore` 和不透明的 `nextCursor`，后续页把游标原样传回 `cursor`。
 - `GET/PATCH /api/articles/:id`：读取或更新文章。
 - `POST /api/articles/batch`：原子批量移动、标签、收藏、已读、归档或恢复。
 - `POST /api/articles/:id/attachments`：向既有文章安全上传并挂载本地图片。
@@ -198,4 +198,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.21.0 变更见 [docs/RELEASE_NOTES_0.21.0.md](docs/RELEASE_NOTES_0.21.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.22.0 变更见 [docs/RELEASE_NOTES_0.22.0.md](docs/RELEASE_NOTES_0.22.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

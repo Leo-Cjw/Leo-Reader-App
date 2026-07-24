@@ -22,6 +22,23 @@ export function sqlValue(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
+export function encodeArticleCursor(article) {
+  return Buffer.from(JSON.stringify([article.created_at, article.id])).toString('base64url');
+}
+
+export function decodeArticleCursor(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(String(value), 'base64url').toString('utf8'));
+    if (!Array.isArray(parsed) || parsed.length !== 2) throw new Error();
+    const [createdAt, id] = parsed.map(String);
+    if (!createdAt || createdAt.length > 64 || !id || id.length > 200) throw new Error();
+    return { createdAt, id };
+  } catch {
+    throw new TypeError('分页游标无效');
+  }
+}
+
 function now() {
   return new Date().toISOString();
 }
@@ -398,6 +415,7 @@ export class ReaderDatabase {
     }
     await this.execute(`BEGIN IMMEDIATE;
       INSERT INTO article_search(article_search) VALUES ('rebuild');
+      INSERT INTO article_search_trigram(article_search_trigram) VALUES ('rebuild');
       INSERT INTO chunk_search(chunk_search) VALUES ('rebuild');
       COMMIT;
       PRAGMA optimize;`);
@@ -412,11 +430,13 @@ export class ReaderDatabase {
       (SELECT count(*) FROM articles) AS total_articles,
       (SELECT count(*) FROM article_chunks) AS total_chunks,
       (SELECT count(*) FROM article_search_docsize) AS article_search_rows,
+      (SELECT count(*) FROM article_search_trigram_docsize) AS article_search_trigram_rows,
       (SELECT count(*) FROM chunk_search_docsize) AS chunk_search_rows,
       (SELECT count(*) FROM articles a WHERE a.archived=0 AND length(trim(a.content))>0 AND NOT EXISTS (SELECT 1 FROM article_chunks c WHERE c.article_id=a.id)) AS pending_articles;`);
     const totalArticles = Number(row?.total_articles || 0);
     const totalChunks = Number(row?.total_chunks || 0);
     const articleSearchRows = Number(row?.article_search_rows || 0);
+    const articleSearchTrigramRows = Number(row?.article_search_trigram_rows || 0);
     const chunkSearchRows = Number(row?.chunk_search_rows || 0);
     return {
       version: 1,
@@ -426,8 +446,9 @@ export class ReaderDatabase {
       articleCount: Number(row?.article_count || 0),
       pendingArticles: Number(row?.pending_articles || 0),
       articleSearchRows,
+      articleSearchTrigramRows,
       chunkSearchRows,
-      consistent: totalArticles === articleSearchRows && totalChunks === chunkSearchRows
+      consistent: totalArticles === articleSearchRows && totalArticles === articleSearchTrigramRows && totalChunks === chunkSearchRows
     };
   }
 
@@ -688,7 +709,7 @@ export class ReaderDatabase {
     return await this.query(`SELECT t.id,t.name,t.created_at,count(a.id) AS article_count FROM tags t LEFT JOIN article_tags at ON at.tag_id=t.id LEFT JOIN articles a ON a.id=at.article_id AND a.archived=0 GROUP BY t.id ORDER BY article_count DESC,t.name COLLATE NOCASE;`);
   }
 
-  async listArticles({ view = 'inbox', query = '', collectionId = null, smartCollectionId = null, types = [], tag = '', mediaOnly = false, limit = 100 } = {}) {
+  async articleListParts({ view = 'inbox', query = '', collectionId = null, smartCollectionId = null, types = [], tag = '', mediaOnly = false } = {}) {
     const where = [view === 'archive' ? 'a.archived=1' : 'a.archived=0'];
     if (view === 'unread') where.push('a.is_read=0');
     if (view === 'favorites') where.push('a.is_favorite=1');
@@ -703,32 +724,63 @@ export class ReaderDatabase {
     if (normalizedTypes.length) where.push(`a.type IN (${normalizedTypes.map(sqlValue).join(',')})`);
     if (tag) where.push(`EXISTS (SELECT 1 FROM article_tags filter_at JOIN tags filter_t ON filter_t.id=filter_at.tag_id WHERE filter_at.article_id=a.id AND filter_t.name=${sqlValue(tag)})`);
     if (mediaOnly) where.push(`EXISTS (SELECT 1 FROM attachments media_attachment WHERE media_attachment.article_id=a.id AND (media_attachment.mime_type LIKE 'image/%' OR media_attachment.mime_type LIKE 'video/%' OR media_attachment.mime_type='application/pdf'))`);
-    let join = '';
+    const joins = [];
     if (query.trim()) {
       const tokens = query.trim().split(/\s+/).filter(Boolean);
       if (tokens.some((token) => /[\u3400-\u9fff]/.test(token))) {
-        for (const token of tokens) {
+        const trigramTokens = tokens.filter((token) => Array.from(token).length >= 3);
+        if (trigramTokens.length) {
+          joins.push('JOIN article_search_trigram trigram_search ON trigram_search.rowid=a.rowid');
+          where.push(`article_search_trigram MATCH ${sqlValue(trigramTokens.map((token) => `"${token.replaceAll('"', '')}"`).join(' AND '))}`);
+        }
+        for (const token of tokens.filter((candidate) => Array.from(candidate).length < 3)) {
           const pattern = `%${token}%`;
           where.push(`(a.title LIKE ${sqlValue(pattern)} OR a.excerpt LIKE ${sqlValue(pattern)} OR a.content LIKE ${sqlValue(pattern)} OR a.author LIKE ${sqlValue(pattern)} OR a.source LIKE ${sqlValue(pattern)})`);
         }
       } else {
         const match = tokens.map((token) => `"${token.replaceAll('"', '')}"`).join(' AND ');
-        join = 'JOIN article_search s ON s.rowid=a.rowid';
+        joins.push('JOIN article_search s ON s.rowid=a.rowid');
         where.push(`article_search MATCH ${sqlValue(match)}`);
       }
     }
+    return { where, join: joins.join(' ') };
+  }
+
+  async listArticlePage(options = {}) {
+    const { limit = 100, cursor = null, includeTotal = true } = options;
+    const { where, join } = await this.articleListParts(options);
     const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
-    return await this.query(`
+    const decodedCursor = decodeArticleCursor(cursor);
+    const pageWhere = [...where];
+    if (decodedCursor) {
+      pageWhere.push(`(a.created_at < ${sqlValue(decodedCursor.createdAt)} OR (a.created_at=${sqlValue(decodedCursor.createdAt)} AND a.id < ${sqlValue(decodedCursor.id)}))`);
+    }
+    const rows = await this.query(`
       SELECT a.*, c.name AS collection_name,
         (SELECT count(*) FROM article_revisions r WHERE r.article_id=a.id) AS revision_count,
         coalesce((SELECT json_group_array(t.name) FROM article_tags at JOIN tags t ON t.id=at.tag_id WHERE at.article_id=a.id), '[]') AS tags_json,
         coalesce((SELECT json_group_array(json_object('id',f.id,'file_name',f.file_name,'mime_type',f.mime_type,'byte_size',f.byte_size,'sha256',f.sha256,'url','/api/attachments/' || f.id || '/content','thumbnail_url',CASE WHEN f.mime_type='application/pdf' OR f.mime_type LIKE 'image/%' THEN '/api/attachments/' || f.id || '/thumbnail' ELSE NULL END)) FROM attachments f WHERE f.article_id=a.id), '[]') AS attachments_json
       FROM articles a ${join}
       LEFT JOIN collections c ON c.id=a.collection_id
-      WHERE ${where.join(' AND ')}
-      ORDER BY a.created_at DESC
-      LIMIT ${safeLimit};
+      WHERE ${pageWhere.join(' AND ')}
+      ORDER BY a.created_at DESC, a.id DESC
+      LIMIT ${safeLimit + 1};
     `);
+    const hasMore = rows.length > safeLimit;
+    const articles = hasMore ? rows.slice(0, safeLimit) : rows;
+    const totalRow = includeTotal
+      ? await this.one(`SELECT count(*) AS total FROM articles a ${join} WHERE ${where.join(' AND ')};`)
+      : null;
+    return {
+      articles,
+      total: totalRow ? Number(totalRow.total || 0) : null,
+      hasMore,
+      nextCursor: hasMore && articles.length ? encodeArticleCursor(articles.at(-1)) : null
+    };
+  }
+
+  async listArticles(options = {}) {
+    return (await this.listArticlePage({ ...options, includeTotal: false })).articles;
   }
 
   async getArticle(id) {
