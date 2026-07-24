@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
-import { ReaderDatabase } from '../src/server/db.mjs';
-import { applyPendingRestore, createBackup, getPendingRestore, listBackups, resolveBackup, scheduleRestore, validateBackupEntryPath, validateBackupPassphrase } from '../src/server/backup.mjs';
+import { listMigrationSnapshots, ReaderDatabase, resolveMigrationSnapshot } from '../src/server/db.mjs';
+import { schemaSQL } from '../src/server/schema.mjs';
+import { applyPendingRestore, createBackup, getPendingRestore, listBackups, resolveBackup, scheduleMigrationSnapshotRestore, scheduleRestore, validateBackupEntryPath, validateBackupPassphrase } from '../src/server/backup.mjs';
 
 test('backup entry paths reject traversal, absolute paths and unknown files', () => {
   assert.equal(validateBackupEntryPath('files/image.png'), 'files/image.png');
@@ -54,6 +55,111 @@ test('complete backup is validated and restored on the next startup', async (t) 
   assert.equal(await restored.getArticle('after-backup'), null);
   assert.equal(await getPendingRestore(root), null);
   assert.equal(await readFile(path.join(filesDir, 'sample.bin'), 'utf8'), 'attachment-before-backup');
+});
+
+test('migration snapshot restore preserves files, backs up current data and remigrates on restart', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'reader-migration-restore-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dbPath = path.join(root, 'data', 'reader.sqlite3');
+  await mkdir(path.dirname(dbPath), { recursive: true });
+  const legacy = new ReaderDatabase(dbPath);
+  await legacy.execute(schemaSQL);
+  await legacy.execute(`INSERT INTO schema_migrations(version,applied_at) VALUES (8,'2026-01-01');
+  INSERT INTO collections(id,name,position,created_at,updated_at) VALUES ('legacy','升级前资料',0,'2026-01-01','2026-01-01');
+  INSERT INTO articles(id,title,content,collection_id,created_at,updated_at)
+  VALUES ('before-upgrade','升级前文章','需要从迁移快照保留的正文','legacy','2026-01-01','2026-01-01');`);
+  const database = await legacy.initialize();
+  await database.createArticle({ id: 'after-upgrade', title: '升级后文章', content: '安排回滚前仍须进入安全备份。' });
+  const filesDir = path.join(root, 'data', 'files');
+  await mkdir(filesDir, { recursive: true });
+  await writeFile(path.join(filesDir, 'preserved.bin'), 'attachment-bytes-stay-in-place');
+
+  const snapshot = await resolveMigrationSnapshot(dbPath, (await listMigrationSnapshots(dbPath))[0].id);
+  const marker = await scheduleMigrationSnapshotRestore({ database, snapshot, rootDir: root, appVersion: '0.21.0' });
+  assert.deepEqual(
+    {
+      kind: marker.kind,
+      snapshotId: marker.snapshotId,
+      from: marker.fromSchemaVersion,
+      to: marker.toSchemaVersion,
+      hasPrivatePath: Boolean(marker.pendingDir),
+      hash: /^[0-9a-f]{64}$/.test(marker.databaseSha256)
+    },
+    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 8, to: 9, hasPrivatePath: true, hash: true }
+  );
+  assert.equal((await stat(path.join(marker.pendingDir, 'migration-snapshot.sqlite3'))).mode & 0o777, 0o600);
+  const safetyBackup = await resolveBackup(root, marker.safetyBackupId);
+  assert.ok(safetyBackup?.path);
+  assert.equal((await listBackups(root)).length, 1);
+
+  const applied = await applyPendingRestore({ rootDir: root, dbPath });
+  assert.deepEqual(
+    { kind: applied.kind, snapshotId: applied.snapshotId, from: applied.fromSchemaVersion, safetyBackupId: applied.safetyBackupId },
+    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 8, safetyBackupId: marker.safetyBackupId }
+  );
+  const restored = await new ReaderDatabase(dbPath).initialize();
+  assert.equal((await restored.one('SELECT max(version) AS version FROM schema_migrations;')).version, 9);
+  assert.equal((await restored.getArticle('before-upgrade')).content, '需要从迁移快照保留的正文');
+  assert.equal(await restored.getArticle('after-upgrade'), null);
+  assert.equal(await readFile(path.join(filesDir, 'preserved.bin'), 'utf8'), 'attachment-bytes-stay-in-place');
+  assert.equal(await getPendingRestore(root), null);
+
+  const safetyArchive = await readFile(safetyBackup.path);
+  const request = Readable.from([safetyArchive]);
+  request.headers = { 'content-length': String(safetyArchive.length) };
+  await scheduleRestore({ request, database: restored, rootDir: root, appVersion: '0.21.0' });
+  await applyPendingRestore({ rootDir: root, dbPath });
+  const recoveredCurrent = await new ReaderDatabase(dbPath).initialize();
+  assert.equal((await recoveredCurrent.getArticle('after-upgrade')).content, '安排回滚前仍须进入安全备份。');
+  assert.equal(await readFile(path.join(filesDir, 'preserved.bin'), 'utf8'), 'attachment-bytes-stay-in-place');
+});
+
+test('migration snapshot restore rejects incompatible or changed snapshots before replacement', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'reader-migration-restore-reject-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dbPath = path.join(root, 'data', 'reader.sqlite3');
+  const database = await new ReaderDatabase(dbPath).initialize();
+  const snapshotPath = path.join(root, 'reader-before-schema-v8-to-v10-2026-01-01T00-00-00-000Z-00000000-0000-4000-8000-000000000000.sqlite3');
+  await writeFile(snapshotPath, 'not sqlite');
+  await assert.rejects(
+    scheduleMigrationSnapshotRestore({
+      database,
+      rootDir: root,
+      appVersion: '0.21.0',
+      snapshot: {
+        id: '00000000-0000-4000-8000-000000000000',
+        path: snapshotPath,
+        from_schema_version: 8,
+        to_schema_version: 10
+      }
+    }),
+    /更新版本|schema v10/
+  );
+  assert.equal(await getPendingRestore(root), null);
+  assert.equal((await listBackups(root)).length, 0);
+
+  await database.createArticle({ id: 'current-safe', title: '当前资料', content: '快照损坏时不得替换。' });
+  const migrationDirectory = path.join(path.dirname(dbPath), 'migration-backups');
+  await mkdir(migrationDirectory, { recursive: true });
+  const compatiblePath = path.join(migrationDirectory, 'reader-before-schema-v8-to-v9-2026-01-01T00-00-00-000Z-11111111-1111-4111-8111-111111111111.sqlite3');
+  const compatible = new ReaderDatabase(compatiblePath);
+  await compatible.execute(schemaSQL);
+  await compatible.execute("INSERT INTO schema_migrations(version,applied_at) VALUES (8,'2026-01-01');");
+  const marker = await scheduleMigrationSnapshotRestore({
+    database,
+    rootDir: root,
+    appVersion: '0.21.0',
+    snapshot: {
+      id: '11111111-1111-4111-8111-111111111111',
+      path: compatiblePath,
+      from_schema_version: 8,
+      to_schema_version: 9
+    }
+  });
+  await writeFile(path.join(marker.pendingDir, 'migration-snapshot.sqlite3'), 'changed after validation');
+  await assert.rejects(applyPendingRestore({ rootDir: root, dbPath }), /校验值不一致|完整性检查失败/);
+  assert.equal((await database.getArticle('current-safe')).content, '快照损坏时不得替换。');
+  assert.equal((await getPendingRestore(root)).kind, 'migration_snapshot');
 });
 
 test('encrypted backup authenticates the full archive and restores only with the correct passphrase', async (t) => {

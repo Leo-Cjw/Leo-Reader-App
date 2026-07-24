@@ -140,20 +140,21 @@ export function createSourceSyncService(database, { fetchFeed = fetchRSS, social
 
 export function createSourceScheduler(database, syncService, { pollIntervalMs = 30_000, initialDelayMs = 2_000 } = {}) {
   let timer = null;
+  let paused = false;
   let running = false;
   let stopped = false;
   let activeRun = null;
 
   function runDueSources() {
     if (activeRun) return activeRun;
-    if (stopped) return Promise.resolve({ synced: 0 });
+    if (stopped || paused) return Promise.resolve({ synced: 0 });
     running = true;
     activeRun = (async () => {
       let synced = 0;
       try {
         const due = await database.listDueSources();
         for (const source of due) {
-          if (stopped) break;
+          if (stopped || paused) break;
           try { await syncService.syncSource(source); }
           catch (error) { if (!stopped) console.warn(`订阅源同步失败：${source.title}: ${error.message}`); }
           synced += 1;
@@ -168,12 +169,23 @@ export function createSourceScheduler(database, syncService, { pollIntervalMs = 
   }
 
   function schedule(delay) {
-    if (stopped) return;
+    if (stopped || paused) return;
     timer = setTimeout(() => { void runDueSources().finally(() => schedule(pollIntervalMs)); }, delay);
     timer.unref?.();
   }
 
   function start() { if (!timer && !stopped) schedule(initialDelayMs); }
+  async function pause() {
+    paused = true;
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (activeRun) await activeRun;
+  }
+  function resume() {
+    if (stopped || !paused) return;
+    paused = false;
+    schedule(initialDelayMs);
+  }
   async function stop() { stopped = true; if (timer) clearTimeout(timer); timer = null; if (activeRun) await activeRun; }
-  return { start, stop, runDueSources };
+  return { start, pause, resume, stop, runDueSources };
 }

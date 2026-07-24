@@ -51,7 +51,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(health.body.storage, 'sqlite');
   assert.equal(health.body.version, APP_VERSION);
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.20.1');
+  assert.equal(APP_VERSION, '0.21.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -270,6 +270,34 @@ test('migration snapshots are listed without private paths and can be exported s
   assert.match(download.headers.get('content-disposition') || '', /reader-before-schema-v7-to-v9/);
   assert.equal(Buffer.from(await download.arrayBuffer()).subarray(0, 16).toString(), 'SQLite format 3\u0000');
   assert.equal((await fetch(`${base}/api/migration-snapshots/00000000-0000-4000-8000-000000000000/download`)).status, 404);
+
+  const missingRestore = await json(`${base}/api/migration-snapshots/00000000-0000-4000-8000-000000000000/restore`, { method: 'POST' });
+  assert.equal(missingRestore.response.status, 404);
+  const scheduled = await json(`${base}/api/migration-snapshots/${snapshot.id}/restore`, { method: 'POST' });
+  assert.equal(scheduled.response.status, 202);
+  assert.deepEqual(
+    {
+      kind: scheduled.body.pendingRestore.kind,
+      snapshotId: scheduled.body.pendingRestore.snapshotId,
+      from: scheduled.body.pendingRestore.fromSchemaVersion,
+      to: scheduled.body.pendingRestore.toSchemaVersion,
+      restartRequired: scheduled.body.restartRequired,
+      privatePath: scheduled.body.pendingRestore.pendingDir,
+      privateHash: scheduled.body.pendingRestore.databaseSha256
+    },
+    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 7, to: 9, restartRequired: true, privatePath: undefined, privateHash: undefined }
+  );
+  const safety = await json(`${base}/api/backups`);
+  assert.equal(safety.body.pendingRestore.kind, 'migration_snapshot');
+  assert.equal(safety.body.backups.length, 1);
+  const blockedWrite = await json(`${base}/api/articles`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'markdown', title: '不应写入', content: '恢复等待期间必须冻结写入。' }) });
+  assert.equal(blockedWrite.response.status, 409);
+  assert.match(blockedWrite.body.error, /写入和后台同步已暂停/);
+  assert.equal((await json(`${base}/api/data-health`, { method: 'POST' })).response.status, 200);
+  const cancelled = await json(`${base}/api/backups/restore`, { method: 'DELETE' });
+  assert.equal(cancelled.body.cancelled, true);
+  const resumedWrite = await json(`${base}/api/articles`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'markdown', title: '取消后恢复写入', content: '取消恢复后资料库继续正常工作。' }) });
+  assert.equal(resumedWrite.response.status, 201);
 });
 
 test('attachment upload runs through the durable queue and supports byte ranges', async (t) => {

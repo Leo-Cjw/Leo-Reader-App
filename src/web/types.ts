@@ -293,10 +293,14 @@ export interface DiagnosticsSnapshot {
 
 export interface PendingRestore {
   id: string;
-  backupCreatedAt: string;
+  kind?: 'backup' | 'migration_snapshot';
+  backupCreatedAt?: string;
   safetyBackupId: string;
   scheduledAt: string;
   encrypted?: boolean;
+  snapshotId?: string;
+  fromSchemaVersion?: number;
+  toSchemaVersion?: number;
 }
 
 export interface Collection {

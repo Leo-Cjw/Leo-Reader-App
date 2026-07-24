@@ -189,4 +189,11 @@ test('scheduler only runs enabled sources that are due', async (t) => {
   const result = await scheduler.runDueSources();
   assert.equal(result.synced, 1);
   assert.deepEqual(seen, [due.id]);
+  await scheduler.pause();
+  await db.updateSource(due.id, { next_fetch_at: new Date().toISOString(), last_status: 'idle' });
+  assert.deepEqual(await scheduler.runDueSources(), { synced: 0 });
+  assert.deepEqual(seen, [due.id]);
+  scheduler.resume();
+  assert.equal((await scheduler.runDueSources()).synced, 1);
+  assert.deepEqual(seen, [due.id, due.id]);
 });

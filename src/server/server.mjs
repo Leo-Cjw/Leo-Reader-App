@@ -11,7 +11,7 @@ import { MacOSKeychainCredentialStore } from './credentials.mjs';
 import { defaultSettingsPath, SettingsStore } from './settings.mjs';
 import { attachStagedImage, MAX_EDITOR_IMAGE_BYTES, MAX_UPLOAD_BYTES, stageAttachment } from './attachments.mjs';
 import { createImportWorker, processImportJob } from './import-worker.mjs';
-import { applyPendingRestore, cancelPendingRestore, createBackup, getPendingRestore, listBackups, resolveBackup, scheduleRestore } from './backup.mjs';
+import { applyPendingRestore, cancelPendingRestore, createBackup, getPendingRestore, listBackups, resolveBackup, scheduleMigrationSnapshotRestore, scheduleRestore } from './backup.mjs';
 import { getAttachmentThumbnail } from './thumbnails.mjs';
 import { createSourceScheduler, createSourceSyncService, normalizeSourceURL } from './source-sync.mjs';
 import { SocialConnectorManager } from './social-connectors.mjs';
@@ -149,7 +149,7 @@ function publicImportJob(job) {
 
 function publicPendingRestore(marker) {
   if (!marker) return null;
-  const { pendingDir: _privatePath, ...safe } = marker;
+  const { pendingDir: _privatePath, databaseSha256: _privateHash, ...safe } = marker;
   return safe;
 }
 
@@ -222,7 +222,15 @@ export async function createReaderServer({
   const sourceScheduler = createSourceScheduler(database, sourceSync);
   sourceScheduler.start();
   let dataRepairPromise = null;
+  let restoreWriteLocked = false;
   let diagnosticsStopped = false;
+  const pauseBackgroundWork = async () => {
+    await Promise.all([importWorker.pause(), sourceScheduler.pause()]);
+  };
+  const resumeBackgroundWork = () => {
+    importWorker.resume();
+    sourceScheduler.resume();
+  };
 
   const server = http.createServer(async (request, response) => {
     let requestPath = '/';
@@ -232,6 +240,11 @@ export async function createReaderServer({
       const method = requestMethod;
       const pathname = decodeURIComponent(url.pathname);
       requestPath = pathname;
+      const restoreCancellation = pathname === '/api/backups/restore' && method === 'DELETE';
+      const readOnlyDataHealth = pathname === '/api/data-health' && method === 'POST';
+      if (restoreWriteLocked && !['GET', 'HEAD'].includes(method) && !restoreCancellation && !readOnlyDataHealth) {
+        throw new HTTPError(409, '恢复任务等待重启；为保护安全备份，资料库写入和后台同步已暂停');
+      }
 
       if (pathname === '/api/health' && method === 'GET') {
         return sendJSON(response, 200, { ok: true, version: APP_VERSION, storage: 'sqlite', restoredOnStart: Boolean(appliedRestore), time: new Date().toISOString() });
@@ -811,6 +824,28 @@ export async function createReaderServer({
         return sendJSON(response, 200, { snapshots: await listMigrationSnapshots(database.path) });
       }
 
+      const migrationSnapshotRestoreMatch = pathname.match(/^\/api\/migration-snapshots\/([0-9a-f-]{36})\/restore$/i);
+      if (migrationSnapshotRestoreMatch && method === 'POST') {
+        if (dataRepairPromise) throw new HTTPError(409, '请等待资料库修复完成后再恢复升级快照');
+        restoreWriteLocked = true;
+        try {
+          await pauseBackgroundWork();
+          const activeJobs = (await database.listImportJobs(200)).filter((job) => job.status === 'pending' || job.status === 'running');
+          if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再恢复升级快照');
+          const snapshot = await resolveMigrationSnapshot(database.path, migrationSnapshotRestoreMatch[1]);
+          if (!snapshot) throw new HTTPError(404, '升级快照不存在');
+          const pendingRestore = await scheduleMigrationSnapshotRestore({ database, snapshot, rootDir, appVersion: APP_VERSION });
+          await diagnostics.record('restore_scheduled', { source: 'migration_snapshot', encrypted: false });
+          return sendJSON(response, 202, { pendingRestore: publicPendingRestore(pendingRestore), restartRequired: true });
+        } catch (error) {
+          if (!(await getPendingRestore(rootDir))) {
+            restoreWriteLocked = false;
+            resumeBackgroundWork();
+          }
+          throw error;
+        }
+      }
+
       if (pathname === '/api/diagnostics/logs' && method === 'GET') {
         return sendJSON(response, 200, { diagnostics: await diagnostics.list(250) });
       }
@@ -861,17 +896,31 @@ export async function createReaderServer({
       }
 
       if (pathname === '/api/backups/restore' && method === 'POST') {
-        const activeJobs = (await database.listImportJobs(200)).filter((job) => job.status === 'pending' || job.status === 'running');
-        if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再恢复数据');
-        const passphrase = decodeBase64SecretHeader(request, 'x-reader-backup-passphrase');
-        const pendingRestore = await scheduleRestore({ request, database, rootDir, appVersion: APP_VERSION, passphrase });
-        await diagnostics.record('restore_scheduled', { encrypted: pendingRestore.encrypted });
-        return sendJSON(response, 202, { pendingRestore: publicPendingRestore(pendingRestore), restartRequired: true });
+        restoreWriteLocked = true;
+        try {
+          await pauseBackgroundWork();
+          const activeJobs = (await database.listImportJobs(200)).filter((job) => job.status === 'pending' || job.status === 'running');
+          if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再恢复数据');
+          const passphrase = decodeBase64SecretHeader(request, 'x-reader-backup-passphrase');
+          const pendingRestore = await scheduleRestore({ request, database, rootDir, appVersion: APP_VERSION, passphrase });
+          await diagnostics.record('restore_scheduled', { source: 'backup', encrypted: pendingRestore.encrypted });
+          return sendJSON(response, 202, { pendingRestore: publicPendingRestore(pendingRestore), restartRequired: true });
+        } catch (error) {
+          if (!(await getPendingRestore(rootDir))) {
+            restoreWriteLocked = false;
+            resumeBackgroundWork();
+          }
+          throw error;
+        }
       }
 
       if (pathname === '/api/backups/restore' && method === 'DELETE') {
         const cancelled = await cancelPendingRestore(rootDir);
-        if (cancelled) await diagnostics.record('restore_cancelled');
+        if (cancelled) {
+          restoreWriteLocked = false;
+          resumeBackgroundWork();
+          await diagnostics.record('restore_cancelled');
+        }
         return sendJSON(response, 200, { cancelled });
       }
 

@@ -132,12 +132,13 @@ export async function processImportJob(database, job, paths) {
 
 export function createImportWorker(database, paths, { idleIntervalMs = 4000 } = {}) {
   let active = false;
+  let paused = false;
   let stopped = false;
   let timer;
   let activeRun = null;
 
   const schedule = (delay) => {
-    if (stopped) return;
+    if (stopped || paused) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => { void run(); }, delay);
     timer.unref?.();
@@ -145,12 +146,12 @@ export function createImportWorker(database, paths, { idleIntervalMs = 4000 } = 
 
   const run = () => {
     if (activeRun) return activeRun;
-    if (stopped) return Promise.resolve();
+    if (stopped || paused) return Promise.resolve();
     active = true;
     activeRun = (async () => {
       let processed = 0;
       try {
-        for (let index = 0; index < 20 && !stopped; index += 1) {
+        for (let index = 0; index < 20 && !stopped && !paused; index += 1) {
           const job = await database.claimImportJob();
           if (!job) break;
           processed += 1;
@@ -175,6 +176,17 @@ export function createImportWorker(database, paths, { idleIntervalMs = 4000 } = 
   schedule(0);
   return {
     poke() { if (!active) schedule(0); },
+    async pause() {
+      paused = true;
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      if (activeRun) await activeRun;
+    },
+    resume() {
+      if (stopped || !paused) return;
+      paused = false;
+      schedule(0);
+    },
     async stop() { stopped = true; if (timer) clearTimeout(timer); timer = undefined; if (activeRun) await activeRun; }
   };
 }

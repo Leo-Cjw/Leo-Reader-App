@@ -53,7 +53,10 @@ function sanitizeDetails(event, source = {}) {
     encrypted: Boolean(input.encrypted),
     byteSize: boundedInteger(input.byteSize, 0)
   };
-  if (event === 'restore_scheduled') return { encrypted: Boolean(input.encrypted) };
+  if (event === 'restore_scheduled') return {
+    source: input.source === 'migration_snapshot' ? 'migration_snapshot' : 'backup',
+    encrypted: Boolean(input.encrypted)
+  };
   if (event === 'data_repair_completed') return {
     actions: [...new Set((Array.isArray(input.actions) ? input.actions : []).filter((action) => ACTIONS.has(action)))],
     backupCreated: Boolean(input.backupCreated)

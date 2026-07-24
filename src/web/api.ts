@@ -285,6 +285,9 @@ export const api = {
     if (!response.ok) throw new APIError(response.status, payload.error || `恢复校验失败 (${response.status})`);
     return payload as { pendingRestore: PendingRestore; restartRequired: true };
   },
+  async scheduleMigrationSnapshotRestore(id: string) {
+    return await request<{ pendingRestore: PendingRestore; restartRequired: true }>(`/api/migration-snapshots/${encodeURIComponent(id)}/restore`, { method: 'POST' });
+  },
   async cancelRestore() {
     return await request<{ cancelled: boolean }>('/api/backups/restore', { method: 'DELETE' });
   }

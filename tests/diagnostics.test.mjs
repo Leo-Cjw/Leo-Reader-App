@@ -31,6 +31,12 @@ test('local diagnostics are permission-restricted, bounded and strip all non-all
       message: `private content ${index}`
     });
   }
+  await store.record('restore_scheduled', {
+    source: 'migration_snapshot',
+    encrypted: false,
+    snapshotId: 'private-snapshot-id',
+    path: '/private/migration.sqlite3'
+  });
   await appendFile(store.filePath, `${JSON.stringify({
     id: '00000000-0000-4000-8000-000000000000',
     timestamp: new Date().toISOString(),
@@ -50,6 +56,7 @@ test('local diagnostics are permission-restricted, bounded and strip all non-all
     Object.keys(result.entries.find((entry) => entry.id === '00000000-0000-4000-8000-000000000000').details).sort(),
     ['category', 'method', 'route', 'status']
   );
+  assert.deepEqual(result.entries.find((entry) => entry.event === 'restore_scheduled').details, { source: 'migration_snapshot', encrypted: false });
   assert.doesNotMatch((await store.exportJSONL()).toString('utf8'), /private|secret|apiKey/i);
 
   assert.equal(await store.clear(), true);

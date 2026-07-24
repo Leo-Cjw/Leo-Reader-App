@@ -1,14 +1,14 @@
 import path from 'node:path';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, scrypt } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { access, cp, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { access, chmod, cp, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
 import archiver from 'archiver';
 import yauzl from 'yauzl';
 import { SCHEMA_VERSION } from './schema.mjs';
-import { sqlValue } from './db.mjs';
+import { ReaderDatabase, sqlValue } from './db.mjs';
 
 const SQLITE_BINARY = process.env.READER_SQLITE_BINARY || '/usr/bin/sqlite3';
 export const MAX_BACKUP_BYTES = 2 * 1024 * 1024 * 1024;
@@ -293,6 +293,23 @@ async function sqliteIntegrity(databasePath) {
   });
 }
 
+async function validateMigrationSnapshotDatabase(databasePath, expectedVersion, expectedSha256 = '') {
+  const sha256 = await hashFile(databasePath);
+  if (expectedSha256 && sha256 !== expectedSha256) {
+    throw Object.assign(new Error('升级快照校验值不一致'), { status: 400 });
+  }
+  await sqliteIntegrity(databasePath);
+  const snapshotDatabase = new ReaderDatabase(databasePath);
+  const version = await snapshotDatabase.existingSchemaVersion();
+  if (version !== expectedVersion) {
+    throw Object.assign(new Error(`升级快照实际 schema v${version ?? 0} 与记录的 v${expectedVersion} 不一致`), { status: 400 });
+  }
+  if ((await snapshotDatabase.query('PRAGMA foreign_key_check;')).length) {
+    throw Object.assign(new Error('升级快照包含失效的数据关联'), { status: 400 });
+  }
+  return sha256;
+}
+
 export async function validateExtractedBackup(extractedDir) {
   const manifestPath = path.join(extractedDir, 'manifest.json');
   const databasePath = path.join(extractedDir, 'reader.sqlite3');
@@ -340,7 +357,60 @@ export async function scheduleRestore({ request, database, rootDir, appVersion =
       throw error;
     }
     const safetyBackup = await createBackup({ database, rootDir, appVersion, reason: 'pre-restore' });
-    const marker = { id: path.basename(pendingDir), pendingDir, backupCreatedAt: manifest.createdAt, safetyBackupId: safetyBackup.id, scheduledAt: new Date().toISOString(), encrypted };
+    const marker = { id: path.basename(pendingDir), kind: 'backup', pendingDir, backupCreatedAt: manifest.createdAt, safetyBackupId: safetyBackup.id, scheduledAt: new Date().toISOString(), encrypted };
+    await writeFile(path.join(rootDir, 'data', 'pending-restore.json'), JSON.stringify(marker, null, 2), { mode: 0o600 });
+    return marker;
+  } catch (error) {
+    await rm(pendingDir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export async function scheduleMigrationSnapshotRestore({ database, snapshot, rootDir, appVersion = '0.12.0' }) {
+  if (await getPendingRestore(rootDir)) throw Object.assign(new Error('已有等待重启的恢复任务'), { status: 409 });
+  const snapshotId = String(snapshot?.id || '').toLowerCase();
+  const fromSchemaVersion = Number(snapshot?.from_schema_version);
+  const toSchemaVersion = Number(snapshot?.to_schema_version);
+  const currentSchemaVersion = await database.existingSchemaVersion();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(snapshotId)) {
+    throw Object.assign(new Error('升级快照 ID 无效'), { status: 400 });
+  }
+  if (!Number.isSafeInteger(fromSchemaVersion) || fromSchemaVersion < 0 || !Number.isSafeInteger(toSchemaVersion) || toSchemaVersion <= fromSchemaVersion) {
+    throw Object.assign(new Error('升级快照的 schema 范围无效'), { status: 400 });
+  }
+  if (toSchemaVersion > SCHEMA_VERSION) {
+    throw Object.assign(new Error(`升级快照来自 schema v${toSchemaVersion}，高于当前 Reader 支持的 v${SCHEMA_VERSION}`), { status: 409 });
+  }
+  if (currentSchemaVersion !== SCHEMA_VERSION) {
+    throw Object.assign(new Error(`当前资料库尚未达到 schema v${SCHEMA_VERSION}，不能安排升级快照恢复`), { status: 409 });
+  }
+  const snapshotRoot = `${path.resolve(path.dirname(database.path), 'migration-backups')}${path.sep}`;
+  const sourcePath = path.resolve(snapshot?.path || '');
+  if (!sourcePath.startsWith(snapshotRoot)) throw Object.assign(new Error('升级快照来源无效'), { status: 400 });
+
+  const sourceSha256 = await validateMigrationSnapshotDatabase(sourcePath, fromSchemaVersion);
+  const restoreRoot = path.join(rootDir, 'data', 'restore');
+  await mkdir(restoreRoot, { recursive: true, mode: 0o700 });
+  await chmod(restoreRoot, 0o700);
+  const pendingDir = path.join(restoreRoot, `pending-${randomUUID()}`);
+  await mkdir(pendingDir, { recursive: true, mode: 0o700 });
+  const stagedDatabasePath = path.join(pendingDir, 'migration-snapshot.sqlite3');
+  try {
+    await cp(sourcePath, stagedDatabasePath);
+    await chmod(stagedDatabasePath, 0o600);
+    await validateMigrationSnapshotDatabase(stagedDatabasePath, fromSchemaVersion, sourceSha256);
+    const safetyBackup = await createBackup({ database, rootDir, appVersion, reason: 'pre-migration-restore' });
+    const marker = {
+      id: path.basename(pendingDir),
+      kind: 'migration_snapshot',
+      pendingDir,
+      snapshotId,
+      fromSchemaVersion,
+      toSchemaVersion,
+      databaseSha256: sourceSha256,
+      safetyBackupId: safetyBackup.id,
+      scheduledAt: new Date().toISOString()
+    };
     await writeFile(path.join(rootDir, 'data', 'pending-restore.json'), JSON.stringify(marker, null, 2), { mode: 0o600 });
     return marker;
   } catch (error) {
@@ -366,6 +436,35 @@ export async function applyPendingRestore({ rootDir, dbPath }) {
   const restoreRoot = `${path.resolve(rootDir, 'data', 'restore')}${path.sep}`;
   const pendingDir = path.resolve(marker.pendingDir || '');
   if (!pendingDir.startsWith(restoreRoot)) throw new Error('待恢复路径无效');
+  if (marker.kind === 'migration_snapshot') {
+    const fromSchemaVersion = Number(marker.fromSchemaVersion);
+    const toSchemaVersion = Number(marker.toSchemaVersion);
+    const expectedSha256 = String(marker.databaseSha256 || '');
+    if (!Number.isSafeInteger(fromSchemaVersion) || fromSchemaVersion < 0 || fromSchemaVersion >= SCHEMA_VERSION
+      || !Number.isSafeInteger(toSchemaVersion) || toSchemaVersion <= fromSchemaVersion || toSchemaVersion > SCHEMA_VERSION) {
+      throw new Error('待恢复升级快照的 schema 版本无效');
+    }
+    if (!/^[0-9a-f]{64}$/.test(expectedSha256)) throw new Error('待恢复升级快照缺少有效校验值');
+    const stagedDatabasePath = path.join(pendingDir, 'migration-snapshot.sqlite3');
+    await validateMigrationSnapshotDatabase(stagedDatabasePath, fromSchemaVersion, expectedSha256);
+    const nextDatabase = `${dbPath}.restore-next`;
+    await rm(nextDatabase, { force: true });
+    await cp(stagedDatabasePath, nextDatabase);
+    await chmod(nextDatabase, 0o600);
+    await unlink(`${dbPath}-wal`).catch(() => {});
+    await unlink(`${dbPath}-shm`).catch(() => {});
+    await rename(nextDatabase, dbPath);
+    await rm(path.join(rootDir, 'data', 'thumbnails'), { recursive: true, force: true });
+    await unlink(path.join(rootDir, 'data', 'pending-restore.json'));
+    await rm(pendingDir, { recursive: true, force: true });
+    return {
+      kind: 'migration_snapshot',
+      snapshotId: marker.snapshotId,
+      fromSchemaVersion,
+      toSchemaVersion,
+      safetyBackupId: marker.safetyBackupId
+    };
+  }
   const extractedDir = path.join(pendingDir, 'content');
   const verified = await validateExtractedBackup(extractedDir);
   const dataDir = path.join(rootDir, 'data');

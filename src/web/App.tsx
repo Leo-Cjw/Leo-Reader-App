@@ -1060,7 +1060,7 @@ function diagnosticDetail(entry: DiagnosticEntry) {
   if (entry.event === 'startup_failed') return `${details.phase === 'restore' ? '恢复阶段' : details.phase === 'database' ? '数据库阶段' : '服务阶段'} · ${diagnosticCategoryLabels[String(details.category)] || '内部异常'}`;
   if (entry.event === 'api_error') return `${diagnosticRouteLabels[String(details.route)] || '本地服务'} · ${details.status || 500} · ${diagnosticCategoryLabels[String(details.category)] || '内部异常'}`;
   if (entry.event === 'backup_created') return `${details.encrypted ? '口令加密' : '本机明文'} · ${formatBytes(Number(details.byteSize) || 0)}`;
-  if (entry.event === 'restore_scheduled') return details.encrypted ? '加密备份已验证，等待下次启动' : '备份已验证，等待下次启动';
+  if (entry.event === 'restore_scheduled') return details.source === 'migration_snapshot' ? '升级快照已验证，等待下次启动' : details.encrypted ? '加密备份已验证，等待下次启动' : '备份已验证，等待下次启动';
   if (entry.event === 'data_repair_completed') {
     const actions = Array.isArray(details.actions) ? details.actions.map((action) => action === 'storage_permissions' ? '本地权限' : action === 'search_index' ? '搜索索引' : '').filter(Boolean) : [];
     return `${actions.join('、') || '可重建项目'}${details.backupCreated ? ' · 已保留修复前备份' : ''}`;
@@ -1091,7 +1091,7 @@ function DiagnosticsModal({ diagnostics, busy, onClose, onRefresh, onClear }: { 
   </section></div>;
 }
 
-function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, busy, onClose, onCheck, onRepair, onDiagnostics, onCreate, onScheduleRestore, onCancelRestore }: { backups: Backup[]; migrationSnapshots: MigrationSnapshot[]; health: DataHealth | null; pendingRestore: PendingRestore | null; busy: boolean; onClose: () => void; onCheck: () => void; onRepair: () => void; onDiagnostics: () => void; onCreate: (passphrase?: string) => void; onScheduleRestore: (file: File, passphrase?: string) => void; onCancelRestore: () => void }) {
+function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, busy, onClose, onCheck, onRepair, onDiagnostics, onCreate, onScheduleRestore, onScheduleSnapshotRestore, onCancelRestore }: { backups: Backup[]; migrationSnapshots: MigrationSnapshot[]; health: DataHealth | null; pendingRestore: PendingRestore | null; busy: boolean; onClose: () => void; onCheck: () => void; onRepair: () => void; onDiagnostics: () => void; onCreate: (passphrase?: string) => void; onScheduleRestore: (file: File, passphrase?: string) => void; onScheduleSnapshotRestore: (snapshot: MigrationSnapshot) => void; onCancelRestore: () => void }) {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [confirmation, setConfirmation] = useState('');
   const [encryptBackup, setEncryptBackup] = useState(true);
@@ -1120,15 +1120,15 @@ function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, 
         <div className="backup-list">{backups.length ? backups.map((backup) => <article key={backup.id}><span className={`backup-mark ${backup.encrypted ? 'encrypted' : ''}`} title={backup.encrypted ? '口令加密备份' : '明文备份'}>{backup.encrypted ? 'E' : 'B'}</span><span><strong>{formatDate(backup.created_at)} 的备份</strong><small>{formatBytes(backup.byte_size)} · {backup.encrypted ? 'AES-256-GCM 加密' : '本机明文文件'}</small></span><a className="button" href={`/api/backups/${backup.id}/download`}>下载</a></article>) : <div className="empty-state compact"><strong>还没有备份</strong><span>创建首个可验证恢复点。</span></div>}</div>
       </section>
       <section className="safety-section restore-section"><header><span><strong>恢复资料库</strong><small>先校验，再安排下次启动恢复</small></span></header>
-        {pendingRestore ? <div className="pending-restore"><span className="pending-icon">↻</span><strong>恢复已就绪</strong><p>下次重新启动 Reader 时应用。当前资料已经自动创建安全备份。</p><button className="button" type="button" disabled={busy} onClick={onCancelRestore}>取消恢复</button></div> : <><label className="restore-file"><input type="file" accept=".zip,.enc,.readerbackup" onChange={(event) => { setRestoreFile(event.target.files?.[0] || null); setRestorePassphrase(''); }}/><span className="restore-icon">＋</span><strong>{restoreFile ? restoreFile.name : '选择 Reader 备份'}</strong><small>{restoreFile ? `${formatBytes(restoreFile.size)}${restoreEncrypted ? ' · 已加密' : ''}` : '接受 .readerbackup.enc 和 .readerbackup.zip'}</small></label>{restoreEncrypted && <label className="confirm-restore"><span>加密备份口令</span><input type="password" value={restorePassphrase} onChange={(event) => setRestorePassphrase(event.target.value)} autoComplete="current-password" aria-label="恢复备份口令" placeholder="输入创建备份时的口令"/></label>}<label className="confirm-restore"><span>输入“恢复”确认安排</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-label="恢复确认" placeholder="恢复"/></label><button className="button danger" type="button" disabled={!canRestore} onClick={() => restoreFile && onScheduleRestore(restoreFile, restoreEncrypted ? restorePassphrase : undefined)}>校验并安排恢复</button></>}
+        {pendingRestore ? <div className="pending-restore"><span className="pending-icon">↻</span><strong>{pendingRestore.kind === 'migration_snapshot' ? '升级快照恢复已就绪' : '恢复已就绪'}</strong><p>{pendingRestore.kind === 'migration_snapshot' ? `下次启动将回到 Schema v${pendingRestore.fromSchemaVersion} 的升级前状态，再重新迁移；当前完整资料和附件已创建安全备份。为保证备份边界，资料库写入和后台同步已暂停。` : '下次重新启动 Reader 时应用。当前资料已经自动创建安全备份；资料库写入和后台同步已暂停。'}</p><button className="button" type="button" disabled={busy} onClick={onCancelRestore}>取消恢复并继续使用</button></div> : <><label className="restore-file"><input type="file" accept=".zip,.enc,.readerbackup" onChange={(event) => { setRestoreFile(event.target.files?.[0] || null); setRestorePassphrase(''); }}/><span className="restore-icon">＋</span><strong>{restoreFile ? restoreFile.name : '选择 Reader 备份'}</strong><small>{restoreFile ? `${formatBytes(restoreFile.size)}${restoreEncrypted ? ' · 已加密' : ''}` : '接受 .readerbackup.enc 和 .readerbackup.zip'}</small></label>{restoreEncrypted && <label className="confirm-restore"><span>加密备份口令</span><input type="password" value={restorePassphrase} onChange={(event) => setRestorePassphrase(event.target.value)} autoComplete="current-password" aria-label="恢复备份口令" placeholder="输入创建备份时的口令"/></label>}<label className="confirm-restore"><span>输入“恢复”确认安排</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-label="恢复确认" placeholder="恢复"/></label><button className="button danger" type="button" disabled={!canRestore} onClick={() => restoreFile && onScheduleRestore(restoreFile, restoreEncrypted ? restorePassphrase : undefined)}>校验并安排恢复</button></>}
         <div className="migration-protection">
           <header><span><strong>升级保护</strong><small>schema 变更前自动创建数据库快照</small></span></header>
           {migrationSnapshots.length ? <div className="migration-snapshot-list">{migrationSnapshots.map((snapshot) => <article key={snapshot.id}>
             <span className="backup-mark migration">M</span>
             <span><strong>Schema v{snapshot.from_schema_version} → v{snapshot.to_schema_version}</strong><small>{new Date(snapshot.created_at).toLocaleString('zh-CN')} · {formatBytes(snapshot.byte_size)}</small></span>
-            <a className="button" href={`/api/migration-snapshots/${snapshot.id}/download`} download>导出</a>
+            <span className="migration-snapshot-actions"><a className="button" href={`/api/migration-snapshots/${snapshot.id}/download`} download>导出</a><button className="button quiet-danger" type="button" disabled={busy || Boolean(pendingRestore)} onClick={() => onScheduleSnapshotRestore(snapshot)}>恢复</button></span>
           </article>)}</div> : <p className="migration-empty">当前资料库尚未经历需要迁移的升级。</p>}
-          <p className="migration-note">升级快照仅包含 SQLite 数据库，适合故障排查与应急取回；包含附件的长期恢复点仍请使用完整备份。</p>
+          <p className="migration-note">升级快照仅包含 SQLite 数据库；恢复会回到升级前记录并重新迁移，之后的变化保存在自动创建的完整安全备份中。长期恢复点仍请使用包含附件的完整备份。</p>
         </div>
       </section>
     </div>
@@ -1351,6 +1351,18 @@ export function App() {
   };
   const createLocalBackup = async (passphrase?: string) => { setBusySafety(true); try { const backup = await api.createBackup(passphrase); setBackups((current) => [backup, ...current.filter((item) => item.id !== backup.id)]); notify(backup.encrypted ? '加密备份已创建并通过校验' : '明文备份已创建并通过校验'); } catch (error) { notify(error instanceof Error ? error.message : '备份创建失败', 'error'); } finally { setBusySafety(false); } };
   const scheduleLocalRestore = async (file: File, passphrase?: string) => { setBusySafety(true); try { const result = await api.scheduleRestore(file, passphrase); setPendingRestore(result.pendingRestore); const next = await api.listBackups(); setBackups(next.backups); notify('恢复包已解密并通过校验，将在下次启动时应用'); } catch (error) { notify(error instanceof Error ? error.message : '恢复校验失败', 'error'); } finally { setBusySafety(false); } };
+  const scheduleSnapshotRestore = async (snapshot: MigrationSnapshot) => {
+    if (!window.confirm(`恢复到 Schema v${snapshot.from_schema_version} 的升级前状态？升级后新增或修改的资料不会出现在恢复后的资料库；Reader 会先暂停写入与后台同步，创建包含当前数据库和附件的完整安全备份，并在下次启动重新迁移。`)) return;
+    setBusySafety(true);
+    try {
+      const result = await api.scheduleMigrationSnapshotRestore(snapshot.id);
+      setPendingRestore(result.pendingRestore);
+      const next = await api.listBackups();
+      setBackups(next.backups);
+      notify('升级快照已校验，当前完整资料已备份；将在下次启动恢复');
+    } catch (error) { notify(error instanceof Error ? error.message : '升级快照恢复安排失败', 'error'); }
+    finally { setBusySafety(false); }
+  };
   const cancelLocalRestore = async () => { setBusySafety(true); try { await api.cancelRestore(); setPendingRestore(null); notify('已取消待执行恢复'); } catch (error) { notify(error instanceof Error ? error.message : '取消恢复失败', 'error'); } finally { setBusySafety(false); } };
   const syncSource = async (source: Source) => { setBusySource(source.id); try { const result = await api.syncSource(source.id); notify(result.notModified ? '同步完成，内容没有更新' : `同步完成，新增 ${result.imported} 条内容`); await Promise.all([refreshArticles(), refreshChrome()]); } catch (error) { notify(error instanceof Error ? error.message : '同步失败', 'error'); await refreshChrome(); } finally { setBusySource(null); } };
   const updateSource = async (source: Source, patch: Partial<Pick<Source, 'enabled' | 'sync_interval_minutes'>>) => { setBusySource(source.id); try { const updated = await api.updateSource(source.id, patch); setSources((current) => current.map((item) => item.id === updated.id ? updated : item)); notify(patch.enabled === false ? '已暂停自动同步' : patch.enabled === true ? '自动同步已开启' : '同步频率已更新'); } catch (error) { notify(error instanceof Error ? error.message : '订阅设置保存失败', 'error'); await refreshChrome(); } finally { setBusySource(null); } };
@@ -1391,7 +1403,7 @@ export function App() {
     {composeOpen && selectedArticles.length > 0 && <ComposeModal articles={selectedArticles} collections={collections} busy={busyCompose} onClose={() => setComposeOpen(false)} onCreate={(options) => void composeSelected(options)}/>}
     {duplicatesOpen && <DuplicateManagerModal groups={duplicateGroups} busy={busyDuplicates} onClose={() => setDuplicatesOpen(false)} onRefresh={() => void refreshDuplicates()} onResolve={resolveDuplicateGroup}/>}
     {queueOpen && <ImportQueueModal jobs={jobs} onClose={() => setQueueOpen(false)} onRetry={(job) => void retryJob(job)}/>}
-    {safetyOpen && <DataSafetyModal backups={backups} migrationSnapshots={migrationSnapshots} health={dataHealth} pendingRestore={pendingRestore} busy={busySafety} onClose={() => setSafetyOpen(false)} onCheck={() => void checkLocalData()} onRepair={() => void repairLocalData()} onDiagnostics={openDiagnostics} onCreate={(passphrase) => void createLocalBackup(passphrase)} onScheduleRestore={(file, passphrase) => void scheduleLocalRestore(file, passphrase)} onCancelRestore={() => void cancelLocalRestore()}/>}
+    {safetyOpen && <DataSafetyModal backups={backups} migrationSnapshots={migrationSnapshots} health={dataHealth} pendingRestore={pendingRestore} busy={busySafety} onClose={() => setSafetyOpen(false)} onCheck={() => void checkLocalData()} onRepair={() => void repairLocalData()} onDiagnostics={openDiagnostics} onCreate={(passphrase) => void createLocalBackup(passphrase)} onScheduleRestore={(file, passphrase) => void scheduleLocalRestore(file, passphrase)} onScheduleSnapshotRestore={(snapshot) => void scheduleSnapshotRestore(snapshot)} onCancelRestore={() => void cancelLocalRestore()}/>}
     {diagnosticsOpen && <DiagnosticsModal diagnostics={diagnostics} busy={busyDiagnostics} onClose={() => setDiagnosticsOpen(false)} onRefresh={() => void refreshDiagnostics()} onClear={() => void clearDiagnostics()}/>}
     {settingsOpen && <AISettingsModal onClose={() => setSettingsOpen(false)} onConfigurationChanged={() => setAIConfigurationVersion((value) => value + 1)} notify={notify}/>}
     {connectorSettingsOpen && <ConnectorSettingsModal onClose={() => setConnectorSettingsOpen(false)} notify={notify}/>}
