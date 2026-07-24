@@ -273,6 +273,24 @@ export interface DataRepairResult {
   health: DataHealth;
 }
 
+export type DiagnosticEvent = 'app_started' | 'app_stopped' | 'startup_failed' | 'api_error' | 'backup_created' | 'restore_scheduled' | 'restore_cancelled' | 'data_repair_completed';
+
+export interface DiagnosticEntry {
+  id: string;
+  timestamp: string;
+  level: 'info' | 'warning' | 'error';
+  event: DiagnosticEvent;
+  details: Record<string, string | number | boolean | string[] | null>;
+}
+
+export interface DiagnosticsSnapshot {
+  available: boolean;
+  entries: DiagnosticEntry[];
+  byte_size: number;
+  file_count: number;
+  max_bytes: number;
+}
+
 export interface PendingRestore {
   id: string;
   backupCreatedAt: string;

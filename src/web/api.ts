@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -269,6 +269,12 @@ export const api = {
   },
   async repairDataHealth() {
     return (await request<{ result: DataRepairResult }>('/api/data-health/repair', { method: 'POST' })).result;
+  },
+  async listDiagnostics() {
+    return (await request<{ diagnostics: DiagnosticsSnapshot }>('/api/diagnostics/logs')).diagnostics;
+  },
+  async clearDiagnostics() {
+    return await request<{ cleared: true }>('/api/diagnostics/logs', { method: 'DELETE' });
   },
   async createBackup(passphrase?: string) {
     return (await request<{ backup: Backup }>('/api/backups', { method: 'POST', body: JSON.stringify({ encrypted: Boolean(passphrase), passphrase: passphrase || '' }) })).backup;

@@ -1,14 +1,14 @@
-# Reader for Mac 0.19.1
+# Reader for Mac 0.20.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
-当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
+当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
 
 ## 快速开始
 
 ### Mac App
 
-打开 `Reader-0.19.1-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.20.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12，并使用 ad-hoc 签名；尚未使用 Apple Developer ID 公证，跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -84,6 +84,7 @@ npm run desktop:pack
 - 数据安全：一键生成包含 SQLite、附件和 SHA-256 清单的完整备份；默认可使用口令创建 `.readerbackup.enc` 认证加密文件，也兼容明文 `.readerbackup.zip`。恢复前完成解密、哈希与 SQLite 完整性校验，并在下次启动时原子替换。
 - 资料库体检：在数据安全中心检查 SQLite 页结构、外键、迁移审计、本机文件权限、附件可用性和本地检索索引；结果只返回汇总，不包含正文、附件名、记录 ID 或磁盘路径。
 - 受控修复：只有在核心完整性、关联、迁移与附件检查均通过时，才能收紧本地权限或从正文重建全文/RAG 索引。索引写入前自动创建完整备份；正文、状态和附件不会被修复流程改写。
+- 本地运行日志：从数据安全中心查看启动、备份、恢复、受控修复和意外本地服务错误；只保存字段白名单内的事件代码与状态，不保存正文、标题、URL、文件名、路径、记录 ID、错误原文或凭据。日志可导出、可彻底清除、最多保留约 1.5 MB，且不会自动上传。
 
 ## 数据与备份
 
@@ -97,6 +98,7 @@ npm run desktop:pack
 - 升级前数据库快照：`data/migration-backups/`
 - 可再生缩略图：`data/thumbnails/`
 - 待恢复暂存：`data/restore/`
+- 本地运行日志：`data/logs/`（目录 `0700`、文件 `0600`；有限轮转，不进入备份或导出）
 - 非敏感运行时设置：`data/settings.json`（权限 `0600`；不保存 API 密钥，也不进入备份或导出）
 - 敏感凭据：AI API Key 与 X Bearer Token 分别写入 macOS Keychain；微博 OAuth 令牌由官方 CLI 自行写入系统 Keychain，Reader 不读取令牌。
 - 数据库采用 WAL 模式，运行时可能出现 `-wal` 和 `-shm` 文件。
@@ -188,7 +190,10 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `GET /api/migration-snapshots/:id/download`：导出指定升级快照。
 - `POST /api/data-health`：只读检查数据库、迁移、权限、附件和检索索引，仅返回脱敏汇总。
 - `POST /api/data-health/repair`：在核心检查通过后修复权限或重建本地索引；响应不含磁盘路径、正文或备份 manifest。
+- `GET /api/diagnostics/logs`：读取最多 250 条脱敏本地运行事件和轮转统计。
+- `GET /api/diagnostics/logs/download`：导出经过二次白名单清洗的 JSONL。
+- `DELETE /api/diagnostics/logs`：清除全部本地运行日志，不影响资料库或备份。
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.19.1 变更见 [docs/RELEASE_NOTES_0.19.1.md](docs/RELEASE_NOTES_0.19.1.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.20.0 变更见 [docs/RELEASE_NOTES_0.20.0.md](docs/RELEASE_NOTES_0.20.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

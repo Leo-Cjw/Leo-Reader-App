@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api';
-import type { AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, Attachment, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
 
 type Toast = { id: number; message: string; tone?: 'error' | 'normal' };
 type ChatMessage = { role: 'user' | 'assistant'; text: string; citations?: RAGCitation[]; retrieval?: { matchedChunks: number; citedChunks: number } };
@@ -1031,7 +1031,67 @@ function VersionHistoryModal({ article, revisions, preview, busy, onClose, onSel
   </section></div>;
 }
 
-function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, busy, onClose, onCheck, onRepair, onCreate, onScheduleRestore, onCancelRestore }: { backups: Backup[]; migrationSnapshots: MigrationSnapshot[]; health: DataHealth | null; pendingRestore: PendingRestore | null; busy: boolean; onClose: () => void; onCheck: () => void; onRepair: () => void; onCreate: (passphrase?: string) => void; onScheduleRestore: (file: File, passphrase?: string) => void; onCancelRestore: () => void }) {
+const diagnosticEventLabels: Record<DiagnosticEntry['event'], string> = {
+  app_started: 'Reader 已启动',
+  app_stopped: 'Reader 已安全退出',
+  startup_failed: '启动检查失败',
+  api_error: '本地请求失败',
+  backup_created: '完整备份已创建',
+  restore_scheduled: '资料库恢复已安排',
+  restore_cancelled: '资料库恢复已取消',
+  data_repair_completed: '资料库安全修复完成'
+};
+
+const diagnosticRouteLabels: Record<string, string> = {
+  health: '运行状态', stats: '资料统计', articles: '文章', imports: '导入', ai: 'AI', sources: '订阅',
+  backups: '备份', data_health: '资料库检查', migration_snapshots: '升级快照', attachments: '附件',
+  settings: '设置', collections: '资料夹', smart_collections: '智能资料夹', duplicates: '重复治理',
+  export: '导出', diagnostics: '本地日志', static: '界面资源', unknown: '本地服务'
+};
+
+const diagnosticCategoryLabels: Record<string, string> = {
+  request: '请求无效', database: '数据库异常', filesystem: '文件系统异常',
+  network: '网络异常', network_timeout: '网络超时', internal: '内部异常'
+};
+
+function diagnosticDetail(entry: DiagnosticEntry) {
+  const details = entry.details;
+  if (entry.event === 'app_started') return `Reader ${details.version || ''} · Schema v${details.schemaVersion ?? '—'}${details.restored ? ' · 已应用待恢复资料' : ''}`;
+  if (entry.event === 'startup_failed') return `${details.phase === 'restore' ? '恢复阶段' : details.phase === 'database' ? '数据库阶段' : '服务阶段'} · ${diagnosticCategoryLabels[String(details.category)] || '内部异常'}`;
+  if (entry.event === 'api_error') return `${diagnosticRouteLabels[String(details.route)] || '本地服务'} · ${details.status || 500} · ${diagnosticCategoryLabels[String(details.category)] || '内部异常'}`;
+  if (entry.event === 'backup_created') return `${details.encrypted ? '口令加密' : '本机明文'} · ${formatBytes(Number(details.byteSize) || 0)}`;
+  if (entry.event === 'restore_scheduled') return details.encrypted ? '加密备份已验证，等待下次启动' : '备份已验证，等待下次启动';
+  if (entry.event === 'data_repair_completed') {
+    const actions = Array.isArray(details.actions) ? details.actions.map((action) => action === 'storage_permissions' ? '本地权限' : action === 'search_index' ? '搜索索引' : '').filter(Boolean) : [];
+    return `${actions.join('、') || '可重建项目'}${details.backupCreated ? ' · 已保留修复前备份' : ''}`;
+  }
+  return '没有记录正文、文件名、路径或凭据';
+}
+
+function DiagnosticsModal({ diagnostics, busy, onClose, onRefresh, onClear }: { diagnostics: DiagnosticsSnapshot | null; busy: boolean; onClose: () => void; onRefresh: () => void; onClear: () => void }) {
+  return <div className="modal-backdrop diagnostics-backdrop"><section className="modal diagnostics-modal" role="dialog" aria-modal="true" aria-label="本地运行日志">
+    <header><div><span className="eyebrow">On-device diagnostics</span><h2>本地运行日志</h2><p>只记录受限事件代码与状态，不记录阅读内容。</p></div><button className="icon-button" type="button" aria-label="关闭本地日志" disabled={busy} onClick={onClose}>×</button></header>
+    <div className="diagnostics-summary">
+      <span><strong>{diagnostics?.entries.length ?? 0}</strong><small>当前可见事件</small></span>
+      <span><strong>{formatBytes(diagnostics?.byte_size || 0)}</strong><small>本地占用</small></span>
+      <span><strong>{diagnostics?.file_count ?? 0}</strong><small>轮转文件</small></span>
+      <p>{diagnostics?.available === false ? '日志存储当前不可用；Reader 的资料库功能不受影响。' : `最多保留 ${formatBytes(diagnostics?.max_bytes || 0)}，超出后自动轮转。`}</p>
+    </div>
+    <div className="diagnostics-body">
+      <div className="diagnostics-privacy"><i>⌁</i><span><strong>留在本机，不是遥测</strong><small>不记录标题、正文、附件名、URL、磁盘路径、记录 ID、错误原文或密钥；不会进入备份，也不会自动上传。</small></span></div>
+      <div className="diagnostics-list" aria-live="polite">
+        {busy && !diagnostics ? <div className="empty-state compact"><strong>正在读取本地日志…</strong><span>只读取权限受限的诊断文件。</span></div> : diagnostics?.entries.length ? diagnostics.entries.map((entry) => <article key={entry.id} data-level={entry.level}>
+          <span className="diagnostic-level">{entry.level === 'error' ? '×' : entry.level === 'warning' ? '!' : '·'}</span>
+          <span><strong>{diagnosticEventLabels[entry.event]}</strong><small>{diagnosticDetail(entry)}</small></span>
+          <time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleString('zh-CN')}</time>
+        </article>) : <div className="empty-state compact"><strong>当前没有运行日志</strong><span>后续启动、备份、恢复、修复或内部错误会以脱敏事件记录。</span></div>}
+      </div>
+    </div>
+    <footer><button className="button quiet-danger diagnostics-clear" type="button" disabled={busy || !diagnostics?.entries.length} onClick={onClear}>清除日志</button><span className="diagnostics-footer-spacer"></span><a className="button" href="/api/diagnostics/logs/download" download>导出 JSONL</a><button className="button" type="button" disabled={busy} onClick={onRefresh}>{busy ? '读取中…' : '刷新'}</button><button className="button primary" type="button" disabled={busy} onClick={onClose}>完成</button></footer>
+  </section></div>;
+}
+
+function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, busy, onClose, onCheck, onRepair, onDiagnostics, onCreate, onScheduleRestore, onCancelRestore }: { backups: Backup[]; migrationSnapshots: MigrationSnapshot[]; health: DataHealth | null; pendingRestore: PendingRestore | null; busy: boolean; onClose: () => void; onCheck: () => void; onRepair: () => void; onDiagnostics: () => void; onCreate: (passphrase?: string) => void; onScheduleRestore: (file: File, passphrase?: string) => void; onCancelRestore: () => void }) {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [confirmation, setConfirmation] = useState('');
   const [encryptBackup, setEncryptBackup] = useState(true);
@@ -1072,7 +1132,7 @@ function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, 
         </div>
       </section>
     </div>
-    <footer className="safety-footer"><span>恢复不会立即覆盖数据；Reader 会先创建安全备份，并在下次启动时原子替换。升级快照不会自动删除。</span></footer>
+    <footer className="safety-footer"><span>恢复不会立即覆盖数据；Reader 会先创建安全备份，并在下次启动时原子替换。升级快照不会自动删除。</span><button className="button" type="button" onClick={onDiagnostics}>查看本地日志</button></footer>
   </section></div>;
 }
 
@@ -1080,8 +1140,10 @@ export function App() {
   const isDesktop = new URLSearchParams(window.location.search).get('desktop') === '1';
   const [articles, setArticles] = useState<Article[]>([]); const [collections, setCollections] = useState<Collection[]>([]); const [smartCollections, setSmartCollections] = useState<SmartCollection[]>([]); const [tags, setTags] = useState<Tag[]>([]); const [sources, setSources] = useState<Source[]>([]); const [jobs, setJobs] = useState<ImportJob[]>([]); const [stats, setStats] = useState(initialStats);
   const [revisions, setRevisions] = useState<ArticleRevisionSummary[]>([]); const [revisionPreview, setRevisionPreview] = useState<ArticleRevision | null>(null); const [backups, setBackups] = useState<Backup[]>([]); const [migrationSnapshots, setMigrationSnapshots] = useState<MigrationSnapshot[]>([]); const [dataHealth, setDataHealth] = useState<DataHealth | null>(null); const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null); const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
   const [view, setView] = useState<View>('inbox'); const [collectionId, setCollectionId] = useState<string | null>(null); const [smartCollectionId, setSmartCollectionId] = useState<string | null>(null); const [tagFilter, setTagFilter] = useState(''); const [contentFilter, setContentFilter] = useState<ContentFilter>('all'); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(null); const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true); const [aiOpen, setAIOpen] = useState(true); const [addOpen, setAddOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [historyOpen, setHistoryOpen] = useState(false); const [sourcesOpen, setSourcesOpen] = useState(false); const [collectionsOpen, setCollectionsOpen] = useState(false); const [smartCollectionsOpen, setSmartCollectionsOpen] = useState(false); const [queueOpen, setQueueOpen] = useState(false); const [safetyOpen, setSafetyOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [connectorSettingsOpen, setConnectorSettingsOpen] = useState(false); const [exportOpen, setExportOpen] = useState(false); const [composeOpen, setComposeOpen] = useState(false); const [duplicatesOpen, setDuplicatesOpen] = useState(false); const [focusedCitation, setFocusedCitation] = useState<RAGCitation | null>(null); const [busySource, setBusySource] = useState<string | null>(null); const [busyCollection, setBusyCollection] = useState(false); const [busySmartCollection, setBusySmartCollection] = useState(false); const [busyHistory, setBusyHistory] = useState(false); const [busySafety, setBusySafety] = useState(false); const [busyExport, setBusyExport] = useState(false); const [busyCompose, setBusyCompose] = useState(false); const [busyDuplicates, setBusyDuplicates] = useState(false); const [aiConfigurationVersion, setAIConfigurationVersion] = useState(0);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false); const [busyDiagnostics, setBusyDiagnostics] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('reader-theme') || 'light'); const [libraryLayout, setLibraryLayout] = useState<LibraryLayout>(() => localStorage.getItem('reader-library-layout') === 'gallery' ? 'gallery' : 'list'); const [toast, setToast] = useState<Toast | null>(null);
   const jobStates = useRef(new Map<string, ImportJob['status']>());
   const notify = useCallback((message: string, tone: Toast['tone'] = 'normal') => setToast({ id: Date.now(), message, tone }), []);
@@ -1262,6 +1324,15 @@ export function App() {
   };
   const selectRevision = async (version: number) => { if (!selected) return; setBusyHistory(true); try { setRevisionPreview(await api.getRevision(selected.id, version)); } catch (error) { notify(error instanceof Error ? error.message : '历史版本加载失败', 'error'); } finally { setBusyHistory(false); } };
   const restoreRevision = async (version: number) => { if (!selected) return; setBusyHistory(true); try { const article = await api.restoreRevision(selected.id, version); updateArticleInState(article); const next = await api.listRevisions(article.id); setRevisions(next); setRevisionPreview(await api.getRevision(article.id, next[0].version)); notify(`已恢复版本 ${version}，原内容仍保留在历史中`); } catch (error) { notify(error instanceof Error ? error.message : '版本恢复失败', 'error'); } finally { setBusyHistory(false); } };
+  const refreshDiagnostics = async () => { setBusyDiagnostics(true); try { setDiagnostics(await api.listDiagnostics()); } catch (error) { notify(error instanceof Error ? error.message : '本地日志读取失败', 'error'); } finally { setBusyDiagnostics(false); } };
+  const openDiagnostics = () => { setSafetyOpen(false); setDiagnosticsOpen(true); void refreshDiagnostics(); };
+  const clearDiagnostics = async () => {
+    if (!window.confirm('清除本机全部 Reader 运行日志？这不会影响文章、附件或备份。')) return;
+    setBusyDiagnostics(true);
+    try { await api.clearDiagnostics(); setDiagnostics(await api.listDiagnostics()); notify('本地运行日志已清除'); }
+    catch (error) { notify(error instanceof Error ? error.message : '本地日志清除失败', 'error'); }
+    finally { setBusyDiagnostics(false); }
+  };
   const openSafety = async () => { setSafetyOpen(true); setBusySafety(true); try { const [result, snapshots, health] = await Promise.all([api.listBackups(), api.listMigrationSnapshots(), api.checkDataHealth()]); setBackups(result.backups); setMigrationSnapshots(snapshots); setDataHealth(health); setPendingRestore(result.pendingRestore); } catch (error) { notify(error instanceof Error ? error.message : '数据安全信息加载失败', 'error'); } finally { setBusySafety(false); } };
   const checkLocalData = async () => { setBusySafety(true); try { const health = await api.checkDataHealth(); setDataHealth(health); notify(health.status === 'healthy' ? '资料库检查通过' : health.status === 'warning' ? '资料库检查完成，有待处理项' : '资料库检查发现问题', health.status === 'error' ? 'error' : 'normal'); } catch (error) { notify(error instanceof Error ? error.message : '资料库检查失败', 'error'); } finally { setBusySafety(false); } };
   const repairLocalData = async () => {
@@ -1320,7 +1391,8 @@ export function App() {
     {composeOpen && selectedArticles.length > 0 && <ComposeModal articles={selectedArticles} collections={collections} busy={busyCompose} onClose={() => setComposeOpen(false)} onCreate={(options) => void composeSelected(options)}/>}
     {duplicatesOpen && <DuplicateManagerModal groups={duplicateGroups} busy={busyDuplicates} onClose={() => setDuplicatesOpen(false)} onRefresh={() => void refreshDuplicates()} onResolve={resolveDuplicateGroup}/>}
     {queueOpen && <ImportQueueModal jobs={jobs} onClose={() => setQueueOpen(false)} onRetry={(job) => void retryJob(job)}/>}
-    {safetyOpen && <DataSafetyModal backups={backups} migrationSnapshots={migrationSnapshots} health={dataHealth} pendingRestore={pendingRestore} busy={busySafety} onClose={() => setSafetyOpen(false)} onCheck={() => void checkLocalData()} onRepair={() => void repairLocalData()} onCreate={(passphrase) => void createLocalBackup(passphrase)} onScheduleRestore={(file, passphrase) => void scheduleLocalRestore(file, passphrase)} onCancelRestore={() => void cancelLocalRestore()}/>}
+    {safetyOpen && <DataSafetyModal backups={backups} migrationSnapshots={migrationSnapshots} health={dataHealth} pendingRestore={pendingRestore} busy={busySafety} onClose={() => setSafetyOpen(false)} onCheck={() => void checkLocalData()} onRepair={() => void repairLocalData()} onDiagnostics={openDiagnostics} onCreate={(passphrase) => void createLocalBackup(passphrase)} onScheduleRestore={(file, passphrase) => void scheduleLocalRestore(file, passphrase)} onCancelRestore={() => void cancelLocalRestore()}/>}
+    {diagnosticsOpen && <DiagnosticsModal diagnostics={diagnostics} busy={busyDiagnostics} onClose={() => setDiagnosticsOpen(false)} onRefresh={() => void refreshDiagnostics()} onClear={() => void clearDiagnostics()}/>}
     {settingsOpen && <AISettingsModal onClose={() => setSettingsOpen(false)} onConfigurationChanged={() => setAIConfigurationVersion((value) => value + 1)} notify={notify}/>}
     {connectorSettingsOpen && <ConnectorSettingsModal onClose={() => setConnectorSettingsOpen(false)} notify={notify}/>}
     {toast && <div className={`toast ${toast.tone === 'error' ? 'error' : ''}`} role="status">{toast.message}</div>}

@@ -21,6 +21,8 @@ import { APP_VERSION } from './version.mjs';
 import { inspectDataHealth } from './data-health.mjs';
 import { cancelPortableImport, commitPortableImport, stagePortableImport } from './portable-import.mjs';
 import { repairDerivedData } from './data-repair.mjs';
+import { diagnosticErrorCategory, diagnosticRoute, LocalDiagnosticsStore } from './diagnostics.mjs';
+import { SCHEMA_VERSION } from './schema.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -172,13 +174,26 @@ export async function createReaderServer({
   credentialStore = null,
   aiEnvironment = process.env,
   socialConnectors = null,
-  socialEnvironment = process.env
+  socialEnvironment = process.env,
+  diagnosticsStore = null
 } = {}) {
   const dataRoot = path.join(rootDir, 'data');
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
   await chmod(dataRoot, 0o700);
-  const appliedRestore = await applyPendingRestore({ rootDir, dbPath });
-  const database = await new ReaderDatabase(dbPath).initialize();
+  const diagnostics = diagnosticsStore || await new LocalDiagnosticsStore(rootDir).initialize();
+  let startupPhase = 'restore';
+  let appliedRestore;
+  let database;
+  try {
+    appliedRestore = await applyPendingRestore({ rootDir, dbPath });
+    startupPhase = 'database';
+    database = await new ReaderDatabase(dbPath).initialize();
+  } catch (error) {
+    await diagnostics.record('startup_failed', { phase: startupPhase, category: diagnosticErrorCategory(error) });
+    await diagnostics.flush();
+    throw error;
+  }
+  await diagnostics.record('app_started', { version: APP_VERSION, schemaVersion: SCHEMA_VERSION, restored: Boolean(appliedRestore) });
   const runtimeAIService = aiService || new AIService({ endpoint: '', apiKey: '' });
   let aiSettingsManager = null;
   if (!aiService) {
@@ -207,12 +222,16 @@ export async function createReaderServer({
   const sourceScheduler = createSourceScheduler(database, sourceSync);
   sourceScheduler.start();
   let dataRepairPromise = null;
+  let diagnosticsStopped = false;
 
   const server = http.createServer(async (request, response) => {
+    let requestPath = '/';
+    const requestMethod = request.method || 'GET';
     try {
       const url = new URL(request.url || '/', `http://${request.headers.host || `${host}:${port}`}`);
-      const method = request.method || 'GET';
+      const method = requestMethod;
       const pathname = decodeURIComponent(url.pathname);
+      requestPath = pathname;
 
       if (pathname === '/api/health' && method === 'GET') {
         return sendJSON(response, 200, { ok: true, version: APP_VERSION, storage: 'sqlite', restoredOnStart: Boolean(appliedRestore), time: new Date().toISOString() });
@@ -754,7 +773,9 @@ export async function createReaderServer({
         if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再创建备份');
         const body = await readJSON(request);
         const passphrase = body.encrypted ? requiredString(body.passphrase, '备份口令', 1024) : '';
-        return sendJSON(response, 201, { backup: await createBackup({ database, rootDir, appVersion: APP_VERSION, passphrase }) });
+        const backup = await createBackup({ database, rootDir, appVersion: APP_VERSION, passphrase });
+        await diagnostics.record('backup_created', { encrypted: backup.encrypted, byteSize: backup.byte_size });
+        return sendJSON(response, 201, { backup });
       }
 
       if (pathname === '/api/data-health' && method === 'POST') {
@@ -774,7 +795,9 @@ export async function createReaderServer({
           return await repairDerivedData({ database, rootDir, filesDir, appVersion: APP_VERSION });
         })();
         try {
-          return sendJSON(response, 200, { result: await dataRepairPromise });
+          const result = await dataRepairPromise;
+          await diagnostics.record('data_repair_completed', { actions: result.actions, backupCreated: Boolean(result.backup) });
+          return sendJSON(response, 200, { result });
         } catch (error) {
           if (error instanceof HTTPError) throw error;
           if (error.expected) throw Object.assign(new HTTPError(error.status || 500, error.message || '资料库修复失败'), { expected: true });
@@ -786,6 +809,29 @@ export async function createReaderServer({
 
       if (pathname === '/api/migration-snapshots' && method === 'GET') {
         return sendJSON(response, 200, { snapshots: await listMigrationSnapshots(database.path) });
+      }
+
+      if (pathname === '/api/diagnostics/logs' && method === 'GET') {
+        return sendJSON(response, 200, { diagnostics: await diagnostics.list(250) });
+      }
+
+      if (pathname === '/api/diagnostics/logs' && method === 'DELETE') {
+        await diagnostics.clear();
+        return sendJSON(response, 200, { cleared: true });
+      }
+
+      if (pathname === '/api/diagnostics/logs/download' && (method === 'GET' || method === 'HEAD')) {
+        const data = await diagnostics.exportJSONL();
+        const fileName = `reader-diagnostics-${new Date().toISOString().slice(0, 10)}.jsonl`;
+        response.writeHead(200, {
+          'content-type': 'application/x-ndjson; charset=utf-8',
+          'content-length': String(data.length),
+          'content-disposition': `attachment; filename="${fileName}"`,
+          'cache-control': 'private, no-store',
+          'x-content-type-options': 'nosniff'
+        });
+        if (method === 'HEAD') return response.end();
+        return response.end(data);
       }
 
       const migrationSnapshotDownloadMatch = pathname.match(/^\/api\/migration-snapshots\/([0-9a-f-]{36})\/download$/i);
@@ -819,11 +865,14 @@ export async function createReaderServer({
         if (activeJobs.length) throw new HTTPError(409, '请等待导入任务完成后再恢复数据');
         const passphrase = decodeBase64SecretHeader(request, 'x-reader-backup-passphrase');
         const pendingRestore = await scheduleRestore({ request, database, rootDir, appVersion: APP_VERSION, passphrase });
+        await diagnostics.record('restore_scheduled', { encrypted: pendingRestore.encrypted });
         return sendJSON(response, 202, { pendingRestore: publicPendingRestore(pendingRestore), restartRequired: true });
       }
 
       if (pathname === '/api/backups/restore' && method === 'DELETE') {
-        return sendJSON(response, 200, { cancelled: await cancelPendingRestore(rootDir) });
+        const cancelled = await cancelPendingRestore(rootDir);
+        if (cancelled) await diagnostics.record('restore_cancelled');
+        return sendJSON(response, 200, { cancelled });
       }
 
       const syncMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sync$/);
@@ -903,18 +952,40 @@ export async function createReaderServer({
       if (response.headersSent) return response.destroy(error);
       const sqliteConflict = /UNIQUE constraint failed/.test(error.message || '');
       const status = error.status || (sqliteConflict ? 409 : 500);
-      if (status >= 500 && !error.expected) console.error(error);
-      sendJSON(response, status, { error: error.message || '未知错误', ...(error.details ? { details: error.details } : {}) });
+      const unexpectedServerError = status >= 500 && !error.expected;
+      if (unexpectedServerError) {
+        const diagnostic = {
+          method: requestMethod,
+          route: diagnosticRoute(requestPath),
+          status,
+          category: diagnosticErrorCategory(error)
+        };
+        console.error(`Reader API error: ${diagnostic.method} ${diagnostic.route} ${diagnostic.status} ${diagnostic.category}`);
+        await diagnostics.record('api_error', diagnostic);
+      }
+      sendJSON(response, status, unexpectedServerError
+        ? { error: '无法完成请求' }
+        : { error: error.message || '未知错误', ...(error.details ? { details: error.details } : {}) });
     }
   });
 
   return {
     server,
     database,
+    diagnostics,
     host,
     port,
     async listen() { await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); }); return server.address(); },
-    async close() { await Promise.all([importWorker.stop(), sourceScheduler.stop()]); if (!server.listening) return; await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+    async close() {
+      await Promise.all([importWorker.stop(), sourceScheduler.stop()]);
+      if (!diagnosticsStopped) {
+        diagnosticsStopped = true;
+        await diagnostics.record('app_stopped');
+        await diagnostics.flush();
+      }
+      if (!server.listening) return;
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
   };
 }
 
