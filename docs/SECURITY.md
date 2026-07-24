@@ -55,6 +55,7 @@ Reader 默认只监听 `127.0.0.1`。本地 HTTP API 没有账号系统，安全
 ## 备份与恢复
 
 - 备份使用 SQLite 一致快照，不直接复制运行中的 WAL 数据库。
+- schema 升级同样在任何结构变更前使用 `VACUUM INTO` 创建一致快照，校验 `integrity_check` 后以 `0600` 权限保存在 `data/migration-backups/`；检测到高于当前支持版本的 schema 时拒绝降级打开，不执行写入或迁移。
 - 归档只允许 `reader.sqlite3`、`manifest.json` 和 `files/`；拒绝绝对路径、`..`、反斜杠、符号链接和未知路径。
 - 解压限制条目数、单条目声明大小和总展开大小，防止路径穿越与压缩炸弹。
 - 恢复前验证 manifest 版本、数据库哈希、每个附件哈希和 SQLite `integrity_check`。

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { chmod, mkdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { SCHEMA_VERSION, schemaSQL } from './schema.mjs';
@@ -21,6 +21,10 @@ export function sqlValue(value) {
 
 function now() {
   return new Date().toISOString();
+}
+
+function timestampSlug(value = new Date()) {
+  return value.toISOString().replace(/[:.]/g, '-');
 }
 
 function boundedString(value, max) {
@@ -172,10 +176,12 @@ function normalizeRow(row) {
 export class ReaderDatabase {
   constructor(dbPath) {
     this.path = path.resolve(dbPath);
+    this.lastMigrationSnapshot = null;
   }
 
   async initialize() {
     await mkdir(path.dirname(this.path), { recursive: true });
+    this.lastMigrationSnapshot = await this.createPreMigrationSnapshot();
     await this.execute(schemaSQL);
     await this.migrate();
     await this.execute(`INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (${SCHEMA_VERSION}, ${sqlValue(now())});`);
@@ -185,6 +191,58 @@ export class ReaderDatabase {
     await this.backfillArticleChunks();
     await this.repairLegacyWeChatCaptures();
     return this;
+  }
+
+  async existingSchemaVersion() {
+    const tables = await this.query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
+    if (!tables.length) return null;
+    if (!tables.some((table) => table.name === 'schema_migrations')) return 0;
+    const row = await this.one('SELECT max(version) AS version FROM schema_migrations;');
+    if (row?.version === null || row?.version === undefined) return 0;
+    const version = Number(row.version);
+    if (!Number.isSafeInteger(version) || version < 0) throw new Error('资料库 schema 版本记录无效；为避免数据损坏，已停止打开');
+    return version;
+  }
+
+  async createPreMigrationSnapshot() {
+    let info;
+    try {
+      info = await stat(this.path);
+    } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    }
+    if (!info.isFile() || info.size === 0) return null;
+
+    const fromVersion = await this.existingSchemaVersion();
+    if (fromVersion === null || fromVersion === SCHEMA_VERSION) return null;
+    if (fromVersion > SCHEMA_VERSION) {
+      throw new Error(`资料库 schema v${fromVersion} 高于当前 Reader 支持的 v${SCHEMA_VERSION}；为避免数据损坏，已拒绝降级打开`);
+    }
+
+    const backupDirectory = path.join(path.dirname(this.path), 'migration-backups');
+    await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
+    await chmod(backupDirectory, 0o700);
+    const snapshotPath = path.join(
+      backupDirectory,
+      `reader-before-schema-v${fromVersion}-to-v${SCHEMA_VERSION}-${timestampSlug()}-${randomUUID()}.sqlite3`
+    );
+    try {
+      await this.execute(`VACUUM INTO ${sqlValue(snapshotPath)};`);
+      await chmod(snapshotPath, 0o600);
+      const snapshot = new ReaderDatabase(snapshotPath);
+      const integrity = await snapshot.one('PRAGMA integrity_check;');
+      if (integrity?.integrity_check !== 'ok') throw new Error('升级前数据库快照完整性校验失败');
+      return {
+        path: snapshotPath,
+        fromVersion,
+        toVersion: SCHEMA_VERSION,
+        createdAt: new Date().toISOString()
+      };
+    } catch (error) {
+      await rm(snapshotPath, { force: true });
+      throw error;
+    }
   }
 
   async migrate() {

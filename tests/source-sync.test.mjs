@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ReaderDatabase } from '../src/server/db.mjs';
@@ -16,13 +16,25 @@ test('schema v8 migrates legacy source rows, builds chunks and schedules every c
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-migrate-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const db = new ReaderDatabase(path.join(dir, 'reader.sqlite3'));
-  await db.execute(`CREATE TABLE sources (
+  await db.execute(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+  INSERT INTO schema_migrations(version,applied_at) VALUES (7,'2026-01-01');
+  CREATE TABLE sources (
     id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1, last_fetched_at TEXT, last_error TEXT,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
   INSERT INTO sources(id,kind,title,url,created_at,updated_at) VALUES ('legacy','rss','旧订阅','https://example.com/feed.xml','2026-01-01','2026-01-01');`);
   await db.initialize();
+  assert.deepEqual(
+    { fromVersion: db.lastMigrationSnapshot.fromVersion, toVersion: db.lastMigrationSnapshot.toVersion },
+    { fromVersion: 7, toVersion: 8 }
+  );
+  assert.equal((await stat(path.dirname(db.lastMigrationSnapshot.path))).mode & 0o777, 0o700);
+  assert.equal((await stat(db.lastMigrationSnapshot.path)).mode & 0o777, 0o600);
+  const snapshot = new ReaderDatabase(db.lastMigrationSnapshot.path);
+  assert.equal((await snapshot.one('SELECT max(version) AS version FROM schema_migrations;')).version, 7);
+  assert.equal((await snapshot.one("SELECT title FROM sources WHERE id='legacy';")).title, '旧订阅');
+  assert.equal((await snapshot.query('PRAGMA table_info(sources);')).some((column) => column.name === 'sync_cursor'), false);
   const source = await db.getSource('legacy');
   assert.equal(source.sync_interval_minutes, 60);
   assert.equal(source.last_status, 'idle');
@@ -30,6 +42,20 @@ test('schema v8 migrates legacy source rows, builds chunks and schedules every c
   assert.ok((await db.listDueSources(new Date(Date.now() + 60_000).toISOString())).some((item) => item.id === 'legacy'));
   assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 8);
   assert.equal((await db.getChunkIndexStatus()).pendingArticles, 0);
+});
+
+test('database refuses to open a newer schema without modifying it', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-downgrade-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const db = new ReaderDatabase(path.join(dir, 'reader.sqlite3'));
+  await db.execute(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+  INSERT INTO schema_migrations(version,applied_at) VALUES (9,'2026-01-01');
+  CREATE TABLE future_data (value TEXT NOT NULL);
+  INSERT INTO future_data(value) VALUES ('preserve-me');`);
+
+  await assert.rejects(db.initialize(), /schema v9.*v8.*拒绝降级/);
+  assert.equal((await db.one('SELECT value FROM future_data;')).value, 'preserve-me');
+  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 9);
 });
 
 test('source sync imports once, honors HTTP 304 and resets health state', async (t) => {
