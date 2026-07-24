@@ -523,7 +523,8 @@ export async function importURL(value) {
   }
   if (!/html|xhtml/i.test(response.contentType) && !/<html/i.test(response.text)) throw new Error('该地址不是可阅读的网页');
   const canonicalURL = requestedURL.hostname.toLowerCase() === 'mp.weixin.qq.com' ? normalizeWeChatURL(value) : response.url;
-  return extractArticle(response.text, canonicalURL);
+  const { parseArticleInProcess } = await import('./parser-process.mjs');
+  return await parseArticleInProcess(response.text, canonicalURL);
 }
 
 function tagValue(block, name) {

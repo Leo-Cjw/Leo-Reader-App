@@ -2,6 +2,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { safeFetchImage, validateImageSignature } from './importers.mjs';
+import { extractPDFTextInProcess } from './parser-process.mjs';
 
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 export const MAX_EDITOR_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -61,24 +62,8 @@ async function pathExists(filePath) {
   catch { return false; }
 }
 
-async function extractPDF(filePath) {
-  const bytes = await readFile(filePath);
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const document = await pdfjs.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false, useSystemFonts: true }).promise;
-  const pages = [];
-  const maxPages = Math.min(document.numPages, 250);
-  for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
-    const page = await document.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const text = content.items.map((item) => 'str' in item ? item.str : '').join(' ').replace(/\s+/g, ' ').trim();
-    if (text) pages.push(text);
-    if (pages.join('\n\n').length > 1_000_000) break;
-  }
-  return pages.join('\n\n').slice(0, 1_000_000);
-}
-
 async function extractText(filePath, mimeType) {
-  if (mimeType === 'application/pdf') return await extractPDF(filePath);
+  if (mimeType === 'application/pdf') return await extractPDFTextInProcess(filePath);
   if (textTypes.has(mimeType)) return (await readFile(filePath, 'utf8')).slice(0, 1_000_000);
   return '';
 }
