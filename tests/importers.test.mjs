@@ -1,13 +1,149 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertPublicURL, extractArticle, extractWeChatArticle, isPrivateAddress, isWeChatVerificationPage, normalizeWeChatURL, parseRSS, safeFetchImage, validateImageSignature } from '../src/server/importers.mjs';
+import { EventEmitter } from 'node:events';
+import http from 'node:http';
+import { Readable } from 'node:stream';
+import { gzipSync } from 'node:zlib';
+import { assertPublicURL, createPinnedLookup, extractArticle, extractWeChatArticle, isPrivateAddress, isWeChatVerificationPage, normalizeWeChatURL, parseRSS, requestPinnedAddress, resolvePublicURL, safeFetchImage, validateImageSignature } from '../src/server/importers.mjs';
 
 test('private network addresses are rejected', async () => {
-  for (const address of ['127.0.0.1', '10.0.0.8', '172.20.0.1', '192.168.1.2', '169.254.169.254', '::1', 'fd00::1']) assert.equal(isPrivateAddress(address), true);
+  for (const address of [
+    '127.0.0.1', '10.0.0.8', '100.64.0.1', '100.127.255.254', '172.20.0.1', '192.168.1.2',
+    '169.254.169.254', '192.0.2.1', '198.18.0.1', '198.51.100.1', '203.0.113.1',
+    '::1', '::ffff:127.0.0.1', 'fd00::1', 'fe90::1', 'febf::1', 'fec0::1', 'ff02::1', '2001:db8::1'
+  ]) assert.equal(isPrivateAddress(address), true, address);
   assert.equal(isPrivateAddress('8.8.8.8'), false);
+  assert.equal(isPrivateAddress('2606:4700:4700::1111'), false);
   await assert.rejects(() => assertPublicURL('http://localhost/private'));
   await assert.rejects(() => assertPublicURL('file:///etc/passwd'));
   await assert.rejects(() => safeFetchImage('http://127.0.0.1/private-image.png'));
+});
+
+test('public URL resolution rejects credentials and any mixed private DNS answer', async () => {
+  const publicLookup = async () => [
+    { address: '93.184.216.34', family: 4 },
+    { address: '2606:2800:220:1:248:1893:25c8:1946', family: 6 }
+  ];
+  const target = await resolvePublicURL('https://example.test/article#fragment', { lookup: publicLookup });
+  assert.equal(target.url.toString(), 'https://example.test/article');
+  assert.deepEqual(target.addresses, [
+    { address: '93.184.216.34', family: 4 },
+    { address: '2606:2800:220:1:248:1893:25c8:1946', family: 6 }
+  ]);
+  await assert.rejects(
+    resolvePublicURL('https://rebind.test/article', {
+      lookup: async () => [{ address: '93.184.216.34', family: 4 }, { address: '127.0.0.1', family: 4 }]
+    }),
+    /私有网络/
+  );
+  await assert.rejects(assertPublicURL('https://user:secret@example.test/article', { lookup: publicLookup }), /用户名或密码/);
+  assert.equal((await resolvePublicURL('https://[2606:4700:4700::1111]/dns-query')).addresses[0].family, 6);
+});
+
+test('pinned requests keep the original host and TLS identity while connecting only to the verified address', async () => {
+  const compressed = gzipSync(Buffer.from('Reader pinned transport'));
+  let captured;
+  const requestImpl = (options, onResponse) => {
+    captured = options;
+    const request = new EventEmitter();
+    request.end = () => queueMicrotask(() => {
+      const response = Readable.from([compressed]);
+      response.statusCode = 200;
+      response.headers = { 'content-encoding': 'gzip', 'content-length': String(compressed.length), 'content-type': 'text/plain' };
+      onResponse(response);
+    });
+    request.destroy = (error) => queueMicrotask(() => request.emit('error', error));
+    return request;
+  };
+  const result = await requestPinnedAddress(
+    new URL('https://rebind.test:8443/article?q=reader#ignored'),
+    { address: '93.184.216.34', family: 4 },
+    { headers: { accept: 'text/plain' }, maxBytes: 1024, label: '测试内容', requestImpl }
+  );
+  assert.equal(result.bytes.toString(), 'Reader pinned transport');
+  assert.equal(captured.hostname, 'rebind.test');
+  assert.equal(captured.servername, 'rebind.test');
+  assert.equal(captured.port, '8443');
+  assert.equal(captured.path, '/article?q=reader');
+  assert.equal(captured.agent, false);
+
+  const single = await new Promise((resolve, reject) => captured.lookup('rebind.test', {}, (error, address, family) => error ? reject(error) : resolve({ address, family })));
+  assert.deepEqual(single, { address: '93.184.216.34', family: 4 });
+  const all = await new Promise((resolve, reject) => createPinnedLookup({ address: '93.184.216.34', family: 4 })('rebind.test', { all: true }, (error, addresses) => error ? reject(error) : resolve(addresses)));
+  assert.deepEqual(all, [{ address: '93.184.216.34', family: 4 }]);
+
+  let receivedHost = '';
+  const server = http.createServer((request, response) => {
+    receivedHost = request.headers.host || '';
+    response.end('actual pinned lookup');
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  try {
+    const address = server.address();
+    const actual = await requestPinnedAddress(
+      new URL(`http://public-name.test:${address.port}/reader`),
+      { address: '127.0.0.1', family: 4 },
+      { headers: {}, maxBytes: 1024, label: '测试内容' }
+    );
+    assert.equal(actual.bytes.toString(), 'actual pinned lookup');
+    assert.equal(receivedHost, `public-name.test:${address.port}`);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('pinned response limits and timeout cover the full response body', async () => {
+  let redirectResponse;
+  const redirectRequest = (_options, onResponse) => {
+    const request = new EventEmitter();
+    request.end = () => queueMicrotask(() => {
+      redirectResponse = Readable.from([Buffer.from('redirect body must not be drained')]);
+      redirectResponse.statusCode = 302;
+      redirectResponse.headers = { location: 'https://example.test/next' };
+      onResponse(redirectResponse);
+    });
+    request.destroy = (error) => queueMicrotask(() => request.emit('error', error));
+    return request;
+  };
+  const redirect = await requestPinnedAddress(new URL('http://example.test/start'), { address: '93.184.216.34', family: 4 }, {
+    headers: {}, maxBytes: 8, label: '测试内容', requestImpl: redirectRequest
+  });
+  assert.equal(redirect.status, 302);
+  assert.equal(redirectResponse.destroyed, true);
+
+  const oversizedRequest = (_options, onResponse) => {
+    const request = new EventEmitter();
+    request.end = () => queueMicrotask(() => {
+      const response = Readable.from([Buffer.alloc(6), Buffer.alloc(6)]);
+      response.statusCode = 200;
+      response.headers = {};
+      onResponse(response);
+    });
+    request.destroy = (error) => queueMicrotask(() => request.emit('error', error));
+    return request;
+  };
+  await assert.rejects(
+    requestPinnedAddress(new URL('http://example.test/large'), { address: '93.184.216.34', family: 4 }, {
+      headers: {}, maxBytes: 8, label: '测试内容', requestImpl: oversizedRequest
+    }),
+    /超过 0 MB 限制/
+  );
+
+  const stalledRequest = () => {
+    const request = new EventEmitter();
+    request.end = () => {};
+    request.destroy = (error) => queueMicrotask(() => request.emit('error', error));
+    return request;
+  };
+  await assert.rejects(
+    requestPinnedAddress(new URL('http://example.test/stalled'), { address: '93.184.216.34', family: 4 }, {
+      headers: {}, maxBytes: 8, label: '测试内容', timeoutMs: 20, requestImpl: stalledRequest
+    }),
+    /超时/
+  );
 });
 
 test('remote image signatures must match their declared MIME type', () => {

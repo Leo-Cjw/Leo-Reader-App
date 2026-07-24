@@ -1,6 +1,9 @@
 import dns from 'node:dns/promises';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import { createHash } from 'node:crypto';
+import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
@@ -11,6 +14,17 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_INLINE_IMAGES = 16;
 const DESKTOP_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const NON_PUBLIC_IPV4 = [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
+  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
+  ['192.88.99.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24],
+  ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4]
+];
+const NON_PUBLIC_IPV6 = [
+  ['::', 96], ['64:ff9b::', 96], ['64:ff9b:1::', 48], ['100::', 64],
+  ['2001::', 23], ['2001:db8::', 32], ['2002::', 16], ['3fff::', 20],
+  ['5f00::', 16], ['fc00::', 7], ['fe80::', 10], ['fec0::', 10], ['ff00::', 8]
+];
 
 function browserHeaders(accept, url, extraHeaders = {}) {
   const headers = {
@@ -24,50 +38,196 @@ function browserHeaders(accept, url, extraHeaders = {}) {
   return headers;
 }
 
-export function isPrivateAddress(address) {
-  if (!net.isIP(address)) return true;
-  const normalized = address.toLowerCase();
-  if (normalized === '::1' || normalized === '::' || normalized.startsWith('fe80:') || normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
-  if (normalized.startsWith('::ffff:')) return isPrivateAddress(normalized.slice(7));
-  if (net.isIPv4(address)) {
-    const [a, b] = address.split('.').map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
-  }
-  return false;
+function ipv4Number(address) {
+  return address.split('.').reduce((value, part) => value * 256 + Number(part), 0) >>> 0;
 }
 
-export async function assertPublicURL(value) {
+function inIPv4Range(address, base, prefix) {
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  return (ipv4Number(address) & mask) >>> 0 === (ipv4Number(base) & mask) >>> 0;
+}
+
+function ipv6Number(address) {
+  let value = address.toLowerCase();
+  if (value.includes('.')) {
+    const separator = value.lastIndexOf(':');
+    const ipv4 = ipv4Number(value.slice(separator + 1));
+    value = `${value.slice(0, separator)}:${(ipv4 >>> 16).toString(16)}:${(ipv4 & 0xffff).toString(16)}`;
+  }
+  const halves = value.split('::');
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves[1] ? halves[1].split(':') : [];
+  const parts = halves.length === 1 ? left : [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
+  return parts.reduce((result, part) => (result << 16n) | BigInt(`0x${part || '0'}`), 0n);
+}
+
+function inIPv6Range(address, base, prefix) {
+  const shift = 128n - BigInt(prefix);
+  return (ipv6Number(address) >> shift) === (ipv6Number(base) >> shift);
+}
+
+export function isPrivateAddress(address) {
+  const family = net.isIP(address);
+  if (family === 4) return NON_PUBLIC_IPV4.some(([base, prefix]) => inIPv4Range(address, base, prefix));
+  if (family !== 6) return true;
+  const value = ipv6Number(address);
+  const mappedPrefix = ipv6Number('::ffff:0:0');
+  if ((value >> 32n) === (mappedPrefix >> 32n)) {
+    const embedded = Number(value & 0xffffffffn);
+    return isPrivateAddress([embedded >>> 24, (embedded >>> 16) & 255, (embedded >>> 8) & 255, embedded & 255].join('.'));
+  }
+  return value === 1n || NON_PUBLIC_IPV6.some(([base, prefix]) => inIPv6Range(address, base, prefix));
+}
+
+function normalizedHostname(url) {
+  return url.hostname.startsWith('[') && url.hostname.endsWith(']') ? url.hostname.slice(1, -1) : url.hostname;
+}
+
+export async function resolvePublicURL(value, { lookup = dns.lookup } = {}) {
   let url;
   try { url = new URL(value); }
   catch { throw new Error('URL 格式不正确'); }
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('仅支持 http/https 地址');
-  const hostname = url.hostname.toLowerCase();
+  if (url.username || url.password) throw new Error('URL 不能包含用户名或密码');
+  const hostname = normalizedHostname(url).toLowerCase();
   if (!hostname || hostname === 'localhost' || hostname.endsWith('.local')) throw new Error('不允许访问本机或局域网地址');
-  const directIP = net.isIP(hostname) ? [hostname] : [];
-  const addresses = directIP.length ? directIP : (await dns.lookup(hostname, { all: true, verbatim: true })).map((entry) => entry.address);
-  if (!addresses.length || addresses.some(isPrivateAddress)) throw new Error('不允许访问私有网络地址');
+  const directIP = net.isIP(hostname) ? [{ address: hostname, family: net.isIP(hostname) }] : [];
+  const resolved = directIP.length ? directIP : await lookup(hostname, { all: true, verbatim: true });
+  const addresses = [...new Map(resolved.map((entry) => {
+    const address = String(entry?.address || '');
+    return [address, { address, family: net.isIP(address) }];
+  })).values()].filter((entry) => entry.family);
+  if (!addresses.length || addresses.some((entry) => isPrivateAddress(entry.address))) throw new Error('不允许访问私有网络地址');
   url.hash = '';
-  return url;
+  return { url, addresses };
+}
+
+export async function assertPublicURL(value, options) {
+  return (await resolvePublicURL(value, options)).url;
+}
+
+function responseHeader(headers, name) {
+  const value = headers?.[name.toLowerCase()];
+  return Array.isArray(value) ? value[0] || '' : String(value || '');
+}
+
+function decodedBody(response) {
+  const encoding = responseHeader(response.headers, 'content-encoding').trim().toLowerCase();
+  if (!encoding || encoding === 'identity') return response;
+  if (encoding === 'gzip' || encoding === 'x-gzip') return response.pipe(createGunzip());
+  if (encoding === 'deflate') return response.pipe(createInflate());
+  if (encoding === 'br') return response.pipe(createBrotliDecompress());
+  throw new Error('远程服务器使用了不受支持的压缩格式');
 }
 
 async function readLimitedBytes(response, maxBytes, label) {
-  const declared = Number(response.headers.get('content-length') || 0);
-  if (declared > maxBytes) throw new Error(`${label}超过 ${Math.round(maxBytes / 1024 / 1024)} MB 限制`);
-  if (!response.body) return Buffer.alloc(0);
-  const reader = response.body.getReader();
+  const declared = Number(responseHeader(response.headers, 'content-length') || 0);
+  if (declared > maxBytes) {
+    response.destroy();
+    throw new Error(`${label}超过 ${Math.round(maxBytes / 1024 / 1024)} MB 限制`);
+  }
+  let body;
+  try { body = decodedBody(response); }
+  catch (error) {
+    response.destroy();
+    throw error;
+  }
   const chunks = [];
   let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      throw new Error(`${label}超过 ${Math.round(maxBytes / 1024 / 1024)} MB 限制`);
+  try {
+    for await (const chunk of body) {
+      total += chunk.length;
+      if (total > maxBytes) throw new Error(`${label}超过 ${Math.round(maxBytes / 1024 / 1024)} MB 限制`);
+      chunks.push(Buffer.from(chunk));
     }
-    chunks.push(value);
+  } catch (error) {
+    body.destroy();
+    response.destroy();
+    throw error;
   }
-  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+  return Buffer.concat(chunks);
+}
+
+export function createPinnedLookup({ address, family }) {
+  return (_hostname, options, callback) => {
+    const done = typeof options === 'function' ? options : callback;
+    const settings = typeof options === 'object' && options ? options : {};
+    if (settings.all) done(null, [{ address, family }]);
+    else done(null, address, family);
+  };
+}
+
+export function requestPinnedAddress(url, target, {
+  headers,
+  maxBytes,
+  label,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+  requestImpl = url.protocol === 'https:' ? https.request : http.request
+}) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let responseStarted = false;
+    let timer = null;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback(value);
+    };
+    const hostname = normalizedHostname(url);
+    const request = requestImpl({
+      protocol: url.protocol,
+      hostname,
+      port: url.port || undefined,
+      method: 'GET',
+      path: `${url.pathname}${url.search}`,
+      headers,
+      agent: false,
+      lookup: createPinnedLookup(target),
+      ...(url.protocol === 'https:' && !net.isIP(hostname) ? { servername: hostname } : {})
+    }, (response) => {
+      responseStarted = true;
+      const status = Number(response.statusCode || 0);
+      if (status < 200 || status >= 300) {
+        finish(resolve, { status, headers: response.headers, bytes: Buffer.alloc(0) });
+        response.destroy();
+        return;
+      }
+      readLimitedBytes(response, maxBytes, label)
+        .then((bytes) => finish(resolve, { status, headers: response.headers, bytes }))
+        .catch((error) => {
+          error.readerResponseStarted = true;
+          finish(reject, error);
+        });
+    });
+    timer = setTimeout(() => {
+      const error = Object.assign(new Error('远程请求超时'), { code: 'ETIMEDOUT' });
+      request.destroy(error);
+    }, timeoutMs);
+    request.once('error', (error) => {
+      if (responseStarted) error.readerResponseStarted = true;
+      finish(reject, error);
+    });
+    request.end();
+  });
+}
+
+async function requestPublicTarget(target, options) {
+  const deadline = Date.now() + REQUEST_TIMEOUT_MS;
+  let lastError;
+  for (const address of target.addresses) {
+    try {
+      return await requestPinnedAddress(target.url, address, {
+        ...options,
+        timeoutMs: Math.max(1, deadline - Date.now())
+      });
+    } catch (error) {
+      lastError = error;
+      if (error.readerResponseStarted) throw error;
+      if (Date.now() >= deadline) break;
+    }
+  }
+  throw lastError || new Error('远程地址不可用');
 }
 
 export async function safeFetchText(value, {
@@ -75,70 +235,63 @@ export async function safeFetchText(value, {
   headers = {},
   allowNotModified = false
 } = {}) {
-  let url = await assertPublicURL(value);
+  let target = await resolvePublicURL(value);
   for (let redirect = 0; redirect < 5; redirect += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    let response;
-    try {
-      response = await fetch(url, {
-        redirect: 'manual',
-        signal: controller.signal,
-        headers: browserHeaders(accept, url, headers)
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+    const response = await requestPublicTarget(target, {
+      headers: browserHeaders(accept, target.url, headers),
+      maxBytes: MAX_REMOTE_BYTES,
+      label: '远程内容'
+    });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('location');
+      const location = responseHeader(response.headers, 'location');
       if (!location) throw new Error('重定向缺少目标地址');
-      url = await assertPublicURL(new URL(location, url).toString());
+      target = await resolvePublicURL(new URL(location, target.url).toString());
       continue;
     }
     if (allowNotModified && response.status === 304) {
       return {
-        text: '', url: url.toString(), contentType: response.headers.get('content-type') || '', status: 304,
-        etag: response.headers.get('etag'), lastModified: response.headers.get('last-modified')
+        text: '', url: target.url.toString(), contentType: responseHeader(response.headers, 'content-type'), status: 304,
+        etag: responseHeader(response.headers, 'etag') || null,
+        lastModified: responseHeader(response.headers, 'last-modified') || null
       };
     }
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       const error = new Error(`远程服务器返回 ${response.status}`);
       error.httpStatus = response.status;
       throw error;
     }
     return {
-      text: (await readLimitedBytes(response, MAX_REMOTE_BYTES, '远程内容')).toString('utf8'),
-      url: url.toString(),
-      contentType: response.headers.get('content-type') || '',
+      text: response.bytes.toString('utf8'),
+      url: target.url.toString(),
+      contentType: responseHeader(response.headers, 'content-type'),
       status: response.status,
-      etag: response.headers.get('etag'),
-      lastModified: response.headers.get('last-modified')
+      etag: responseHeader(response.headers, 'etag') || null,
+      lastModified: responseHeader(response.headers, 'last-modified') || null
     };
   }
   throw new Error('重定向次数过多');
 }
 
 export async function safeFetchImage(value) {
-  let url = await assertPublicURL(value);
+  let target = await resolvePublicURL(value);
   for (let redirect = 0; redirect < 5; redirect += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    let response;
-    try {
-      response = await fetch(url, { redirect: 'manual', signal: controller.signal, headers: browserHeaders('image/avif,image/webp,image/png,image/jpeg,image/gif,image/heic;q=0.8', url) });
-    } finally { clearTimeout(timeout); }
+    const response = await requestPublicTarget(target, {
+      headers: browserHeaders('image/avif,image/webp,image/png,image/jpeg,image/gif,image/heic;q=0.8', target.url),
+      maxBytes: MAX_IMAGE_BYTES,
+      label: '远程主图'
+    });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('location');
+      const location = responseHeader(response.headers, 'location');
       if (!location) throw new Error('图片重定向缺少目标地址');
-      url = await assertPublicURL(new URL(location, url).toString());
+      target = await resolvePublicURL(new URL(location, target.url).toString());
       continue;
     }
-    if (!response.ok) throw new Error(`图片服务器返回 ${response.status}`);
-    const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (response.status < 200 || response.status >= 300) throw new Error(`图片服务器返回 ${response.status}`);
+    const contentType = responseHeader(response.headers, 'content-type').split(';')[0].trim().toLowerCase();
     if (!/^image\/(png|jpe?g|webp|gif|avif|heic)$/.test(contentType)) throw new Error('远程主图格式不受支持');
-    const bytes = await readLimitedBytes(response, MAX_IMAGE_BYTES, '远程主图');
+    const bytes = response.bytes;
     if (!validateImageSignature(bytes, contentType)) throw new Error('远程主图内容与 MIME 类型不一致');
-    return { bytes, url: url.toString(), contentType };
+    return { bytes, url: target.url.toString(), contentType };
   }
   throw new Error('图片重定向次数过多');
 }
