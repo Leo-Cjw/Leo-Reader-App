@@ -138,7 +138,11 @@ export function createSourceSyncService(database, { fetchFeed = fetchRSS, social
   return { syncSource, isSyncing: (id) => active.has(id) };
 }
 
-export function createSourceScheduler(database, syncService, { pollIntervalMs = 30_000, initialDelayMs = 2_000 } = {}) {
+export function createSourceScheduler(database, syncService, {
+  pollIntervalMs = 30_000,
+  initialDelayMs = 2_000,
+  onBatchFinished = null
+} = {}) {
   let timer = null;
   let paused = false;
   let running = false;
@@ -151,13 +155,24 @@ export function createSourceScheduler(database, syncService, { pollIntervalMs = 
     running = true;
     activeRun = (async () => {
       let synced = 0;
+      let imported = 0;
+      let failed = 0;
       try {
         const due = await database.listDueSources();
         for (const source of due) {
           if (stopped || paused) break;
-          try { await syncService.syncSource(source); }
-          catch (error) { if (!stopped) console.warn(`订阅源同步失败：${source.title}: ${error.message}`); }
+          try {
+            const result = await syncService.syncSource(source);
+            imported += Math.max(0, Number(result?.imported) || 0);
+          } catch (error) {
+            failed += 1;
+            if (!stopped) console.warn(`订阅源同步失败：${source.title}: ${error.message}`);
+          }
           synced += 1;
+        }
+        if (synced && typeof onBatchFinished === 'function') {
+          try { await onBatchFinished({ imported, failed }); }
+          catch (error) { if (!stopped) console.warn(`订阅批次回调失败：${error.message}`); }
         }
         return { synced };
       } catch (error) {

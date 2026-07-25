@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const allowedCommands = new Set(['new', 'search', 'edit', 'settings', 'import-queue', 'data-safety', 'toggle-ai']);
+const allowedCommands = new Set(['new', 'search', 'edit', 'settings', 'import-queue', 'sources', 'data-safety', 'toggle-ai']);
 const pendingAddURLs = [];
 const addURLListeners = new Set();
 const validArticleId = (value) => typeof value === 'string' && Boolean(value) && value.length <= 200 && !/[\u0000-\u001f\u007f]/.test(value);

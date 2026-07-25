@@ -41,6 +41,8 @@ flowchart LR
 
 0.39.0 增加独立专注阅读窗口。工作区只通过 preload 暴露的 `openArticleWindow(articleId)` 请求主进程；主进程先验证发送 frame 仍来自当前随机回环 origin、ID 为最长 200 字符且不含控制字符，并向 SQLite 确认文章存在。每个文章 ID 对应一个 `BrowserWindow`，重复打开只恢复并聚焦现有窗口；不同文章可并行阅读。窗口沿用相同沙箱、上下文隔离、权限拒绝和导航边界，使用受控查询参数加载同一 React 构建。渲染器复用正文、附件和高亮显示组件，但以显式只读模式关闭收藏、资料夹、归档、标签、历史、编辑、AI、阅读进度和批注写入；来源回链只允许打开另一个受验证的专注窗口。“返回资料库”聚焦主窗口；主窗口已关闭时先按既有安全配置重建。任一 Reader 窗口在前台时都抑制后台导入通知。
 
+0.40.0 在同一系统通知边界内加入自动订阅批次。设置新增独立且默认关闭的 `notifications.sourceSyncEnabled`；旧设置缺失字段、类型错误或读取失败都保持关闭，更新任一通知开关时原子保留另一项。调度器在一轮到期来源结束后只生成 `{ imported, failed }`，不携带来源、内容、URL、ID、错误或凭据；服务端在回调当刻读取 opt-in，手动 `POST /api/sources/:id/sync` 不经过该回调。全零批次不显示通知，计数在固定模板中限制为 0–99。点击通知只聚焦或重建主窗口，再经既有受限单向命令打开“内容来源”；任一主窗口或专注窗口在前台时仍统一抑制。
+
 ## 数据模型
 
 - `articles`：统一承载网页、Markdown、RSS、PDF 元数据和未来附件记录。
@@ -189,7 +191,7 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
 
 - 取得真实 Apple Developer ID 与公证凭据，发布首个正式 GitHub Release，并完成跨版本自动升级演练。
-- Share Extension、Spotlight、系统通知和更完整的跨应用导入体验。
+- Share Extension、Spotlight 和更完整的跨应用导入体验；系统通知仍需在正式签名包上完成可用性验收。
 
 当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron 与 Canvas 切片完成官方哈希、Mach-O 架构及签名结构验证，仍应在 Apple Silicon 真机上补运行验收。
 

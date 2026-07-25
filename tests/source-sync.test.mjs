@@ -198,3 +198,34 @@ test('scheduler only runs enabled sources that are due', async (t) => {
   assert.equal((await scheduler.runDueSources()).synced, 1);
   assert.deepEqual(seen, [due.id, due.id]);
 });
+
+test('scheduler reports one aggregate-only summary for automatic source batches', async (t) => {
+  const db = await temporaryDatabase(t);
+  await db.createSource({ kind: 'rss', title: 'Private Product Feed', url: 'https://private.example/product.xml' });
+  await db.createSource({ kind: 'rss', title: 'Private News Feed', url: 'https://private.example/news.xml' });
+  await db.createSource({ kind: 'rss', title: 'Private Failed Feed', url: 'https://private.example/failed.xml' });
+  const summaries = [];
+  let call = 0;
+  const scheduler = createSourceScheduler(db, {
+    syncSource: async (source) => {
+      call += 1;
+      await db.updateSource(source.id, { next_fetch_at: '2099-01-01T00:00:00.000Z' });
+      if (call === 3) throw new Error(`credential failed for ${source.title}`);
+      return {
+        imported: call === 1 ? 2 : 0,
+        title: source.title,
+        url: source.url,
+        error: '/Users/private/source.xml'
+      };
+    }
+  }, {
+    onBatchFinished: (summary) => summaries.push(summary)
+  });
+  t.after(() => scheduler.stop());
+
+  assert.deepEqual(await scheduler.runDueSources(), { synced: 3 });
+  assert.deepEqual(summaries, [{ imported: 2, failed: 1 }]);
+  assert.doesNotMatch(JSON.stringify(summaries), /Private|private|example|credential|Users|title|url|error|id/i);
+  assert.deepEqual(await scheduler.runDueSources(), { synced: 0 });
+  assert.equal(summaries.length, 1);
+});

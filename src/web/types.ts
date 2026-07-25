@@ -118,6 +118,7 @@ export interface AIConnectionResult {
 
 export interface NotificationSettings {
   enabled: boolean;
+  sourceSyncEnabled: boolean;
   updatedAt: string | null;
 }
 

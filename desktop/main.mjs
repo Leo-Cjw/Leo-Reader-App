@@ -4,7 +4,7 @@ import { createReaderServer } from '../src/server/server.mjs';
 import { DESKTOP_COMMANDS, extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
 import { createDesktopBackgroundCoordinator } from './background-state.mjs';
 import { createRendererRecoveryController } from './renderer-recovery.mjs';
-import { createImportNotificationController } from './notifications.mjs';
+import { createImportNotificationController, createSourceSyncNotificationController } from './notifications.mjs';
 import { createUpdateController } from './updates.mjs';
 
 app.enableSandbox();
@@ -34,6 +34,11 @@ const importNotificationController = createImportNotificationController({
   shouldNotify: () => !shutdownStarted && !BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
   onClick: () => { void openImportQueue().catch(() => {}); }
 });
+const sourceSyncNotificationController = createSourceSyncNotificationController({
+  Notification,
+  shouldNotify: () => !shutdownStarted && !BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+  onClick: () => { void openSources().catch(() => {}); }
+});
 
 async function closeReader() {
   backgroundCoordinator?.stop();
@@ -61,6 +66,12 @@ async function openImportQueue() {
   if ((!mainWindow || mainWindow.isDestroyed()) && appOrigin) await createWindow();
   focusMainWindow();
   sendCommand('import-queue');
+}
+
+async function openSources() {
+  if ((!mainWindow || mainWindow.isDestroyed()) && appOrigin) await createWindow();
+  focusMainWindow();
+  sendCommand('sources');
 }
 
 function flushPendingAddURLs() {
@@ -278,7 +289,8 @@ async function startReader() {
     dbPath: path.join(dataRoot, 'data', 'reader.sqlite3'),
     host: '127.0.0.1',
     port: 0,
-    onImportBatchFinished: (summary) => importNotificationController.show(summary)
+    onImportBatchFinished: (summary) => importNotificationController.show(summary),
+    onSourceSyncBatchFinished: (summary) => sourceSyncNotificationController.show(summary)
   });
   const address = await readerServer.listen();
   backgroundCoordinator = createDesktopBackgroundCoordinator({ powerMonitor, net, server: readerServer });

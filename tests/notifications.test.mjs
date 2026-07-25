@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createImportNotificationController } from '../desktop/notifications.mjs';
+import { createImportNotificationController, createSourceSyncNotificationController } from '../desktop/notifications.mjs';
 import { createReaderServer } from '../src/server/server.mjs';
 
 class FakeNotification extends EventEmitter {
@@ -98,6 +98,44 @@ test('desktop notifications aggregate counts, omit content and open the import q
   }).show({ completed: 1, failed: 0 }), false);
 });
 
+test('source sync notifications omit source details, ignore empty batches and open Sources on click', () => {
+  FakeNotification.instances = [];
+  FakeNotification.supported = true;
+  const actions = [];
+  const controller = createSourceSyncNotificationController({
+    Notification: FakeNotification,
+    shouldNotify: () => true,
+    onClick: () => actions.push('sources')
+  });
+
+  assert.equal(controller.show({
+    imported: 3,
+    failed: 1,
+    sourceId: 'private-source-id',
+    title: 'Private Feed',
+    url: 'https://private.example/feed.xml',
+    error: 'secret credential failed'
+  }), true);
+  assert.deepEqual(FakeNotification.instances[0].options, {
+    title: 'Reader 订阅已更新',
+    body: '已保存 3 条新内容，1 个订阅同步失败；可打开内容来源查看详情。',
+    silent: true
+  });
+  assert.doesNotMatch(JSON.stringify(FakeNotification.instances[0].options), /Private|private|example|credential|source-id/);
+  FakeNotification.instances[0].emit('click');
+  assert.deepEqual(actions, ['sources']);
+
+  assert.equal(controller.show({ imported: 0, failed: 0 }), false);
+  assert.equal(FakeNotification.instances.length, 1);
+  assert.equal(controller.show({ imported: 1000, failed: 500 }), true);
+  assert.match(FakeNotification.instances[1].options.body, /99 条.*99 个/);
+  assert.equal(createSourceSyncNotificationController({
+    Notification: FakeNotification,
+    shouldNotify: () => false
+  }).show({ imported: 1, failed: 0 }), false);
+  assert.equal(FakeNotification.instances.length, 2);
+});
+
 test('import notifications are off by default, persist explicit opt-in and expose only batch counts', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'reader-notifications-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -113,7 +151,7 @@ test('import notifications are off by default, persist explicit opt-in and expos
   const base = `http://127.0.0.1:${address.port}`;
 
   const initial = await json(`${base}/api/settings/notifications`);
-  assert.deepEqual(initial.body.settings, { enabled: false, updatedAt: null });
+  assert.deepEqual(initial.body.settings, { enabled: false, sourceSyncEnabled: false, updatedAt: null });
   const firstUpload = await json(`${base}/api/import-jobs/upload`, {
     method: 'POST',
     headers: { 'content-type': 'text/markdown', 'x-reader-filename': encodeURIComponent('Private First Note.md') },
@@ -137,7 +175,17 @@ test('import notifications are off by default, persist explicit opt-in and expos
   });
   assert.equal(enabled.response.status, 200);
   assert.equal(enabled.body.settings.enabled, true);
+  assert.equal(enabled.body.settings.sourceSyncEnabled, false);
   assert.match(enabled.body.settings.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  const sourceEnabled = await json(`${base}/api/settings/notifications`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sourceSyncEnabled: true })
+  });
+  assert.equal(sourceEnabled.response.status, 200);
+  assert.equal(sourceEnabled.body.settings.enabled, true);
+  assert.equal(sourceEnabled.body.settings.sourceSyncEnabled, true);
 
   await json(`${base}/api/import-jobs/state`, {
     method: 'PUT',
@@ -171,5 +219,81 @@ test('import notifications are off by default, persist explicit opt-in and expos
 
   const disk = JSON.parse(await readFile(path.join(root, 'data', 'settings.json'), 'utf8'));
   assert.equal(disk.notifications.enabled, true);
+  assert.equal(disk.notifications.sourceSyncEnabled, true);
   assert.doesNotMatch(JSON.stringify(disk.notifications), /Private|missing|input/);
+});
+
+test('source notifications require their own opt-in and exclude manual syncs', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'reader-source-notifications-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const events = [];
+  let fetchCount = 0;
+  const socialConnectors = {
+    async fetchSource(source) {
+      fetchCount += 1;
+      return {
+        title: source.title,
+        items: [{
+          id: `private-source-entry-${fetchCount}`,
+          url: `https://private.example/entry-${fetchCount}`,
+          title: `Private source entry ${fetchCount}`,
+          source: source.title,
+          type: 'x',
+          content: `Private source content ${fetchCount}`
+        }],
+        response: { status: 200 }
+      };
+    }
+  };
+  const app = await createReaderServer({
+    rootDir: root,
+    dbPath: path.join(root, 'reader.sqlite3'),
+    port: 0,
+    socialConnectors,
+    onSourceSyncBatchFinished: (summary) => events.push(summary)
+  });
+  const source = await app.database.createSource({
+    kind: 'x',
+    title: 'Private source account',
+    url: 'https://x.com/private-account'
+  });
+  const address = await app.listen();
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${address.port}`;
+
+  await new Promise((resolve) => setTimeout(resolve, 2_200));
+  assert.equal(fetchCount, 1);
+  assert.deepEqual(events, []);
+
+  const enabled = await json(`${base}/api/settings/notifications`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sourceSyncEnabled: true })
+  });
+  assert.equal(enabled.response.status, 200);
+  assert.equal(enabled.body.settings.enabled, false);
+  assert.equal(enabled.body.settings.sourceSyncEnabled, true);
+
+  await app.database.updateSource(source.id, { next_fetch_at: new Date().toISOString() });
+  await app.close();
+
+  const optedInApp = await createReaderServer({
+    rootDir: root,
+    dbPath: path.join(root, 'reader.sqlite3'),
+    port: 0,
+    socialConnectors,
+    onSourceSyncBatchFinished: (summary) => events.push(summary)
+  });
+  const optedInAddress = await optedInApp.listen();
+  t.after(() => optedInApp.close());
+  const optedInBase = `http://127.0.0.1:${optedInAddress.port}`;
+  await new Promise((resolve) => setTimeout(resolve, 2_200));
+  assert.equal(fetchCount, 2);
+  assert.deepEqual(events, [{ imported: 1, failed: 0 }]);
+
+  const manual = await json(`${optedInBase}/api/sources/${source.id}/sync`, { method: 'POST' });
+  assert.equal(manual.response.status, 200);
+  assert.equal(manual.body.imported, 1);
+  assert.equal(fetchCount, 3);
+  assert.deepEqual(events, [{ imported: 1, failed: 0 }]);
 });

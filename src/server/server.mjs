@@ -177,7 +177,8 @@ export async function createReaderServer({
   socialConnectors = null,
   socialEnvironment = process.env,
   diagnosticsStore = null,
-  onImportBatchFinished = null
+  onImportBatchFinished = null,
+  onSourceSyncBatchFinished = null
 } = {}) {
   const dataRoot = path.join(rootDir, 'data');
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
@@ -228,7 +229,12 @@ export async function createReaderServer({
     socialConnectors: runtimeSocialConnectors,
     paths: { stagingDir, filesDir }
   });
-  const sourceScheduler = createSourceScheduler(database, sourceSync);
+  const sourceScheduler = createSourceScheduler(database, sourceSync, {
+    onBatchFinished: (summary) => {
+      if (!runtimeSettingsStore.getNotifications().sourceSyncEnabled || typeof onSourceSyncBatchFinished !== 'function') return;
+      return onSourceSyncBatchFinished(summary);
+    }
+  });
   sourceScheduler.start();
   const backgroundWork = createBackgroundWorkPolicy(importWorker, sourceScheduler);
   if (importQueueSettings.paused) await backgroundWork.update({ importUserPaused: true });
@@ -567,8 +573,17 @@ export async function createReaderServer({
 
       if (pathname === '/api/settings/notifications' && method === 'PUT') {
         const body = await readJSON(request);
-        if (typeof body.enabled !== 'boolean') throw new HTTPError(400, 'enabled 必须是布尔值');
-        return sendJSON(response, 200, { settings: await runtimeSettingsStore.saveNotifications(body.enabled) });
+        const hasImportSetting = 'enabled' in body;
+        const hasSourceSetting = 'sourceSyncEnabled' in body;
+        if (!hasImportSetting && !hasSourceSetting) throw new HTTPError(400, '至少提供一个通知设置');
+        if (hasImportSetting && typeof body.enabled !== 'boolean') throw new HTTPError(400, 'enabled 必须是布尔值');
+        if (hasSourceSetting && typeof body.sourceSyncEnabled !== 'boolean') throw new HTTPError(400, 'sourceSyncEnabled 必须是布尔值');
+        return sendJSON(response, 200, {
+          settings: await runtimeSettingsStore.saveNotifications({
+            ...(hasImportSetting ? { enabled: body.enabled } : {}),
+            ...(hasSourceSetting ? { sourceSyncEnabled: body.sourceSyncEnabled } : {})
+          })
+        });
       }
 
       if (pathname === '/api/settings/connectors' && method === 'GET') {

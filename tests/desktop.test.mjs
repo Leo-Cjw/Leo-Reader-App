@@ -122,9 +122,12 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /createUpdateController/);
   assert.match(main, /createRendererRecoveryController/);
   assert.match(main, /createImportNotificationController/);
+  assert.match(main, /createSourceSyncNotificationController/);
   assert.match(main, /onImportBatchFinished/);
+  assert.match(main, /onSourceSyncBatchFinished/);
   assert.match(main, /BrowserWindow\.getAllWindows\(\)\.some/);
   assert.match(main, /sendCommand\('import-queue'\)/);
+  assert.match(main, /sendCommand\('sources'\)/);
   assert.match(main, /window\.webContents\.on\('render-process-gone'/);
   assert.match(main, /window\.webContents\.on\('did-finish-load'/);
   assert.match(main, /检查更新…/);

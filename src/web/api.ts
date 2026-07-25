@@ -223,8 +223,8 @@ export const api = {
   async getNotificationSettings() {
     return (await request<{ settings: NotificationSettings }>('/api/settings/notifications')).settings;
   },
-  async updateNotificationSettings(enabled: boolean) {
-    return (await request<{ settings: NotificationSettings }>('/api/settings/notifications', { method: 'PUT', body: JSON.stringify({ enabled }) })).settings;
+  async updateNotificationSettings(patch: Partial<Pick<NotificationSettings, 'enabled' | 'sourceSyncEnabled'>>) {
+    return (await request<{ settings: NotificationSettings }>('/api/settings/notifications', { method: 'PUT', body: JSON.stringify(patch) })).settings;
   },
   async getConnectorSettings() {
     return (await request<{ connectors: ConnectorStatus }>('/api/settings/connectors')).connectors;

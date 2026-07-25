@@ -621,6 +621,7 @@ button, select { cursor: pointer; }
 .settings-toggle input:focus-visible ~ i { outline: 2px solid var(--accent); outline-offset: 3px; }
 .settings-notification-toggle { padding-top: 0; }
 .settings-notification-toggle input:disabled { cursor: wait; }
+.settings-notification-controls { display: grid; gap: 10px; }
 .secret-field { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; }
 .secret-field button { padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--button); color: var(--muted); font-size: 8.5px; }
 .settings-contract { padding: 13px 14px; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 72%, transparent); }

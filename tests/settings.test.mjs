@@ -44,9 +44,10 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   t.after(() => rm(dir, { recursive: true, force: true }));
   const filePath = path.join(dir, 'data', 'settings.json');
   const settingsStore = await new SettingsStore(filePath).initialize();
-  assert.deepEqual(settingsStore.getNotifications(), { enabled: false, updatedAt: null });
+  assert.deepEqual(settingsStore.getNotifications(), { enabled: false, sourceSyncEnabled: false, updatedAt: null });
   await settingsStore.saveImportQueue(true);
   await settingsStore.saveNotifications(true);
+  await settingsStore.saveNotifications({ sourceSyncEnabled: true });
   const credentialStore = new MemoryCredentialStore();
   const aiService = new AIService({ endpoint: '', apiKey: '' });
   const manager = await new AISettingsManager({ settingsStore, credentialStore, aiService, environment: {} }).initialize();
@@ -59,6 +60,7 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   assert.equal(credentialStore.value, 'keychain-only-secret');
   assert.equal(settingsStore.getImportQueue().paused, true);
   assert.equal(settingsStore.getNotifications().enabled, true);
+  assert.equal(settingsStore.getNotifications().sourceSyncEnabled, true);
   const disk = await readFile(filePath, 'utf8');
   assert.doesNotMatch(disk, /keychain-only-secret/);
   assert.equal((await stat(filePath)).mode & 0o777, 0o600);
@@ -84,6 +86,7 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   assert.equal(aiService.status().remoteConfigured, false);
   assert.equal(settingsStore.getImportQueue().paused, true);
   assert.equal(settingsStore.getNotifications().enabled, true);
+  assert.equal(settingsStore.getNotifications().sourceSyncEnabled, true);
 });
 
 test('AI settings HTTP API updates runtime configuration without exposing the API key', async (t) => {
@@ -135,14 +138,14 @@ test('legacy settings remain compatible and malformed values cannot opt into not
   }));
   const legacy = await new SettingsStore(filePath).initialize();
   assert.equal(legacy.getImportQueue().paused, true);
-  assert.deepEqual(legacy.getNotifications(), { enabled: false, updatedAt: null });
+  assert.deepEqual(legacy.getNotifications(), { enabled: false, sourceSyncEnabled: false, updatedAt: null });
 
   await writeFile(filePath, JSON.stringify({
     version: 1,
     ai: { configured: false, enabled: false, endpoint: '', hasApiKey: false, updatedAt: null },
     imports: { paused: false, updatedAt: null },
-    notifications: { enabled: 'true', updatedAt: 123 }
+    notifications: { enabled: 'true', sourceSyncEnabled: 'true', updatedAt: 123 }
   }));
   const malformed = await new SettingsStore(filePath).initialize();
-  assert.deepEqual(malformed.getNotifications(), { enabled: false, updatedAt: null });
+  assert.deepEqual(malformed.getNotifications(), { enabled: false, sourceSyncEnabled: false, updatedAt: null });
 });

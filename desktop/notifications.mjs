@@ -3,7 +3,7 @@ function notificationCount(value) {
   return Number.isFinite(count) ? Math.min(Math.max(Math.trunc(count), 0), 99) : 0;
 }
 
-function notificationOptions(summary = {}) {
+function importNotificationOptions(summary = {}) {
   const completed = notificationCount(summary.completed);
   const failed = notificationCount(summary.failed);
   if (!completed && !failed) return null;
@@ -24,15 +24,37 @@ function notificationOptions(summary = {}) {
   };
 }
 
-export function createImportNotificationController({
+function sourceSyncNotificationOptions(summary = {}) {
+  const imported = notificationCount(summary.imported);
+  const failed = notificationCount(summary.failed);
+  if (!imported && !failed) return null;
+  if (imported && failed) return {
+    title: 'Reader 订阅已更新',
+    body: `已保存 ${imported} 条新内容，${failed} 个订阅同步失败；可打开内容来源查看详情。`,
+    silent: true
+  };
+  if (imported) return {
+    title: 'Reader 订阅已更新',
+    body: `已将 ${imported} 条新内容保存到本地资料库。`,
+    silent: true
+  };
+  return {
+    title: 'Reader 订阅需要处理',
+    body: `${failed} 个订阅同步失败；可打开内容来源查看状态。`,
+    silent: true
+  };
+}
+
+function createNotificationController({
   Notification,
+  optionsForSummary,
   shouldNotify = () => true,
   onClick = () => {}
 }) {
   let activeNotification = null;
 
   function show(summary) {
-    const options = notificationOptions(summary);
+    const options = optionsForSummary(summary);
     if (!options || !shouldNotify() || !Notification?.isSupported?.()) return false;
     if (activeNotification) {
       try { activeNotification.close(); }
@@ -61,4 +83,12 @@ export function createImportNotificationController({
   }
 
   return { show };
+}
+
+export function createImportNotificationController(options) {
+  return createNotificationController({ ...options, optionsForSummary: importNotificationOptions });
+}
+
+export function createSourceSyncNotificationController(options) {
+  return createNotificationController({ ...options, optionsForSummary: sourceSyncNotificationOptions });
 }

@@ -6,7 +6,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   version: 1,
   ai: { configured: false, enabled: false, endpoint: '', hasApiKey: false, updatedAt: null },
   imports: { paused: false, updatedAt: null },
-  notifications: { enabled: false, updatedAt: null }
+  notifications: { enabled: false, sourceSyncEnabled: false, updatedAt: null }
 });
 
 function settingsError(message, status = 400) {
@@ -61,7 +61,9 @@ export class SettingsStore {
           paused: Boolean(imports.paused), updatedAt: typeof imports.updatedAt === 'string' ? imports.updatedAt : null
         },
         notifications: {
-          enabled: notifications.enabled === true, updatedAt: typeof notifications.updatedAt === 'string' ? notifications.updatedAt : null
+          enabled: notifications.enabled === true,
+          sourceSyncEnabled: notifications.sourceSyncEnabled === true,
+          updatedAt: typeof notifications.updatedAt === 'string' ? notifications.updatedAt : null
         }
       };
       await chmod(this.filePath, 0o600).catch(() => {});
@@ -108,10 +110,16 @@ export class SettingsStore {
     return this.getImportQueue();
   }
 
-  async saveNotifications(enabled) {
+  async saveNotifications(input) {
+    const patch = typeof input === 'boolean' ? { enabled: input } : input || {};
+    const current = this.value.notifications;
     const next = {
       ...clone(this.value),
-      notifications: { enabled: Boolean(enabled), updatedAt: new Date().toISOString() }
+      notifications: {
+        enabled: 'enabled' in patch ? Boolean(patch.enabled) : current.enabled,
+        sourceSyncEnabled: 'sourceSyncEnabled' in patch ? Boolean(patch.sourceSyncEnabled) : current.sourceSyncEnabled,
+        updatedAt: new Date().toISOString()
+      }
     };
     await this.persist(next);
     this.value = next;
