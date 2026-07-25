@@ -7,6 +7,7 @@ export const DESKTOP_COMMANDS = new Set([
   'search',
   'edit',
   'settings',
+  'import-queue',
   'data-safety',
   'toggle-ai'
 ]);

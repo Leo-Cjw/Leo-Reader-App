@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const allowedCommands = new Set(['new', 'search', 'edit', 'settings', 'data-safety', 'toggle-ai']);
+const allowedCommands = new Set(['new', 'search', 'edit', 'settings', 'import-queue', 'data-safety', 'toggle-ai']);
 const pendingAddURLs = [];
 const addURLListeners = new Set();
 

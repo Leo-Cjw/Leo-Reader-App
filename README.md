@@ -1,14 +1,14 @@
-# Reader for Mac 0.37.0
+# Reader for Mac 0.38.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
-当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、安全的 `reader-local://` 外部保存入口、渲染界面崩溃恢复、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
+当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、安全的 `reader-local://` 外部保存入口、渲染界面崩溃恢复、可选的隐私安全导入通知、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
 
 ## 快速开始
 
 ### Mac App
 
-打开 `Reader-0.37.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.38.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -72,6 +72,7 @@ npm run desktop:pack
 - 版本历史：内容字段发生变化时自动生成本地快照；可预览并恢复任意旧版本，恢复本身也会生成新版本，因此可逆。
 - 高亮与批注：鼠标可直接选中任意文字；纯键盘可开启只读选取模式，用方向键移动、Shift+方向键选择、Option+方向键逐词移动，并按 Enter 创建高亮。四种颜色、原文锚点和批注写入 SQLite，刷新后自动重建正文着色；正文编辑后会按原文与最近位置重新定位。高亮进入完整备份，也会附在可迁移 Markdown 导出末尾及 manifest 中。
 - 导入队列：等待、运行、完成、失败和重试状态全部落库；队列窗口可手动暂停或继续，暂停偏好保存在本机且重启后保持。手动继续只解除用户暂停，不会绕过资料恢复、睡眠或系统资源限制。
+- 后台导入通知：Mac App 设置中可明确开启，默认关闭。只有 Reader 不在前台时才按 worker 批次显示成功/失败数量；通知不包含文章标题、正文、URL、文件名、错误文本、路径、任务 ID 或资料夹，点击后聚焦 Reader 并打开导入队列。
 - 界面故障恢复：Electron 渲染进程异常退出时，Reader 会用原生窗口说明已写入资料仍安全，并让用户选择重新载入界面或安全退出。重新载入不重启本地服务和导入队列，崩溃期间到达的合格外部 URL 会等待新界面就绪后再交付。
 - 自动订阅：RSS/Atom、YouTube、X 公开账号和微博账号统一入库；X 使用官方 API 与 `since_id` 增量游标，微博调用开放平台官方 CLI。后台调度保存平台游标、配额和失败退避状态，并在 Mac 睡眠、离线、电量不高于 20% 或系统严重受限时安全暂停。
 - 订阅中心：开关、15 分钟到每周的同步频率、立即同步、错误/限流状态、删除来源，以及 OPML 2.0 导入导出。删除来源或断开连接器不会删除已经保存的文章。
@@ -105,7 +106,7 @@ npm run desktop:pack
 - 可再生缩略图：`data/thumbnails/`
 - 待恢复暂存：`data/restore/`
 - 本地运行日志：`data/logs/`（目录 `0700`、文件 `0600`；有限轮转，不进入备份或导出）
-- 非敏感运行时设置：`data/settings.json`（权限 `0600`；不保存 API 密钥，也不进入备份或导出）
+- 非敏感运行时设置：`data/settings.json`（权限 `0600`；保存 AI 非密钥配置、导入队列暂停与通知 opt-in，不保存 API 密钥，也不进入备份或导出）
 - 敏感凭据：AI API Key 与 X Bearer Token 分别写入 macOS Keychain；微博 OAuth 令牌由官方 CLI 自行写入系统 Keychain，Reader 不读取令牌。
 - 数据库采用 WAL 模式，运行时可能出现 `-wal` 和 `-shm` 文件。
 - Reader 启动时把默认数据目录权限收紧为 `0700`，数据库及现有 WAL/SHM 文件收紧为 `0600`，避免其他本机用户读取资料库。
@@ -201,7 +202,8 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `GET /api/diagnostics/logs`：读取最多 250 条脱敏本地运行事件和轮转统计。
 - `GET /api/diagnostics/logs/download`：导出经过二次白名单清洗的 JSONL。
 - `DELETE /api/diagnostics/logs`：清除全部本地运行日志，不影响资料库或备份。
+- `GET/PUT /api/settings/notifications`：读取或保存默认关闭的后台导入通知开关。
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.37.0 变更见 [docs/RELEASE_NOTES_0.37.0.md](docs/RELEASE_NOTES_0.37.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.38.0 变更见 [docs/RELEASE_NOTES_0.38.0.md](docs/RELEASE_NOTES_0.38.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

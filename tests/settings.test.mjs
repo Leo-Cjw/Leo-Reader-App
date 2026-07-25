@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { AIService } from '../src/server/ai.mjs';
 import { AISettingsManager } from '../src/server/ai-settings.mjs';
 import { MacOSKeychainCredentialStore } from '../src/server/credentials.mjs';
@@ -44,7 +44,9 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   t.after(() => rm(dir, { recursive: true, force: true }));
   const filePath = path.join(dir, 'data', 'settings.json');
   const settingsStore = await new SettingsStore(filePath).initialize();
+  assert.deepEqual(settingsStore.getNotifications(), { enabled: false, updatedAt: null });
   await settingsStore.saveImportQueue(true);
+  await settingsStore.saveNotifications(true);
   const credentialStore = new MemoryCredentialStore();
   const aiService = new AIService({ endpoint: '', apiKey: '' });
   const manager = await new AISettingsManager({ settingsStore, credentialStore, aiService, environment: {} }).initialize();
@@ -56,6 +58,7 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   assert.equal(aiService.status().remoteConfigured, true);
   assert.equal(credentialStore.value, 'keychain-only-secret');
   assert.equal(settingsStore.getImportQueue().paused, true);
+  assert.equal(settingsStore.getNotifications().enabled, true);
   const disk = await readFile(filePath, 'utf8');
   assert.doesNotMatch(disk, /keychain-only-secret/);
   assert.equal((await stat(filePath)).mode & 0o777, 0o600);
@@ -80,6 +83,7 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   assert.equal(credentialStore.value, null);
   assert.equal(aiService.status().remoteConfigured, false);
   assert.equal(settingsStore.getImportQueue().paused, true);
+  assert.equal(settingsStore.getNotifications().enabled, true);
 });
 
 test('AI settings HTTP API updates runtime configuration without exposing the API key', async (t) => {
@@ -117,4 +121,28 @@ test('AI settings HTTP API updates runtime configuration without exposing the AP
   assert.equal(reset.body.settings.configured, false);
   assert.equal(reset.body.status.remoteConfigured, false);
   assert.equal(credentialStore.value, null);
+});
+
+test('legacy settings remain compatible and malformed values cannot opt into notifications', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-settings-compatibility-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const filePath = path.join(dir, 'data', 'settings.json');
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify({
+    version: 1,
+    ai: { configured: false, enabled: false, endpoint: '', hasApiKey: false, updatedAt: null },
+    imports: { paused: true, updatedAt: '2026-07-24T00:00:00.000Z' }
+  }));
+  const legacy = await new SettingsStore(filePath).initialize();
+  assert.equal(legacy.getImportQueue().paused, true);
+  assert.deepEqual(legacy.getNotifications(), { enabled: false, updatedAt: null });
+
+  await writeFile(filePath, JSON.stringify({
+    version: 1,
+    ai: { configured: false, enabled: false, endpoint: '', hasApiKey: false, updatedAt: null },
+    imports: { paused: false, updatedAt: null },
+    notifications: { enabled: 'true', updatedAt: 123 }
+  }));
+  const malformed = await new SettingsStore(filePath).initialize();
+  assert.deepEqual(malformed.getNotifications(), { enabled: false, updatedAt: null });
 });

@@ -130,7 +130,7 @@ export async function processImportJob(database, job, paths) {
   throw new Error(`未知导入任务类型：${job.kind}`);
 }
 
-export function createImportWorker(database, paths, { idleIntervalMs = 4000, initiallyPaused = false } = {}) {
+export function createImportWorker(database, paths, { idleIntervalMs = 4000, initiallyPaused = false, onBatchFinished = null } = {}) {
   let active = false;
   let paused = Boolean(initiallyPaused);
   let stopped = false;
@@ -150,6 +150,8 @@ export function createImportWorker(database, paths, { idleIntervalMs = 4000, ini
     active = true;
     activeRun = (async () => {
       let processed = 0;
+      let completed = 0;
+      let failed = 0;
       try {
         for (let index = 0; index < 20 && !stopped && !paused; index += 1) {
           const job = await database.claimImportJob();
@@ -158,8 +160,10 @@ export function createImportWorker(database, paths, { idleIntervalMs = 4000, ini
           try {
             const article = await processImportJob(database, job, paths);
             await database.completeImportJob(job.id, article.id);
+            completed += 1;
           } catch (error) {
             await database.failImportJob(job.id, error instanceof Error ? error.message : String(error));
+            failed += 1;
           }
         }
       } catch (error) {
@@ -167,6 +171,10 @@ export function createImportWorker(database, paths, { idleIntervalMs = 4000, ini
       } finally {
         active = false;
         activeRun = null;
+        if (processed && typeof onBatchFinished === 'function') {
+          try { void Promise.resolve(onBatchFinished({ completed, failed })).catch(() => {}); }
+          catch {}
+        }
         schedule(processed === 20 ? 20 : idleIntervalMs);
       }
     })();

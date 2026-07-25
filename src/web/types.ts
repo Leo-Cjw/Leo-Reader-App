@@ -116,6 +116,11 @@ export interface AIConnectionResult {
   summary: string;
 }
 
+export interface NotificationSettings {
+  enabled: boolean;
+  updatedAt: string | null;
+}
+
 export interface AISourceReference {
   id: string;
   title: string;

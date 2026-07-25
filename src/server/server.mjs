@@ -176,7 +176,8 @@ export async function createReaderServer({
   aiEnvironment = process.env,
   socialConnectors = null,
   socialEnvironment = process.env,
-  diagnosticsStore = null
+  diagnosticsStore = null,
+  onImportBatchFinished = null
 } = {}) {
   const dataRoot = path.join(rootDir, 'data');
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
@@ -216,7 +217,13 @@ export async function createReaderServer({
     environment: socialEnvironment
   });
   const importQueueSettings = runtimeSettingsStore.getImportQueue();
-  const importWorker = createImportWorker(database, { stagingDir, filesDir }, { initiallyPaused: importQueueSettings.paused });
+  const importWorker = createImportWorker(database, { stagingDir, filesDir }, {
+    initiallyPaused: importQueueSettings.paused,
+    onBatchFinished: (summary) => {
+      if (!runtimeSettingsStore.getNotifications().enabled || typeof onImportBatchFinished !== 'function') return;
+      return onImportBatchFinished(summary);
+    }
+  });
   const sourceSync = createSourceSyncService(database, {
     socialConnectors: runtimeSocialConnectors,
     paths: { stagingDir, filesDir }
@@ -552,6 +559,16 @@ export async function createReaderServer({
         if (!aiSettingsManager) throw new HTTPError(501, '当前运行模式不支持 AI 设置');
         const body = await readJSON(request);
         return sendJSON(response, 200, { result: await aiSettingsManager.test({ endpoint: body.endpoint, apiKey: typeof body.api_key === 'string' ? body.api_key : undefined }) });
+      }
+
+      if (pathname === '/api/settings/notifications' && method === 'GET') {
+        return sendJSON(response, 200, { settings: runtimeSettingsStore.getNotifications() });
+      }
+
+      if (pathname === '/api/settings/notifications' && method === 'PUT') {
+        const body = await readJSON(request);
+        if (typeof body.enabled !== 'boolean') throw new HTTPError(400, 'enabled 必须是布尔值');
+        return sendJSON(response, 200, { settings: await runtimeSettingsStore.saveNotifications(body.enabled) });
       }
 
       if (pathname === '/api/settings/connectors' && method === 'GET') {

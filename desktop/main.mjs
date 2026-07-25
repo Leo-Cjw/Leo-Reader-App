@@ -1,9 +1,10 @@
 import path from 'node:path';
-import { app, autoUpdater, BrowserWindow, dialog, Menu, net, powerMonitor, session, shell } from 'electron';
+import { app, autoUpdater, BrowserWindow, dialog, Menu, net, Notification, powerMonitor, session, shell } from 'electron';
 import { createReaderServer } from '../src/server/server.mjs';
 import { DESKTOP_COMMANDS, extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
 import { createDesktopBackgroundCoordinator } from './background-state.mjs';
 import { createRendererRecoveryController } from './renderer-recovery.mjs';
+import { createImportNotificationController } from './notifications.mjs';
 import { createUpdateController } from './updates.mjs';
 
 app.enableSandbox();
@@ -27,6 +28,11 @@ const rendererRecoveryController = createRendererRecoveryController({
   isShuttingDown: () => shutdownStarted,
   recordDiagnostic: (event, details) => readerServer?.diagnostics.record(event, details)
 });
+const importNotificationController = createImportNotificationController({
+  Notification,
+  shouldNotify: () => !shutdownStarted && (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused()),
+  onClick: () => { void openImportQueue().catch(() => {}); }
+});
 
 async function closeReader() {
   backgroundCoordinator?.stop();
@@ -48,6 +54,12 @@ function focusMainWindow() {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+async function openImportQueue() {
+  if ((!mainWindow || mainWindow.isDestroyed()) && appOrigin) await createWindow();
+  focusMainWindow();
+  sendCommand('import-queue');
 }
 
 function flushPendingAddURLs() {
@@ -218,7 +230,8 @@ async function startReader() {
     webRoot: path.join(app.getAppPath(), 'dist'),
     dbPath: path.join(dataRoot, 'data', 'reader.sqlite3'),
     host: '127.0.0.1',
-    port: 0
+    port: 0,
+    onImportBatchFinished: (summary) => importNotificationController.show(summary)
   });
   const address = await readerServer.listen();
   backgroundCoordinator = createDesktopBackgroundCoordinator({ powerMonitor, net, server: readerServer });

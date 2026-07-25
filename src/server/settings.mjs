@@ -5,7 +5,8 @@ import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promi
 const DEFAULT_SETTINGS = Object.freeze({
   version: 1,
   ai: { configured: false, enabled: false, endpoint: '', hasApiKey: false, updatedAt: null },
-  imports: { paused: false, updatedAt: null }
+  imports: { paused: false, updatedAt: null },
+  notifications: { enabled: false, updatedAt: null }
 });
 
 function settingsError(message, status = 400) {
@@ -49,6 +50,7 @@ export class SettingsStore {
       const endpoint = normalizeAIEndpoint(ai.endpoint);
       if (ai.enabled && !endpoint) throw new Error('enabled AI endpoint is missing');
       const imports = parsed?.imports && typeof parsed.imports === 'object' ? parsed.imports : {};
+      const notifications = parsed?.notifications && typeof parsed.notifications === 'object' ? parsed.notifications : {};
       this.value = {
         version: 1,
         ai: {
@@ -57,6 +59,9 @@ export class SettingsStore {
         },
         imports: {
           paused: Boolean(imports.paused), updatedAt: typeof imports.updatedAt === 'string' ? imports.updatedAt : null
+        },
+        notifications: {
+          enabled: notifications.enabled === true, updatedAt: typeof notifications.updatedAt === 'string' ? notifications.updatedAt : null
         }
       };
       await chmod(this.filePath, 0o600).catch(() => {});
@@ -68,6 +73,7 @@ export class SettingsStore {
 
   getAI() { return clone(this.value.ai); }
   getImportQueue() { return clone(this.value.imports); }
+  getNotifications() { return clone(this.value.notifications); }
 
   async saveAI(input) {
     const next = {
@@ -100,6 +106,17 @@ export class SettingsStore {
     this.value = next;
     this.loadError = null;
     return this.getImportQueue();
+  }
+
+  async saveNotifications(enabled) {
+    const next = {
+      ...clone(this.value),
+      notifications: { enabled: Boolean(enabled), updatedAt: new Date().toISOString() }
+    };
+    await this.persist(next);
+    this.value = next;
+    this.loadError = null;
+    return this.getNotifications();
   }
 
   async persist(value = this.value) {

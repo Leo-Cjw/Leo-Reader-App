@@ -113,6 +113,10 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /await backgroundCoordinator\.start\(\)/);
   assert.match(main, /createUpdateController/);
   assert.match(main, /createRendererRecoveryController/);
+  assert.match(main, /createImportNotificationController/);
+  assert.match(main, /onImportBatchFinished/);
+  assert.match(main, /!mainWindow\.isFocused\(\)/);
+  assert.match(main, /sendCommand\('import-queue'\)/);
   assert.match(main, /window\.webContents\.on\('render-process-gone'/);
   assert.match(main, /window\.webContents\.on\('did-finish-load'/);
   assert.match(main, /检查更新…/);
@@ -258,4 +262,8 @@ test('file imports use visible keyboard buttons without exposing desktop paths',
   assert.doesNotMatch(preload, /showOpenDialog|readFile|filePath/);
   assert.match(preload, /onAddURL\(callback\)/);
   assert.match(preload, /ipcRenderer\.on\('reader:add-url'/);
+  assert.match(preload, /'import-queue'/);
+  assert.match(app, /api\.updateNotificationSettings/);
+  assert.match(app, /默认关闭；只显示成功\/失败数量/);
+  assert.match(app, /command === 'import-queue'/);
 });
