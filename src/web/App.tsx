@@ -258,10 +258,15 @@ function DialogAccessibilityManager() {
     let opener: HTMLElement | null = null;
     let reconcileFrame = 0;
     let lastOutsideFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const topDialog = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')].at(-1) || null;
+    const modalDialogs = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];
+    const topDialog = () => modalDialogs().at(-1) || null;
     const focusableElements = (dialog: HTMLElement) => [...dialog.querySelectorAll<HTMLElement>(dialogFocusableSelector)].filter((element) => element.getClientRects().length > 0);
     const reconcile = () => {
-      const dialog = topDialog();
+      const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];
+      const dialog = dialogs.at(-1) || null;
+      const appWindow = document.querySelector<HTMLElement>('.app-window');
+      appWindow?.toggleAttribute('inert', Boolean(dialog));
+      for (const candidate of dialogs) candidate.toggleAttribute('inert', candidate !== dialog);
       if (dialog === activeDialog) return;
       if (!activeDialog && dialog) opener = lastOutsideFocus;
       activeDialog = dialog;
@@ -279,7 +284,13 @@ function DialogAccessibilityManager() {
     };
     const trackOutsideFocus = (event: FocusEvent) => {
       const target = event.target;
-      if (target instanceof HTMLElement && !target.closest('[role="dialog"]')) lastOutsideFocus = target;
+      if (!(target instanceof HTMLElement)) return;
+      const dialog = topDialog();
+      if (dialog && !dialog.contains(target)) {
+        (focusableElements(dialog)[0] || dialog).focus();
+        return;
+      }
+      if (!dialog) lastOutsideFocus = target;
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       const dialog = topDialog();
@@ -317,6 +328,8 @@ function DialogAccessibilityManager() {
       document.removeEventListener('focusin', trackOutsideFocus, true);
       document.removeEventListener('keydown', handleKeyDown, true);
       window.cancelAnimationFrame(reconcileFrame);
+      document.querySelector<HTMLElement>('.app-window')?.removeAttribute('inert');
+      for (const dialog of modalDialogs()) dialog.removeAttribute('inert');
     };
   }, []);
   return null;

@@ -196,6 +196,19 @@ test('named panes announce asynchronous reading state and honor reduced motion',
   assert.match(styles, /transition-duration: \.01ms !important/);
 });
 
+test('modal dialogs isolate background and lower dialog layers while preserving keyboard focus', async () => {
+  const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
+
+  assert.match(app, /const dialogs = \[\.\.\.document\.querySelectorAll<HTMLElement>\('\[role="dialog"\]\[aria-modal="true"\]'\)\]/);
+  assert.match(app, /appWindow\?\.toggleAttribute\('inert', Boolean\(dialog\)\)/);
+  assert.match(app, /candidate\.toggleAttribute\('inert', candidate !== dialog\)/);
+  assert.match(app, /if \(dialog && !dialog\.contains\(target\)\)/);
+  assert.match(app, /\(focusableElements\(dialog\)\[0\] \|\| dialog\)\.focus\(\)/);
+  assert.match(app, /event\.key === 'Escape'/);
+  assert.match(app, /else if \(opener\?\.isConnected\)/);
+  assert.match(app, /document\.querySelector<HTMLElement>\('\.app-window'\)\?\.removeAttribute\('inert'\)/);
+});
+
 test('editor and highlights keep their declared keyboard and announcement contract', async () => {
   const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
   const styles = await readFile(path.join(projectRoot, 'src', 'web', 'styles.css'), 'utf8');

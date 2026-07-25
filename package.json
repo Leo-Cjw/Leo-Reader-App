@@ -1,6 +1,6 @@
 {
   "name": "reader-local-first",
-  "version": "0.35.0",
+  "version": "0.36.0",
   "description": "A private, local-first reading and knowledge workspace for macOS.",
   "author": "Reader",
   "private": true,
