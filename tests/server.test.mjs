@@ -39,10 +39,10 @@ async function readZipEntries(bytes) {
 
 test('HTTP API covers health, articles, updates, search and local AI', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-server-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const app = await createReaderServer({ rootDir: dir, dbPath: path.join(dir, 'reader.sqlite3'), port: 0 });
+  let app;
+  t.after(async () => { await app?.close(); await rm(dir, { recursive: true, force: true }); });
+  app = await createReaderServer({ rootDir: dir, dbPath: path.join(dir, 'reader.sqlite3'), port: 0 });
   const address = await app.listen();
-  t.after(() => app.close());
   const base = `http://127.0.0.1:${address.port}`;
   assert.equal((await stat(path.join(dir, 'data'))).mode & 0o777, 0o700);
 
@@ -69,7 +69,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.sourceSyncPauseReasons, ['offline', 'low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.36.0');
+  assert.equal(APP_VERSION, '0.37.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -274,7 +274,8 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
 
 test('migration snapshots are listed without private paths and can be exported safely', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-migration-snapshot-api-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  let app;
+  t.after(async () => { await app?.close(); await rm(dir, { recursive: true, force: true }); });
   const dbPath = path.join(dir, 'reader.sqlite3');
   const legacy = new ReaderDatabase(dbPath);
   await legacy.execute(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
@@ -287,9 +288,8 @@ test('migration snapshots are listed without private paths and can be exported s
   INSERT INTO sources(id,kind,title,url,created_at,updated_at)
   VALUES ('legacy','rss','升级前订阅','https://example.com/feed.xml','2026-01-01','2026-01-01');`);
 
-  const app = await createReaderServer({ rootDir: dir, dbPath, port: 0 });
+  app = await createReaderServer({ rootDir: dir, dbPath, port: 0 });
   const address = await app.listen();
-  t.after(() => app.close());
   const base = `http://127.0.0.1:${address.port}`;
 
   const listed = await json(`${base}/api/migration-snapshots`);
@@ -338,10 +338,10 @@ test('migration snapshots are listed without private paths and can be exported s
 
 test('attachment upload runs through the durable queue and supports byte ranges', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-upload-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const app = await createReaderServer({ rootDir: dir, dbPath: path.join(dir, 'reader.sqlite3'), port: 0 });
+  let app;
+  t.after(async () => { await app?.close(); await rm(dir, { recursive: true, force: true }); });
+  app = await createReaderServer({ rootDir: dir, dbPath: path.join(dir, 'reader.sqlite3'), port: 0 });
   const address = await app.listen();
-  t.after(() => app.close());
   const base = `http://127.0.0.1:${address.port}`;
   const content = Buffer.from('# Offline attachment\n\nThis file stays on the local device.');
   const upload = await json(`${base}/api/import-jobs/upload?collection=notes`, { method: 'POST', headers: { 'content-type': 'text/markdown', 'x-reader-filename': encodeURIComponent('Offline Notes.md') }, body: content });
@@ -403,15 +403,15 @@ test('attachment upload runs through the durable queue and supports byte ranges'
 
 test('AI translation persists an editable local article with provenance', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-ai-route-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  let app;
+  t.after(async () => { await app?.close(); await rm(dir, { recursive: true, force: true }); });
   const aiService = {
     status: () => ({ provider: 'configured', remoteConfigured: true, capabilities: { summary: true, chat: true, compose: true, translate: true } }),
     translate: async (_article, targetLanguage) => ({ provider: 'configured', model: 'contract-model', language: targetLanguage, title: 'Reader in English', excerpt: 'An editable translation.', content: '# Reader in English\n\nAll content remains locally editable.' }),
     compose: async () => { throw new Error('not used'); }, summarize: async () => { throw new Error('not used'); }, chat: async () => { throw new Error('not used'); }
   };
-  const app = await createReaderServer({ rootDir: dir, dbPath: path.join(dir, 'reader.sqlite3'), port: 0, aiService });
+  app = await createReaderServer({ rootDir: dir, dbPath: path.join(dir, 'reader.sqlite3'), port: 0, aiService });
   const address = await app.listen();
-  t.after(() => app.close());
   const base = `http://127.0.0.1:${address.port}`;
   const source = await json(`${base}/api/articles`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'markdown', title: 'Reader 中文原稿', content: '所有资料都保存在本机。' }) });
   const translated = await json(`${base}/api/ai/translate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ article_id: source.body.article.id, target_language: 'en' }) });

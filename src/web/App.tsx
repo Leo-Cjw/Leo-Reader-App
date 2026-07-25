@@ -1395,7 +1395,8 @@ const diagnosticEventLabels: Record<DiagnosticEntry['event'], string> = {
   backup_created: '完整备份已创建',
   restore_scheduled: '资料库恢复已安排',
   restore_cancelled: '资料库恢复已取消',
-  data_repair_completed: '资料库安全修复完成'
+  data_repair_completed: '资料库安全修复完成',
+  renderer_gone: '阅读界面意外停止'
 };
 
 const diagnosticRouteLabels: Record<string, string> = {
@@ -1417,6 +1418,10 @@ function diagnosticDetail(entry: DiagnosticEntry) {
   if (entry.event === 'api_error') return `${diagnosticRouteLabels[String(details.route)] || '本地服务'} · ${details.status || 500} · ${diagnosticCategoryLabels[String(details.category)] || '内部异常'}`;
   if (entry.event === 'backup_created') return `${details.encrypted ? '口令加密' : '本机明文'} · ${formatBytes(Number(details.byteSize) || 0)}`;
   if (entry.event === 'restore_scheduled') return details.source === 'migration_snapshot' ? '升级快照已验证，等待下次启动' : details.encrypted ? '加密备份已验证，等待下次启动' : '备份已验证，等待下次启动';
+  if (entry.event === 'renderer_gone') {
+    const reason = String(details.reason);
+    return reason === 'oom' || reason === 'memory-eviction' ? '界面内存不足 · 本地服务与资料库未中断' : '界面进程异常退出 · 本地服务与资料库未中断';
+  }
   if (entry.event === 'data_repair_completed') {
     const actions = Array.isArray(details.actions) ? details.actions.map((action) => action === 'storage_permissions' ? '本地权限' : action === 'search_index' ? '搜索索引' : '').filter(Boolean) : [];
     return `${actions.join('、') || '可重建项目'}${details.backupCreated ? ' · 已保留修复前备份' : ''}`;

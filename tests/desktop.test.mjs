@@ -112,6 +112,9 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /createDesktopBackgroundCoordinator/);
   assert.match(main, /await backgroundCoordinator\.start\(\)/);
   assert.match(main, /createUpdateController/);
+  assert.match(main, /createRendererRecoveryController/);
+  assert.match(main, /window\.webContents\.on\('render-process-gone'/);
+  assert.match(main, /window\.webContents\.on\('did-finish-load'/);
   assert.match(main, /检查更新…/);
   assert.match(main, /app\.on\('open-url'/);
   assert.match(main, /extractReaderDeepLink\(commandLine\)/);

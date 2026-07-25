@@ -10,6 +10,7 @@ const LEVELS = new Set(['info', 'warning', 'error']);
 const ACTIONS = new Set(['storage_permissions', 'search_index']);
 const ERROR_CATEGORIES = new Set(['request', 'database', 'filesystem', 'network', 'network_timeout', 'internal']);
 const ROUTES = new Set(['health', 'stats', 'articles', 'imports', 'ai', 'sources', 'backups', 'data_health', 'migration_snapshots', 'attachments', 'settings', 'collections', 'smart_collections', 'duplicates', 'export', 'diagnostics', 'static', 'unknown']);
+const RENDERER_EXIT_REASONS = new Set(['clean-exit', 'abnormal-exit', 'killed', 'crashed', 'oom', 'launch-failed', 'integrity-failure', 'memory-eviction', 'unknown']);
 
 const EVENT_LEVELS = Object.freeze({
   app_started: 'info',
@@ -19,7 +20,8 @@ const EVENT_LEVELS = Object.freeze({
   backup_created: 'info',
   restore_scheduled: 'warning',
   restore_cancelled: 'info',
-  data_repair_completed: 'warning'
+  data_repair_completed: 'warning',
+  renderer_gone: 'error'
 });
 
 function boundedInteger(value, min = 0, max = Number.MAX_SAFE_INTEGER) {
@@ -60,6 +62,9 @@ function sanitizeDetails(event, source = {}) {
   if (event === 'data_repair_completed') return {
     actions: [...new Set((Array.isArray(input.actions) ? input.actions : []).filter((action) => ACTIONS.has(action)))],
     backupCreated: Boolean(input.backupCreated)
+  };
+  if (event === 'renderer_gone') return {
+    reason: RENDERER_EXIT_REASONS.has(input.reason) ? input.reason : 'unknown'
   };
   return {};
 }

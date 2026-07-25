@@ -3,6 +3,7 @@ import { app, autoUpdater, BrowserWindow, dialog, Menu, net, powerMonitor, sessi
 import { createReaderServer } from '../src/server/server.mjs';
 import { DESKTOP_COMMANDS, extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
 import { createDesktopBackgroundCoordinator } from './background-state.mjs';
+import { createRendererRecoveryController } from './renderer-recovery.mjs';
 import { createUpdateController } from './updates.mjs';
 
 app.enableSandbox();
@@ -19,6 +20,13 @@ let appOrigin = '';
 let shutdownStarted = false;
 let rendererReady = false;
 const pendingAddURLs = [];
+const rendererRecoveryController = createRendererRecoveryController({
+  app,
+  dialog,
+  getWindow: () => mainWindow,
+  isShuttingDown: () => shutdownStarted,
+  recordDiagnostic: (event, details) => readerServer?.diagnostics.record(event, details)
+});
 
 async function closeReader() {
   backgroundCoordinator?.stop();
@@ -156,6 +164,7 @@ function configureNavigation(window) {
 
 async function createWindow() {
   rendererReady = false;
+  let initialLoadCompleted = false;
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -178,6 +187,17 @@ async function createWindow() {
   });
   mainWindow = window;
   configureNavigation(window);
+  window.webContents.on('did-finish-load', () => {
+    initialLoadCompleted = true;
+    if (mainWindow !== window || window.isDestroyed()) return;
+    rendererReady = true;
+    flushPendingAddURLs();
+  });
+  window.webContents.on('render-process-gone', (_event, details) => {
+    if (!initialLoadCompleted || mainWindow !== window) return;
+    rendererReady = false;
+    void rendererRecoveryController.handle(window, details);
+  });
   window.on('closed', () => {
     if (mainWindow === window) {
       mainWindow = null;
@@ -186,8 +206,6 @@ async function createWindow() {
   });
   await window.loadURL(`${appOrigin}/?desktop=1`);
   if (!window.isDestroyed()) {
-    rendererReady = true;
-    flushPendingAddURLs();
     window.show();
   }
 }

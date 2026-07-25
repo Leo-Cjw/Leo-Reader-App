@@ -283,7 +283,7 @@ export interface DataRepairResult {
   health: DataHealth;
 }
 
-export type DiagnosticEvent = 'app_started' | 'app_stopped' | 'startup_failed' | 'api_error' | 'backup_created' | 'restore_scheduled' | 'restore_cancelled' | 'data_repair_completed';
+export type DiagnosticEvent = 'app_started' | 'app_stopped' | 'startup_failed' | 'api_error' | 'backup_created' | 'restore_scheduled' | 'restore_cancelled' | 'data_repair_completed' | 'renderer_gone';
 
 export interface DiagnosticEntry {
   id: string;
