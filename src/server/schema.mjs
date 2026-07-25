@@ -1,6 +1,6 @@
 // Schema v8 is the immutable bootstrap. Add every later change to migrations.mjs.
 export const BOOTSTRAP_SCHEMA_VERSION = 8;
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 export const schemaSQL = `
 PRAGMA journal_mode = WAL;

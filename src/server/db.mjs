@@ -798,6 +798,67 @@ export class ReaderDatabase {
     `);
   }
 
+  async enqueueAllSpotlightArticles() {
+    await this.execute(`
+      INSERT INTO spotlight_outbox(article_id,operation,revision,changed_at)
+      SELECT id,CASE WHEN archived=1 THEN 'delete' ELSE 'upsert' END,1,datetime('now') FROM articles WHERE true
+      ON CONFLICT(article_id) DO UPDATE SET
+        operation=excluded.operation,revision=spotlight_outbox.revision+1,changed_at=excluded.changed_at;
+    `);
+    return await this.countSpotlightChanges();
+  }
+
+  async listSpotlightChanges(limit = 100) {
+    const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 100);
+    const rows = await this.query(`
+      SELECT o.article_id,o.operation,o.revision,o.changed_at,
+        a.title,a.excerpt,a.content,a.author,a.source,a.type,a.language,a.published_at,a.created_at,a.updated_at,a.archived,
+        coalesce((SELECT json_group_array(t.name) FROM article_tags at JOIN tags t ON t.id=at.tag_id WHERE at.article_id=a.id), '[]') AS tags_json
+      FROM spotlight_outbox o LEFT JOIN articles a ON a.id=o.article_id
+      ORDER BY o.changed_at,o.article_id LIMIT ${safeLimit};
+    `);
+    return rows.map((row) => {
+      const missing = row.title === null || row.title === undefined;
+      return {
+        id: row.article_id,
+        revision: Number(row.revision),
+        operation: missing || row.archived || row.operation === 'delete' ? 'delete' : 'upsert',
+        ...(missing ? {} : {
+          title: row.title,
+          excerpt: row.excerpt || '',
+          content: row.content || '',
+          author: row.author || '',
+          source: row.source || '',
+          type: row.type || 'article',
+          language: row.language || '',
+          publishedAt: row.published_at || null,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          tags: Array.isArray(row.tags) ? row.tags : []
+        })
+      };
+    });
+  }
+
+  async acknowledgeSpotlightChanges(entries) {
+    const normalized = (Array.isArray(entries) ? entries : [])
+      .filter((entry) => entry && typeof entry.id === 'string' && Number.isSafeInteger(Number(entry.revision)))
+      .slice(0, 100);
+    if (!normalized.length) return 0;
+    await this.execute(`BEGIN IMMEDIATE;
+      ${normalized.map((entry) => `DELETE FROM spotlight_outbox WHERE article_id=${sqlValue(entry.id)} AND revision=${sqlValue(Number(entry.revision))};`).join('\n')}
+      COMMIT;`);
+    return normalized.length;
+  }
+
+  async clearSpotlightOutbox() {
+    await this.execute('DELETE FROM spotlight_outbox;');
+  }
+
+  async countSpotlightChanges() {
+    return Number((await this.one('SELECT count(*) AS count FROM spotlight_outbox;'))?.count || 0);
+  }
+
   async getArticlesForExport(ids) {
     const normalizedIds = [...new Set((Array.isArray(ids) ? ids : []).map((id) => String(id).trim()).filter(Boolean))].slice(0, 500);
     if (!normalizedIds.length) return [];

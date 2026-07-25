@@ -102,6 +102,7 @@ const [x64Zip, arm64Zip] = await Promise.all([ensureElectronZip('x64'), ensureEl
 
 run('npm', ['run', 'build']);
 run('npm', ['run', 'icon:mac']);
+run('npm', ['run', 'spotlight:mac']);
 
 // electron-builder 会把同名 zip 所在目录当作 electronDist。每个目录只放一个已校验压缩包。
 const x64Dist = await replaceWithKnownZip(x64Zip, 'x64');

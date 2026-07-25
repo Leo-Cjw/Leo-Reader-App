@@ -593,7 +593,7 @@ button, select { cursor: pointer; }
 .settings-modal > header p { margin: 5px 0 0; color: var(--muted); font-size: 9px; }
 .settings-loading { min-height: 360px; display: grid; place-items: center; color: var(--muted); font-size: 10px; }
 .settings-layout { min-height: 0; display: grid; grid-template-columns: 230px minmax(0,1fr); overflow: hidden; }
-.settings-summary { min-height: 0; padding: 22px 18px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 21px; background: var(--library); }
+.settings-summary { min-height: 0; padding: 22px 18px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 21px; overflow-y: auto; background: var(--library); }
 .settings-state { display: grid; grid-template-columns: 8px minmax(0,1fr); align-items: start; gap: 10px; }
 .settings-state > i { width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: #668970; box-shadow: 0 0 0 4px rgba(102,137,112,.1); }
 .settings-state.remote > i { background: #b28042; box-shadow: 0 0 0 4px rgba(178,128,66,.1); }
@@ -622,6 +622,8 @@ button, select { cursor: pointer; }
 .settings-notification-toggle { padding-top: 0; }
 .settings-notification-toggle input:disabled { cursor: wait; }
 .settings-notification-controls { display: grid; gap: 10px; }
+.spotlight-controls { padding-top: 15px; border-top: 1px solid var(--line); }
+.spotlight-status { color: var(--muted); line-height: 1.45; }
 .secret-field { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; }
 .secret-field button { padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--button); color: var(--muted); font-size: 8.5px; }
 .settings-contract { padding: 13px 14px; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 72%, transparent); }
@@ -666,8 +668,9 @@ button, select { cursor: pointer; }
 @media (max-width: 760px) {
   .compose-grid { grid-template-columns: 1fr; overflow-y: auto; }
   .compose-sources { padding-left: 0; border-top: 1px solid var(--line); border-left: 0; }
-  .settings-layout { grid-template-columns: 1fr; overflow-y: auto; }
-  .settings-summary { border-right: 0; border-bottom: 1px solid var(--line); }
+  .settings-layout { grid-template-columns: 1fr; grid-template-rows: max-content max-content; overflow-y: auto; }
+  .settings-summary { min-height: max-content; border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+  .settings-form { min-height: max-content; overflow: visible; }
   .connector-grid { grid-template-columns: 1fr; }
   .smart-collections-workspace { grid-template-columns: 1fr; overflow-y: auto; }
   .smart-collection-list { min-height: 260px; border-right: 0; border-bottom: 1px solid var(--line); }

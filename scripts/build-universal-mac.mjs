@@ -60,6 +60,22 @@ for (const [binary, expectedArchitecture] of canvasBinaries) {
   }
 }
 
+const spotlightHelper = path.join(
+  outAppPath,
+  'Contents',
+  'Resources',
+  'Reader Spotlight Helper.app',
+  'Contents',
+  'MacOS',
+  'Reader Spotlight Helper'
+);
+await access(spotlightHelper);
+const spotlightArchitectures = execFileSync(lipoCommand, ['-archs', spotlightHelper], { encoding: 'utf8' }).trim().split(/\s+/).sort();
+if (spotlightArchitectures.join(',') !== 'arm64,x86_64') {
+  throw new Error(`Spotlight helper 不是通用架构：${spotlightArchitectures.join(', ')}`);
+}
+
 console.log(outAppPath);
 console.log(`architectures=${architectures.join(',')}`);
+console.log(`spotlightArchitectures=${spotlightArchitectures.join(',')}`);
 console.log(`signature=${signature}`);

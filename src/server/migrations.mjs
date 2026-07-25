@@ -111,10 +111,62 @@ const v10Migration = {
 };
 v10Migration.checksum = migrationChecksum(v10Migration.signature);
 
+const v11Migration = {
+  version: 11,
+  name: 'v11-spotlight-index-outbox',
+  signature: 'reader-schema-v11-spotlight-index-outbox:1',
+  async buildSQL() {
+    return `
+      CREATE TABLE spotlight_outbox (
+        article_id TEXT PRIMARY KEY,
+        operation TEXT NOT NULL CHECK (operation IN ('upsert','delete')),
+        revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+        changed_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_spotlight_outbox_changed ON spotlight_outbox(changed_at, article_id);
+      CREATE TRIGGER spotlight_articles_ai AFTER INSERT ON articles BEGIN
+        INSERT INTO spotlight_outbox(article_id,operation,revision,changed_at)
+        VALUES (new.id,CASE WHEN new.archived=1 THEN 'delete' ELSE 'upsert' END,1,datetime('now'))
+        ON CONFLICT(article_id) DO UPDATE SET
+          operation=excluded.operation,revision=spotlight_outbox.revision+1,changed_at=excluded.changed_at;
+      END;
+      CREATE TRIGGER spotlight_articles_au
+      AFTER UPDATE OF title,excerpt,content,author,source,type,language,published_at,archived ON articles BEGIN
+        INSERT INTO spotlight_outbox(article_id,operation,revision,changed_at)
+        VALUES (new.id,CASE WHEN new.archived=1 THEN 'delete' ELSE 'upsert' END,1,datetime('now'))
+        ON CONFLICT(article_id) DO UPDATE SET
+          operation=excluded.operation,revision=spotlight_outbox.revision+1,changed_at=excluded.changed_at;
+      END;
+      CREATE TRIGGER spotlight_articles_ad AFTER DELETE ON articles BEGIN
+        INSERT INTO spotlight_outbox(article_id,operation,revision,changed_at)
+        VALUES (old.id,'delete',1,datetime('now'))
+        ON CONFLICT(article_id) DO UPDATE SET
+          operation='delete',revision=spotlight_outbox.revision+1,changed_at=excluded.changed_at;
+      END;
+      CREATE TRIGGER spotlight_article_tags_ai AFTER INSERT ON article_tags BEGIN
+        INSERT INTO spotlight_outbox(article_id,operation,revision,changed_at)
+        SELECT new.article_id,CASE WHEN a.archived=1 THEN 'delete' ELSE 'upsert' END,1,datetime('now')
+        FROM articles a WHERE a.id=new.article_id
+        ON CONFLICT(article_id) DO UPDATE SET
+          operation=excluded.operation,revision=spotlight_outbox.revision+1,changed_at=excluded.changed_at;
+      END;
+      CREATE TRIGGER spotlight_article_tags_ad AFTER DELETE ON article_tags BEGIN
+        INSERT INTO spotlight_outbox(article_id,operation,revision,changed_at)
+        SELECT old.article_id,CASE WHEN a.archived=1 THEN 'delete' ELSE 'upsert' END,1,datetime('now')
+        FROM articles a WHERE a.id=old.article_id
+        ON CONFLICT(article_id) DO UPDATE SET
+          operation=excluded.operation,revision=spotlight_outbox.revision+1,changed_at=excluded.changed_at;
+      END;
+    `;
+  }
+};
+v11Migration.checksum = migrationChecksum(v11Migration.signature);
+
 export const MIGRATION_REGISTRY = Object.freeze([
   Object.freeze(v8Migration),
   Object.freeze(v9Migration),
-  Object.freeze(v10Migration)
+  Object.freeze(v10Migration),
+  Object.freeze(v11Migration)
 ]);
 
 function validateMigrationRegistry() {

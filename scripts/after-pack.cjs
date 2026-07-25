@@ -31,4 +31,7 @@ module.exports = async function afterPack(context) {
   run(plistPath, 'Add :NSAppTransportSecurity:NSExceptionDomains:127.0.0.1 dict');
   run(plistPath, 'Add :NSAppTransportSecurity:NSExceptionDomains:127.0.0.1:NSIncludesSubdomains bool false');
   run(plistPath, 'Add :NSAppTransportSecurity:NSExceptionDomains:127.0.0.1:NSTemporaryExceptionAllowsInsecureHTTPLoads bool true');
+  run(plistPath, 'Delete :NSUserActivityTypes', true);
+  run(plistPath, 'Add :NSUserActivityTypes array');
+  run(plistPath, 'Add :NSUserActivityTypes:0 string com.apple.corespotlightitem');
 };

@@ -122,6 +122,16 @@ export interface NotificationSettings {
   updatedAt: string | null;
 }
 
+export interface SpotlightSettings {
+  enabled: boolean;
+  available: boolean;
+  state: 'disabled' | 'starting' | 'indexing' | 'ready' | 'error';
+  pending: number;
+  indexedAt: string | null;
+  updatedAt: string | null;
+  warning: string | null;
+}
+
 export interface AISourceReference {
   id: string;
   title: string;

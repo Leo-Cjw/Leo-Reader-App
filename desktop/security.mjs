@@ -59,11 +59,40 @@ export function parseReaderDeepLink(candidate) {
   }
 }
 
+export function parseReaderOpenDeepLink(candidate) {
+  if (typeof candidate !== 'string' || candidate.length > 8192) return null;
+  try {
+    const deepLink = new URL(candidate);
+    if (deepLink.protocol !== `${READER_PROTOCOL_SCHEME}:`
+      || deepLink.hostname !== 'open'
+      || (deepLink.pathname !== '' && deepLink.pathname !== '/')
+      || deepLink.username
+      || deepLink.password
+      || deepLink.port
+      || deepLink.hash
+      || [...deepLink.searchParams.keys()].some((key) => key !== 'article')) return null;
+    const values = deepLink.searchParams.getAll('article');
+    if (values.length !== 1) return null;
+    return normalizeArticleWindowId(values[0]);
+  } catch {
+    return null;
+  }
+}
+
 export function extractReaderDeepLink(argv) {
   if (!Array.isArray(argv)) return null;
   for (const candidate of argv) {
     const target = parseReaderDeepLink(candidate);
     if (target) return target;
+  }
+  return null;
+}
+
+export function extractReaderOpenDeepLink(argv) {
+  if (!Array.isArray(argv)) return null;
+  for (const candidate of argv) {
+    const articleID = parseReaderOpenDeepLink(candidate);
+    if (articleID) return articleID;
   }
   return null;
 }

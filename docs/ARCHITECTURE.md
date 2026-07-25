@@ -43,6 +43,10 @@ flowchart LR
 
 0.40.0 在同一系统通知边界内加入自动订阅批次。设置新增独立且默认关闭的 `notifications.sourceSyncEnabled`；旧设置缺失字段、类型错误或读取失败都保持关闭，更新任一通知开关时原子保留另一项。调度器在一轮到期来源结束后只生成 `{ imported, failed }`，不携带来源、内容、URL、ID、错误或凭据；服务端在回调当刻读取 opt-in，手动 `POST /api/sources/:id/sync` 不经过该回调。全零批次不显示通知，计数在固定模板中限制为 0–99。点击通知只聚焦或重建主窗口，再经既有受限单向命令打开“内容来源”；任一主窗口或专注窗口在前台时仍统一抑制。
 
+0.41.0 增加显式 opt-in 的 Core Spotlight 桥。Electron 不直接链接原生框架；发行构建先把 Swift helper 分别编译为 x86_64/arm64，再合并为嵌套、无 Dock 图标的 Universal `.app`，由最终 App 深度签名覆盖。服务端只通过 stdin 发送至多 100 条 JSON，helper 只继承固定 `PATH`/`LANG`，命令行和进程环境都不携带正文。helper 使用 `completeUntilFirstUserAuthentication` 保护级别和 Reader 专属命名 index/domain，系统结果由 helper 转成受限 `reader-local://open?article=<id>`；主进程再次校验 scheme、action、唯一参数、长度、控制字符和数据库存在性后打开只读专注窗口。
+
+schema v11 新增 `spotlight_outbox`，文章可索引字段、归档状态和标签的触发器以每文章单行、单调 revision 记录 `upsert/delete`。服务只在设置明确开启时轮询，批次成功后按 `(article_id, revision)` 条件确认；处理中再次编辑会留下更高 revision，helper 超时、退出、无效响应或 Core Spotlight 失败都不会丢队列或阻断 Reader。启用会重新排队全部文章；停用必须先删除 Reader domain，确认成功后再清空 outbox 并原子保存关闭状态。
+
 ## 数据模型
 
 - `articles`：统一承载网页、Markdown、RSS、PDF 元数据和未来附件记录。
@@ -191,7 +195,7 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
 
 - 取得真实 Apple Developer ID 与公证凭据，发布首个正式 GitHub Release，并完成跨版本自动升级演练。
-- Share Extension、Spotlight 和更完整的跨应用导入体验；系统通知仍需在正式签名包上完成可用性验收。
+- Share Extension 和更完整的跨应用导入体验；Spotlight 已完成默认关闭的本机索引与深链闭环，仍需在 Developer ID、公证包和 Apple Silicon 真机验证系统结果点击。系统通知也仍需在正式签名包上完成可用性验收。
 
 当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron 与 Canvas 切片完成官方哈希、Mach-O 架构及签名结构验证，仍应在 Apple Silicon 真机上补运行验收。
 

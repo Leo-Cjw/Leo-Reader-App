@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createReaderServer } from '../src/server/server.mjs';
-import { extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from '../desktop/security.mjs';
+import { extractReaderDeepLink, extractReaderOpenDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderDeepLink, parseReaderOpenDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from '../desktop/security.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -63,6 +63,22 @@ test('desktop deep links only prefill one credential-free web URL', () => {
   ]) assert.equal(parseReaderDeepLink(candidate), null, candidate);
   assert.equal(parseReaderDeepLink(`reader-local://add?url=${encodeURIComponent(`https://example.com/${'a'.repeat(2049)}`)}`), null);
   assert.equal(extractReaderDeepLink(['Reader', '--flag']), null);
+});
+
+test('Spotlight deep links open exactly one bounded local article id', () => {
+  assert.equal(parseReaderOpenDeepLink('reader-local://open?article=local-first-reading'), 'local-first-reading');
+  assert.equal(parseReaderOpenDeepLink('reader-local://open/?article=%E6%9C%AC%E5%9C%B0%E6%96%87%E7%AB%A0'), '本地文章');
+  assert.equal(extractReaderOpenDeepLink(['Reader', 'reader-local://open?article=from-spotlight']), 'from-spotlight');
+  for (const candidate of [
+    'reader-local://open',
+    'reader-local://open?article=',
+    'reader-local://open?article=one&article=two',
+    'reader-local://open?article=one&url=https://example.com',
+    'reader-local://open/path?article=one',
+    'reader-local://user@open?article=one',
+    'reader-local://open?article=one#fragment',
+    `reader-local://open?article=${'a'.repeat(201)}`
+  ]) assert.equal(parseReaderOpenDeepLink(candidate), null, candidate);
 });
 
 test('desktop URL handoff waits for the renderer and still requires add-dialog confirmation', async () => {
@@ -154,6 +170,18 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(release, /不生成自动更新 ZIP/);
 
   assert.deepEqual(packageJSON.build.protocols, [{ name: 'Reader URL', schemes: ['reader-local'], role: 'Viewer' }]);
+  assert.deepEqual(packageJSON.build.extraResources, [{ from: 'build/Reader Spotlight Helper.app', to: 'Reader Spotlight Helper.app' }]);
+  assert.match(packageJSON.scripts['desktop:pack:x64'], /spotlight:mac/);
+  assert.match(release, /spotlight:mac/);
+  assert.match(afterPack, /NSUserActivityTypes/);
+  assert.match(afterPack, /com\.apple\.corespotlightitem/);
+
+  const helper = await readFile(path.join(projectRoot, 'native', 'spotlight-helper', 'main.swift'), 'utf8');
+  assert.match(helper, /completeUntilFirstUserAuthentication/);
+  assert.match(helper, /reader-local/);
+  assert.match(helper, /CSSearchableItemActionType/);
+  assert.match(main, /spotlightHelperPath/);
+  assert.match(main, /app\.on\('continue-activity'/);
 });
 
 test('focused reading windows use narrow trusted IPC, deduplicate by article and stay read-only', async () => {

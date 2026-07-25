@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { app, autoUpdater, BrowserWindow, dialog, ipcMain, Menu, net, Notification, powerMonitor, session, shell } from 'electron';
 import { createReaderServer } from '../src/server/server.mjs';
-import { DESKTOP_COMMANDS, extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
+import { DESKTOP_COMMANDS, extractReaderDeepLink, extractReaderOpenDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderDeepLink, parseReaderOpenDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
 import { createDesktopBackgroundCoordinator } from './background-state.mjs';
 import { createRendererRecoveryController } from './renderer-recovery.mjs';
 import { createImportNotificationController, createSourceSyncNotificationController } from './notifications.mjs';
@@ -21,6 +21,7 @@ let appOrigin = '';
 let shutdownStarted = false;
 let rendererReady = false;
 const pendingAddURLs = [];
+const pendingArticleIDs = [];
 const articleWindows = new Map();
 const rendererRecoveryController = createRendererRecoveryController({
   app,
@@ -84,7 +85,28 @@ function queueAddURL(url) {
   flushPendingAddURLs();
 }
 
+async function flushPendingArticleIDs() {
+  if (!readerServer || !appOrigin) return;
+  for (const articleID of pendingArticleIDs.splice(0)) {
+    try {
+      if (await readerServer.database.getArticle(articleID)) await createArticleWindow(articleID);
+    } catch {
+      // Invalid or temporarily unavailable Spotlight handoffs never block Reader startup.
+    }
+  }
+}
+
+function queueArticleOpen(articleID) {
+  if (!pendingArticleIDs.includes(articleID) && pendingArticleIDs.length < 20) pendingArticleIDs.push(articleID);
+  void flushPendingArticleIDs().catch(() => {});
+}
+
 function handleDeepLink(candidate) {
+  const articleID = parseReaderOpenDeepLink(candidate);
+  if (articleID) {
+    queueArticleOpen(articleID);
+    return true;
+  }
   const url = parseReaderDeepLink(candidate);
   if (!url) return false;
   queueAddURL(url);
@@ -289,6 +311,9 @@ async function startReader() {
     dbPath: path.join(dataRoot, 'data', 'reader.sqlite3'),
     host: '127.0.0.1',
     port: 0,
+    spotlightHelperPath: app.isPackaged
+      ? path.join(process.resourcesPath, 'Reader Spotlight Helper.app', 'Contents', 'MacOS', 'Reader Spotlight Helper')
+      : '',
     onImportBatchFinished: (summary) => importNotificationController.show(summary),
     onSourceSyncBatchFinished: (summary) => sourceSyncNotificationController.show(summary)
   });
@@ -316,11 +341,14 @@ async function startReader() {
   configureSession();
   installIPCHandlers();
   await createWindow();
+  await flushPendingArticleIDs();
 }
 
 if (lockAcquired) {
   const initialAddURL = extractReaderDeepLink(process.argv);
   if (initialAddURL) queueAddURL(initialAddURL);
+  const initialArticleID = extractReaderOpenDeepLink(process.argv);
+  if (initialArticleID) queueArticleOpen(initialArticleID);
 
   app.on('open-url', (event, url) => {
     event.preventDefault();
@@ -328,6 +356,8 @@ if (lockAcquired) {
   });
 
   app.on('second-instance', (_event, commandLine) => {
+    const articleID = extractReaderOpenDeepLink(commandLine);
+    if (articleID) queueArticleOpen(articleID);
     const addURL = extractReaderDeepLink(commandLine);
     if (addURL) queueAddURL(addURL);
     if (!mainWindow) {
@@ -335,6 +365,18 @@ if (lockAcquired) {
       return;
     }
     focusMainWindow();
+  });
+
+  app.on('continue-activity', (event, type, userInfo) => {
+    if (type !== 'com.apple.corespotlightitem') return;
+    const identifier = typeof userInfo?.kCSSearchableItemActivityIdentifier === 'string'
+      ? userInfo.kCSSearchableItemActivityIdentifier
+      : '';
+    const prefix = 'reader-article:';
+    const articleID = identifier.startsWith(prefix) ? normalizeArticleWindowId(identifier.slice(prefix.length)) : null;
+    if (!articleID) return;
+    event.preventDefault();
+    queueArticleOpen(articleID);
   });
 
   app.whenReady().then(startReader).catch((error) => {

@@ -24,6 +24,7 @@ import { repairDerivedData } from './data-repair.mjs';
 import { diagnosticErrorCategory, diagnosticRoute, LocalDiagnosticsStore } from './diagnostics.mjs';
 import { SCHEMA_VERSION } from './schema.mjs';
 import { createBackgroundWorkPolicy } from './background-work.mjs';
+import { createSpotlightService } from './spotlight.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -178,7 +179,9 @@ export async function createReaderServer({
   socialEnvironment = process.env,
   diagnosticsStore = null,
   onImportBatchFinished = null,
-  onSourceSyncBatchFinished = null
+  onSourceSyncBatchFinished = null,
+  spotlightHelperPath = '',
+  spotlightService = null
 } = {}) {
   const dataRoot = path.join(rootDir, 'data');
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
@@ -199,6 +202,12 @@ export async function createReaderServer({
   await diagnostics.record('app_started', { version: APP_VERSION, schemaVersion: SCHEMA_VERSION, restored: Boolean(appliedRestore) });
   const runtimeAIService = aiService || new AIService({ endpoint: '', apiKey: '' });
   const runtimeSettingsStore = settingsStore || await new SettingsStore(defaultSettingsPath(rootDir)).initialize();
+  const runtimeSpotlight = spotlightService || createSpotlightService({
+    database,
+    settingsStore: runtimeSettingsStore,
+    helperPath: spotlightHelperPath
+  });
+  await runtimeSpotlight.start();
   let aiSettingsManager = null;
   if (!aiService) {
     const runtimeCredentialStore = credentialStore || new MacOSKeychainCredentialStore();
@@ -584,6 +593,16 @@ export async function createReaderServer({
             ...(hasSourceSetting ? { sourceSyncEnabled: body.sourceSyncEnabled } : {})
           })
         });
+      }
+
+      if (pathname === '/api/settings/spotlight' && method === 'GET') {
+        return sendJSON(response, 200, { settings: await runtimeSpotlight.status() });
+      }
+
+      if (pathname === '/api/settings/spotlight' && method === 'PUT') {
+        const body = await readJSON(request);
+        if (typeof body.enabled !== 'boolean') throw new HTTPError(400, 'enabled 必须是布尔值');
+        return sendJSON(response, 200, { settings: await runtimeSpotlight.update(body.enabled) });
       }
 
       if (pathname === '/api/settings/connectors' && method === 'GET') {
@@ -1079,13 +1098,14 @@ export async function createReaderServer({
     server,
     database,
     diagnostics,
+    spotlight: runtimeSpotlight,
     host,
     port,
     setBackgroundWorkState(state) { return backgroundWork.update(state); },
     getBackgroundWorkState() { return backgroundWork.snapshot(); },
     async listen() { await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); }); return server.address(); },
     async close() {
-      await Promise.all([importWorker.stop(), sourceScheduler.stop()]);
+      await Promise.all([importWorker.stop(), sourceScheduler.stop(), runtimeSpotlight.stop()]);
       if (!diagnosticsStopped) {
         diagnosticsStopped = true;
         await diagnostics.record('app_stopped');

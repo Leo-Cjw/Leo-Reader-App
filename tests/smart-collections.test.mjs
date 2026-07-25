@@ -98,7 +98,7 @@ test('smart collections persist rules, count live matches and keep manual folder
 
   const reopened = await new ReaderDatabase(db.path).initialize();
   assert.equal(reopened.lastMigrationSnapshot, null);
-  assert.equal((await reopened.one('SELECT max(version) AS version FROM schema_migrations;')).version, 10);
+  assert.equal((await reopened.one('SELECT max(version) AS version FROM schema_migrations;')).version, 11);
   assert.deepEqual((await reopened.listSmartCollections()).map((item) => item.name), ['最近要处理', '收藏且未读']);
   assert.equal((await reopened.deleteSmartCollection(broad.id)).name, '最近要处理');
   assert.equal((await reopened.listSmartCollections()).length, 1);

@@ -13,7 +13,7 @@ async function temporaryDatabase(t, prefix = 'reader-source-') {
   return await new ReaderDatabase(path.join(dir, 'reader.sqlite3')).initialize();
 }
 
-test('sequential migrations preserve a v7 snapshot, audit v8-v10 and remain idempotent', async (t) => {
+test('sequential migrations preserve a v7 snapshot, audit v8-v11 and remain idempotent', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-migrate-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const db = new ReaderDatabase(path.join(dir, 'reader.sqlite3'));
@@ -28,7 +28,7 @@ test('sequential migrations preserve a v7 snapshot, audit v8-v10 and remain idem
   await db.initialize();
   assert.deepEqual(
     { fromVersion: db.lastMigrationSnapshot.fromVersion, toVersion: db.lastMigrationSnapshot.toVersion },
-    { fromVersion: 7, toVersion: 10 }
+    { fromVersion: 7, toVersion: 11 }
   );
   assert.equal((await stat(path.dirname(db.lastMigrationSnapshot.path))).mode & 0o777, 0o700);
   assert.equal((await stat(db.lastMigrationSnapshot.path)).mode & 0o777, 0o600);
@@ -36,7 +36,7 @@ test('sequential migrations preserve a v7 snapshot, audit v8-v10 and remain idem
   assert.equal(listedSnapshots.length, 1);
   assert.deepEqual(
     { from: listedSnapshots[0].from_schema_version, to: listedSnapshots[0].to_schema_version, bytes: listedSnapshots[0].byte_size > 0 },
-    { from: 7, to: 10, bytes: true }
+    { from: 7, to: 11, bytes: true }
   );
   assert.equal((await resolveMigrationSnapshot(db.path, listedSnapshots[0].id)).path, db.lastMigrationSnapshot.path);
   assert.equal(await resolveMigrationSnapshot(db.path, '../reader.sqlite3'), null);
@@ -49,13 +49,14 @@ test('sequential migrations preserve a v7 snapshot, audit v8-v10 and remain idem
   assert.equal(source.last_status, 'idle');
   assert.ok(source.next_fetch_at);
   assert.ok((await db.listDueSources(new Date(Date.now() + 60_000).toISOString())).some((item) => item.id === 'legacy'));
-  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 10);
-  assert.deepEqual(db.appliedMigrations.map((migration) => migration.version), [8, 9, 10]);
+  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 11);
+  assert.deepEqual(db.appliedMigrations.map((migration) => migration.version), [8, 9, 10, 11]);
   const audit = await db.query('SELECT version,name,checksum FROM schema_migration_audit ORDER BY version;');
   assert.deepEqual(audit.map(({ version, name }) => ({ version, name })), [
     { version: 8, name: 'v8-smart-collections-and-source-state' },
     { version: 9, name: 'v9-migration-audit' },
-    { version: 10, name: 'v10-library-pagination-indexes' }
+    { version: 10, name: 'v10-library-pagination-indexes' },
+    { version: 11, name: 'v11-spotlight-index-outbox' }
   ]);
   assert.ok(audit.every((migration) => /^[0-9a-f]{64}$/.test(migration.checksum)));
   assert.equal((await db.getChunkIndexStatus()).pendingArticles, 0);
@@ -63,7 +64,7 @@ test('sequential migrations preserve a v7 snapshot, audit v8-v10 and remain idem
   const reopened = await new ReaderDatabase(db.path).initialize();
   assert.equal(reopened.lastMigrationSnapshot, null);
   assert.deepEqual(reopened.appliedMigrations, []);
-  assert.equal((await reopened.one('SELECT count(*) AS count FROM schema_migration_audit;')).count, 3);
+  assert.equal((await reopened.one('SELECT count(*) AS count FROM schema_migration_audit;')).count, 4);
 });
 
 test('database refuses to open a newer schema without modifying it', async (t) => {
@@ -71,17 +72,17 @@ test('database refuses to open a newer schema without modifying it', async (t) =
   t.after(() => rm(dir, { recursive: true, force: true }));
   const db = new ReaderDatabase(path.join(dir, 'reader.sqlite3'));
   await db.execute(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-  INSERT INTO schema_migrations(version,applied_at) VALUES (11,'2026-01-01');
+  INSERT INTO schema_migrations(version,applied_at) VALUES (12,'2026-01-01');
   CREATE TABLE future_data (value TEXT NOT NULL);
   INSERT INTO future_data(value) VALUES ('preserve-me');`);
 
-  await assert.rejects(db.initialize(), /schema v11.*v10.*拒绝降级/);
+  await assert.rejects(db.initialize(), /schema v12.*v11.*拒绝降级/);
   assert.equal((await db.one('SELECT value FROM future_data;')).value, 'preserve-me');
-  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 11);
+  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 12);
 });
 
-test('schema v8 upgrades to v10 without changing user data', async (t) => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-v8-to-v10-'));
+test('schema v8 upgrades to v11 without changing user data', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-v8-to-v11-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const db = new ReaderDatabase(path.join(dir, 'reader.sqlite3'));
   await db.execute(schemaSQL);
@@ -93,12 +94,12 @@ test('schema v8 upgrades to v10 without changing user data', async (t) => {
   await db.initialize();
   assert.deepEqual(
     { fromVersion: db.lastMigrationSnapshot.fromVersion, toVersion: db.lastMigrationSnapshot.toVersion },
-    { fromVersion: 8, toVersion: 10 }
+    { fromVersion: 8, toVersion: 11 }
   );
-  assert.deepEqual(db.appliedMigrations.map((migration) => migration.version), [9, 10]);
+  assert.deepEqual(db.appliedMigrations.map((migration) => migration.version), [9, 10, 11]);
   assert.equal((await db.one("SELECT content FROM articles WHERE id='kept-article';")).content, '不可丢失的正文');
-  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 10);
-  assert.deepEqual((await db.query('SELECT version FROM schema_migration_audit ORDER BY version;')).map((row) => row.version), [8, 9, 10]);
+  assert.equal((await db.one('SELECT max(version) AS version FROM schema_migrations;')).version, 11);
+  assert.deepEqual((await db.query('SELECT version FROM schema_migration_audit ORDER BY version;')).map((row) => row.version), [8, 9, 10, 11]);
   const snapshot = new ReaderDatabase(db.lastMigrationSnapshot.path);
   assert.equal((await snapshot.one('SELECT max(version) AS version FROM schema_migrations;')).version, 8);
   assert.equal((await snapshot.one("SELECT content FROM articles WHERE id='kept-article';")).content, '不可丢失的正文');
@@ -119,7 +120,7 @@ test('a failed v9 migration rolls back its schema version and audit writes', asy
   assert.deepEqual(await db.query('SELECT version FROM schema_migrations ORDER BY version;'), [{ version: 8 }]);
   assert.deepEqual(
     { fromVersion: db.lastMigrationSnapshot.fromVersion, toVersion: db.lastMigrationSnapshot.toVersion },
-    { fromVersion: 8, toVersion: 10 }
+    { fromVersion: 8, toVersion: 11 }
   );
 });
 
@@ -131,7 +132,7 @@ test('a modified migration audit fails closed before changing a current database
 
   await assert.rejects(reopened.initialize(), /schema v8.*审计记录不匹配/);
   assert.equal(reopened.lastMigrationSnapshot, null);
-  assert.equal((await reopened.one('SELECT max(version) AS version FROM schema_migrations;')).version, 10);
+  assert.equal((await reopened.one('SELECT max(version) AS version FROM schema_migrations;')).version, 11);
   assert.equal((await reopened.one('SELECT checksum FROM schema_migration_audit WHERE version=8;')).checksum, '0'.repeat(64));
   assert.equal((await stat(db.path)).size, before.size);
 });

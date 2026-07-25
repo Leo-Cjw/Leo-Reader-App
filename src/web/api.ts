@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -225,6 +225,12 @@ export const api = {
   },
   async updateNotificationSettings(patch: Partial<Pick<NotificationSettings, 'enabled' | 'sourceSyncEnabled'>>) {
     return (await request<{ settings: NotificationSettings }>('/api/settings/notifications', { method: 'PUT', body: JSON.stringify(patch) })).settings;
+  },
+  async getSpotlightSettings() {
+    return (await request<{ settings: SpotlightSettings }>('/api/settings/spotlight')).settings;
+  },
+  async updateSpotlightSettings(enabled: boolean) {
+    return (await request<{ settings: SpotlightSettings }>('/api/settings/spotlight', { method: 'PUT', body: JSON.stringify({ enabled }) })).settings;
   },
   async getConnectorSettings() {
     return (await request<{ connectors: ConnectorStatus }>('/api/settings/connectors')).connectors;
