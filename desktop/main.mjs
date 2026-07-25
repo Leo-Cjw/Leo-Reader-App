@@ -1,7 +1,7 @@
 import path from 'node:path';
-import { app, autoUpdater, BrowserWindow, dialog, Menu, net, Notification, powerMonitor, session, shell } from 'electron';
+import { app, autoUpdater, BrowserWindow, dialog, ipcMain, Menu, net, Notification, powerMonitor, session, shell } from 'electron';
 import { createReaderServer } from '../src/server/server.mjs';
-import { DESKTOP_COMMANDS, extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
+import { DESKTOP_COMMANDS, extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
 import { createDesktopBackgroundCoordinator } from './background-state.mjs';
 import { createRendererRecoveryController } from './renderer-recovery.mjs';
 import { createImportNotificationController } from './notifications.mjs';
@@ -21,6 +21,7 @@ let appOrigin = '';
 let shutdownStarted = false;
 let rendererReady = false;
 const pendingAddURLs = [];
+const articleWindows = new Map();
 const rendererRecoveryController = createRendererRecoveryController({
   app,
   dialog,
@@ -30,7 +31,7 @@ const rendererRecoveryController = createRendererRecoveryController({
 });
 const importNotificationController = createImportNotificationController({
   Notification,
-  shouldNotify: () => !shutdownStarted && (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused()),
+  shouldNotify: () => !shutdownStarted && !BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
   onClick: () => { void openImportQueue().catch(() => {}); }
 });
 
@@ -174,17 +175,15 @@ function configureNavigation(window) {
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
 }
 
-async function createWindow() {
-  rendererReady = false;
-  let initialLoadCompleted = false;
-  const window = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1080,
-    minHeight: 680,
+function desktopWindowOptions({ focusedReader = false } = {}) {
+  return {
+    width: focusedReader ? 920 : 1440,
+    height: focusedReader ? 860 : 900,
+    minWidth: focusedReader ? 640 : 1080,
+    minHeight: focusedReader ? 520 : 680,
     show: false,
     backgroundColor: '#f8f7f3',
-    title: 'Reader',
+    title: focusedReader ? '专注阅读 — Reader' : 'Reader',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 18, y: 17 } : undefined,
     webPreferences: {
@@ -196,7 +195,55 @@ async function createWindow() {
       allowRunningInsecureContent: false,
       devTools: !app.isPackaged
     }
+  };
+}
+
+async function createArticleWindow(articleId) {
+  const existing = articleWindows.get(articleId);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+    return existing;
+  }
+  const window = new BrowserWindow(desktopWindowOptions({ focusedReader: true }));
+  articleWindows.set(articleId, window);
+  configureNavigation(window);
+  window.on('closed', () => {
+    if (articleWindows.get(articleId) === window) articleWindows.delete(articleId);
   });
+  const params = new URLSearchParams({ desktop: '1', readerWindow: '1', article: articleId });
+  try {
+    await window.loadURL(`${appOrigin}/?${params}`);
+    if (!window.isDestroyed()) window.show();
+  } catch (error) {
+    if (!window.isDestroyed()) window.destroy();
+    throw error;
+  }
+  return window;
+}
+
+function installIPCHandlers() {
+  const isTrustedSender = (event) => isAllowedAppURL(event.senderFrame?.url || event.sender.getURL(), appOrigin);
+  ipcMain.handle('reader:open-article-window', async (event, candidate) => {
+    if (!isTrustedSender(event)) return false;
+    const articleId = normalizeArticleWindowId(candidate);
+    if (!articleId || !(await readerServer?.database.getArticle(articleId))) return false;
+    await createArticleWindow(articleId);
+    return true;
+  });
+  ipcMain.handle('reader:focus-library', async (event) => {
+    if (!isTrustedSender(event)) return false;
+    if ((!mainWindow || mainWindow.isDestroyed()) && appOrigin) await createWindow();
+    focusMainWindow();
+    return Boolean(mainWindow && !mainWindow.isDestroyed());
+  });
+}
+
+async function createWindow() {
+  rendererReady = false;
+  let initialLoadCompleted = false;
+  const window = new BrowserWindow(desktopWindowOptions());
   mainWindow = window;
   configureNavigation(window);
   window.webContents.on('did-finish-load', () => {
@@ -255,6 +302,7 @@ async function startReader() {
   appOrigin = `http://127.0.0.1:${address.port}`;
   installMenu();
   configureSession();
+  installIPCHandlers();
   await createWindow();
 }
 

@@ -29,6 +29,11 @@ export function isSafeExternalURL(candidate) {
   }
 }
 
+export function normalizeArticleWindowId(candidate) {
+  if (typeof candidate !== 'string' || !candidate || candidate.length > 200 || /[\u0000-\u001f\u007f]/.test(candidate)) return null;
+  return candidate;
+}
+
 export function parseReaderDeepLink(candidate) {
   if (typeof candidate !== 'string' || candidate.length > 8192) return null;
   try {

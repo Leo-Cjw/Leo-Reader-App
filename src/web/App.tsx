@@ -24,6 +24,8 @@ declare global {
       platform: string;
       onCommand(callback: (command: DesktopCommand) => void): () => void;
       onAddURL(callback: (url: string) => void): () => void;
+      openArticleWindow(articleId: string): Promise<boolean>;
+      focusLibrary(): Promise<boolean>;
     };
   }
 }
@@ -496,8 +498,8 @@ function ArticleList({ articles, total, hasMore, loadingMore, onLoadMore, select
   </section>;
 }
 
-function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDismissCitation, onPatch, onAddTags, onRemoveTags, onToggleAI, onEdit, onHistory, onOpenSource, notify }: {
-  article: Article | null; loadingTitle?: string; collections: Collection[]; focusedCitation: RAGCitation | null; onDismissCitation: () => void; onPatch: (patch: Partial<Article>) => Promise<void>; onAddTags: (tags: string[]) => Promise<void>; onRemoveTags: (tags: string[]) => Promise<void>; onToggleAI: () => void; onEdit: () => void; onHistory: () => void; onOpenSource: (id: string) => void; notify: (message: string, tone?: Toast['tone']) => void;
+function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDismissCitation, onPatch, onAddTags, onRemoveTags, onToggleAI, onEdit, onHistory, onOpenSource, onOpenWindow, onFocusLibrary, onToggleTheme, readOnly = false, notify }: {
+  article: Article | null; loadingTitle?: string; collections: Collection[]; focusedCitation: RAGCitation | null; onDismissCitation: () => void; onPatch: (patch: Partial<Article>) => Promise<void>; onAddTags: (tags: string[]) => Promise<void>; onRemoveTags: (tags: string[]) => Promise<void>; onToggleAI: () => void; onEdit: () => void; onHistory: () => void; onOpenSource: (id: string) => void; onOpenWindow?: () => void; onFocusLibrary?: () => void; onToggleTheme?: () => void; readOnly?: boolean; notify: (message: string, tone?: Toast['tone']) => void;
 }) {
   const progressTimer = useRef<number | undefined>(undefined);
   const articleBodyRef = useRef<HTMLDivElement>(null);
@@ -552,7 +554,7 @@ function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDis
     };
   }, [article?.id, article?.content, highlights]);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    if (!article) return;
+    if (!article || readOnly) return;
     const target = event.currentTarget;
     const range = Math.max(target.scrollHeight - target.clientHeight, 1);
     const progress = Math.min(1, Math.max(0, target.scrollTop / range));
@@ -560,6 +562,7 @@ function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDis
     progressTimer.current = window.setTimeout(() => void onPatch({ reading_progress: Number(progress.toFixed(3)), is_read: progress > 0.75 || article.is_read }), 500);
   };
   const captureSelection = () => {
+    if (readOnly) return false;
     const root = articleBodyRef.current;
     const selection = window.getSelection();
     if (!root) return false;
@@ -742,7 +745,7 @@ function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDis
     annotationsRef.current?.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'start' });
     window.requestAnimationFrame(() => annotationsRef.current?.focus({ preventScroll: true }));
   };
-  if (!article) return <main className="reader-pane empty-reader" aria-label="阅读器" aria-busy={Boolean(loadingTitle)}><div><strong>{loadingTitle ? `正在载入“${loadingTitle}”` : '选择一篇内容开始阅读'}</strong><span>{loadingTitle ? '正文从本地资料库读取，完成后会自动显示。' : '阅读进度、收藏和批注都会保存在本地。'}</span></div></main>;
+  if (!article) return <main className="reader-pane empty-reader" aria-label="阅读器" aria-busy={Boolean(loadingTitle)}><div><strong>{loadingTitle ? `正在载入“${loadingTitle}”` : readOnly ? '无法载入这篇内容' : '选择一篇内容开始阅读'}</strong><span>{loadingTitle ? '正文从本地资料库读取，完成后会自动显示。' : readOnly ? '内容可能已从资料库移除。' : '阅读进度、收藏和批注都会保存在本地。'}</span>{readOnly && onFocusLibrary && <button className="button" type="button" onClick={onFocusLibrary}>返回资料库</button>}</div></main>;
   const embeddedIds = new Set(Array.isArray(article.metadata?.embeddedAttachmentIds) ? article.metadata.embeddedAttachmentIds.filter((id): id is string => typeof id === 'string') : []);
   for (const attachment of article.attachments || []) if (article.content.includes(attachment.url) || (attachment.thumbnail_url && article.content.includes(attachment.thumbnail_url))) embeddedIds.add(attachment.id);
   const leadAttachmentId = typeof article.metadata?.leadAttachmentId === 'string' ? article.metadata.leadAttachmentId : '';
@@ -760,16 +763,20 @@ function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDis
   return <main className="reader-pane" aria-label={`阅读器：${article.title}`}>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{highlightAnnouncement}</span>
     <div className="reader-toolbar">
-      <button className="icon-button" type="button" aria-label={article.is_favorite ? '取消收藏' : '收藏'} onClick={() => void onPatch({ is_favorite: !article.is_favorite })}>{article.is_favorite ? '★' : '☆'}</button>
-      <select aria-label="移动到资料夹" value={article.collection_id || ''} onChange={(event) => void onPatch({ collection_id: event.target.value })}>{collectionRows.map((collection) => <option key={collection.id} value={collection.id}>{'— '.repeat(collection.depth)}{collection.name}</option>)}</select>
+      {readOnly ? <span className="focused-reader-label"><i aria-hidden="true">◎</i><span><strong>专注阅读</strong><small>独立只读窗口</small></span></span> : <>
+        <button className="icon-button" type="button" aria-label={article.is_favorite ? '取消收藏' : '收藏'} onClick={() => void onPatch({ is_favorite: !article.is_favorite })}>{article.is_favorite ? '★' : '☆'}</button>
+        <select aria-label="移动到资料夹" value={article.collection_id || ''} onChange={(event) => void onPatch({ collection_id: event.target.value })}>{collectionRows.map((collection) => <option key={collection.id} value={collection.id}>{'— '.repeat(collection.depth)}{collection.name}</option>)}</select>
+      </>}
       <div className="toolbar-spacer"></div>
-      <button className={`button ${article.archived ? '' : 'quiet-danger'}`} type="button" onClick={() => void onPatch({ archived: !article.archived })}>{article.archived ? '恢复' : '归档'}</button>
+      {!readOnly && <button className={`button ${article.archived ? '' : 'quiet-danger'}`} type="button" onClick={() => void onPatch({ archived: !article.archived })}>{article.archived ? '恢复' : '归档'}</button>}
       <button className="button" type="button" onClick={focusAnnotations}>高亮 <span className="button-count">{highlights.length}</span></button>
-      <button ref={keyboardSelectionButtonRef} className="button" type="button" aria-pressed={keyboardSelectionMode} onClick={keyboardSelectionMode ? exitKeyboardSelection : startKeyboardSelection}>键盘选取</button>
-      <button className="button" type="button" onClick={onHistory}>历史 <span className="button-count">{article.revision_count || 1}</span></button>
-      <button className="button" type="button" onClick={onEdit}>编辑 <kbd>⌘E</kbd></button>
+      {!readOnly && <><button ref={keyboardSelectionButtonRef} className="button" type="button" aria-pressed={keyboardSelectionMode} onClick={keyboardSelectionMode ? exitKeyboardSelection : startKeyboardSelection}>键盘选取</button>
+        <button className="button" type="button" onClick={onHistory}>历史 <span className="button-count">{article.revision_count || 1}</span></button>
+        <button className="button" type="button" onClick={onEdit}>编辑 <kbd>⌘E</kbd></button>
+        {onOpenWindow && <button className="button" type="button" onClick={onOpenWindow}>新窗口</button>}
+      </>}
       {article.url && <a className="button" href={article.url} target="_blank" rel="noreferrer">原文 ↗</a>}
-      <button className="button primary" type="button" onClick={onToggleAI}>✦ 文章助手</button>
+      {readOnly ? <><button className="button" type="button" onClick={onToggleTheme}>明暗</button><button className="button primary" type="button" onClick={onFocusLibrary}>返回资料库</button></> : <button className="button primary" type="button" onClick={onToggleAI}>✦ 文章助手</button>}
     </div>
     <div className="reader-scroll" onScroll={onScroll}>
       <article className="document" lang={article.language}>
@@ -778,7 +785,7 @@ function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDis
         {focusedCitation?.articleId === article.id && <section className="citation-focus" aria-label="引用原文片段"><header><span><small>引用定位 · 段落 {focusedCitation.chunkIndex + 1}</small><strong>{focusedCitation.heading || article.title}</strong></span><button type="button" className="icon-button" aria-label="关闭引用定位" onClick={onDismissCitation}>×</button></header><blockquote>{focusedCitation.quote}</blockquote><footer>这段文字来自本地索引；可继续向下阅读完整上下文。</footer></section>}
         <h2>{article.title}</h2><p className="dek">{article.excerpt}</p>
         <div className="byline"><span className="avatar">{(article.author || article.source || 'R').slice(0, 1)}</span><span><strong>{article.author || article.source || '未知作者'}</strong><small>{article.source} · {article.read_time_minutes} 分钟</small></span></div>
-        <div className="tag-row">{article.tags.map((tag) => <span className="chip removable-tag" key={tag}>{tag}<button type="button" aria-label={`移除标签 ${tag}`} onClick={() => void onRemoveTags([tag])}>×</button></span>)}<span className="tag-input-wrap"><input aria-label="添加标签" value={tagInput} onChange={(event) => setTagInput(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && void submitTag()} placeholder="＋ 标签"/></span></div>
+        <div className="tag-row">{article.tags.map((tag) => readOnly ? <span className="chip" key={tag}>{tag}</span> : <span className="chip removable-tag" key={tag}>{tag}<button type="button" aria-label={`移除标签 ${tag}`} onClick={() => void onRemoveTags([tag])}>×</button></span>)}{!readOnly && <span className="tag-input-wrap"><input aria-label="添加标签" value={tagInput} onChange={(event) => setTagInput(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && void submitTag()} placeholder="＋ 标签"/></span>}</div>
         {leadAttachment && <figure className="lead-image"><img src={leadAttachment.url} alt=""/><figcaption>{formatBytes(leadAttachment.byte_size)} · 本地主图</figcaption></figure>}
         {standaloneAttachments.length ? <div className="attachment-stack">{standaloneAttachments.map((attachment) => <section className="attachment-viewer" key={attachment.id}>
           <header><span><strong>{attachment.file_name}</strong><small>{formatBytes(attachment.byte_size)} · 已保存在本机</small></span><a className="button" href={attachment.url} download={attachment.file_name}>导出</a></header>
@@ -786,35 +793,35 @@ function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDis
           {attachment.mime_type.startsWith('video/') && <video controls preload="metadata" src={attachment.url}></video>}
           {attachment.mime_type === 'application/pdf' && <object data={attachment.url} type="application/pdf" aria-label={attachment.file_name}><a href={attachment.url}>打开 PDF</a></object>}
         </section>)}</div> : null}
-        <p id="article-selection-help" className="sr-only">鼠标或触控板可直接选择文字。纯键盘使用时，请先按工具栏的“键盘选取”，再用方向键移动光标，按住 Shift 并配合方向键选择；Option 加方向键可逐词移动。按 Enter 创建高亮，按 Escape 退出。</p>
-        {keyboardSelectionMode && <div className="keyboard-selection-bar"><span><strong>键盘选取已开启</strong><small role="status" aria-live="polite" aria-atomic="true">{keyboardSelectionStatus}</small></span><button className="button primary" type="button" disabled={!keyboardSelectionCandidate} onClick={() => captureSelection()}>创建高亮</button><button className="button" type="button" onClick={exitKeyboardSelection}>退出</button></div>}
+        {!readOnly && <p id="article-selection-help" className="sr-only">鼠标或触控板可直接选择文字。纯键盘使用时，请先按工具栏的“键盘选取”，再用方向键移动光标，按住 Shift 并配合方向键选择；Option 加方向键可逐词移动。按 Enter 创建高亮，按 Escape 退出。</p>}
+        {!readOnly && keyboardSelectionMode && <div className="keyboard-selection-bar"><span><strong>键盘选取已开启</strong><small role="status" aria-live="polite" aria-atomic="true">{keyboardSelectionStatus}</small></span><button className="button primary" type="button" disabled={!keyboardSelectionCandidate} onClick={() => captureSelection()}>创建高亮</button><button className="button" type="button" onClick={exitKeyboardSelection}>退出</button></div>}
         <div
           className={`article-body ${keyboardSelectionMode ? 'keyboard-selecting' : ''}`}
           ref={articleBodyRef}
           role={keyboardSelectionMode ? 'document' : 'region'}
           tabIndex={0}
-          aria-label={keyboardSelectionMode ? '文章正文键盘选取区，只读' : '文章正文，可选择文字创建高亮'}
-          aria-describedby="article-selection-help"
-          onMouseUp={keyboardSelectionMode ? updateKeyboardSelection : captureSelection}
-          onKeyDown={handleArticleBodyKeyDown}
-          onKeyUp={(event) => { if (keyboardSelectionMode && event.key !== 'Enter' && event.key !== 'Escape') updateKeyboardSelection(); }}
+          aria-label={readOnly ? '文章正文，只读' : keyboardSelectionMode ? '文章正文键盘选取区，只读' : '文章正文，可选择文字创建高亮'}
+          aria-describedby={readOnly ? undefined : 'article-selection-help'}
+          onMouseUp={readOnly ? undefined : keyboardSelectionMode ? updateKeyboardSelection : captureSelection}
+          onKeyDown={readOnly ? undefined : handleArticleBodyKeyDown}
+          onKeyUp={readOnly ? undefined : (event) => { if (keyboardSelectionMode && event.key !== 'Enter' && event.key !== 'Escape') updateKeyboardSelection(); }}
         ><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ node: _node, ...props }) => <span className="inline-figure" role="group"><img {...props} loading="lazy"/><span className="image-caption">{props.alt || '正文图片'} · 已保存在本机</span></span> }}>{article.content}</ReactMarkdown></div>
         <section className="annotations" ref={annotationsRef} tabIndex={-1} aria-label="高亮与批注">
-          <header><span><small>LOCAL ANNOTATIONS</small><strong>高亮与批注</strong></span><em aria-live="polite">{highlights.length ? `${highlights.length} 条 · 全部保存在本机` : '选中正文即可开始'}</em></header>
-          {!highlights.length ? <div className="annotations-empty"><span>✦</span><div><strong>让收藏变成自己的理解</strong><p>在上方正文中选中一句话，选择颜色并写下批注。高亮会随资料库备份迁移。</p></div></div> :
+          <header><span><small>LOCAL ANNOTATIONS</small><strong>高亮与批注</strong></span><em aria-live="polite">{highlights.length ? `${highlights.length} 条 · 全部保存在本机` : readOnly ? '返回资料库即可创建' : '选中正文即可开始'}</em></header>
+          {!highlights.length ? <div className="annotations-empty"><span>✦</span><div><strong>{readOnly ? '这篇内容还没有高亮' : '让收藏变成自己的理解'}</strong><p>{readOnly ? '返回资料库即可创建高亮和批注。' : '在上方正文中选中一句话，选择颜色并写下批注。高亮会随资料库备份迁移。'}</p></div></div> :
             <div className="annotation-list">{highlights.map((highlight, index) => <article key={highlight.id} className="annotation-card" data-color={highlight.color}>
               <button type="button" className="annotation-index" onClick={() => focusHighlight(highlight)} aria-label={`定位高亮 ${index + 1}`}>{String(index + 1).padStart(2, '0')}</button>
               <div className="annotation-copy">
                 <button type="button" className="annotation-quote" onClick={() => focusHighlight(highlight)}><q>{highlight.quote}</q></button>
-                <textarea aria-label={`高亮 ${index + 1} 的批注`} value={highlight.note} onChange={(event) => setHighlights((current) => current.map((item) => item.id === highlight.id ? { ...item, note: event.target.value } : item))} onBlur={(event) => void saveHighlightPatch(highlight.id, { note: event.target.value }, `高亮 ${index + 1} 的批注已保存`)} placeholder="写下你的理解…"/>
-                <footer><span className="annotation-colors" role="group" aria-label={`高亮 ${index + 1} 的颜色`}>{highlightColors.map((color) => <button type="button" key={color.value} className={highlight.color === color.value ? 'active' : ''} data-color={color.value} aria-label={`改为${color.label}`} aria-pressed={highlight.color === color.value} onClick={() => void saveHighlightPatch(highlight.id, { color: color.value }, `高亮 ${index + 1} 已改为${color.label}`)}></button>)}</span><small>{formatDate(highlight.created_at)}</small><button type="button" className="annotation-delete" aria-label={`删除高亮 ${index + 1}`} onClick={() => void deleteHighlight(highlight)}>删除</button></footer>
+                {readOnly ? highlight.note && <p className="annotation-readonly-note">{highlight.note}</p> : <textarea aria-label={`高亮 ${index + 1} 的批注`} value={highlight.note} onChange={(event) => setHighlights((current) => current.map((item) => item.id === highlight.id ? { ...item, note: event.target.value } : item))} onBlur={(event) => void saveHighlightPatch(highlight.id, { note: event.target.value }, `高亮 ${index + 1} 的批注已保存`)} placeholder="写下你的理解…"/>}
+                <footer>{!readOnly && <span className="annotation-colors" role="group" aria-label={`高亮 ${index + 1} 的颜色`}>{highlightColors.map((color) => <button type="button" key={color.value} className={highlight.color === color.value ? 'active' : ''} data-color={color.value} aria-label={`改为${color.label}`} aria-pressed={highlight.color === color.value} onClick={() => void saveHighlightPatch(highlight.id, { color: color.value }, `高亮 ${index + 1} 已改为${color.label}`)}></button>)}</span>}<small>{formatDate(highlight.created_at)}</small>{!readOnly && <button type="button" className="annotation-delete" aria-label={`删除高亮 ${index + 1}`} onClick={() => void deleteHighlight(highlight)}>删除</button>}</footer>
               </div>
             </article>)}</div>}
         </section>
-        <div className="document-end"><span>阅读完毕</span><button type="button" className="button" onClick={() => void onPatch({ is_read: true, reading_progress: 1 })}>标记为已读</button></div>
+        <div className="document-end"><span>阅读完毕</span>{!readOnly && <button type="button" className="button" onClick={() => void onPatch({ is_read: true, reading_progress: 1 })}>标记为已读</button>}</div>
       </article>
     </div>
-    {selectionDraft && <aside className="selection-popover" style={{ top: selectionDraft.top, left: selectionDraft.left }} role="dialog" aria-labelledby="selection-popover-title" aria-describedby="selection-popover-quote">
+    {!readOnly && selectionDraft && <aside className="selection-popover" style={{ top: selectionDraft.top, left: selectionDraft.left }} role="dialog" aria-labelledby="selection-popover-title" aria-describedby="selection-popover-quote">
       <header><span id="selection-popover-title">保存高亮</span><button type="button" aria-label="取消高亮" disabled={highlightBusy} onClick={dismissSelection}>×</button></header>
       <q id="selection-popover-quote">{selectionDraft.quote}</q>
       <div className="selection-colors" role="group" aria-label="高亮颜色">{highlightColors.map((color) => <button type="button" key={color.value} data-color={color.value} className={selectionDraft.color === color.value ? 'active' : ''} aria-label={color.label} aria-pressed={selectionDraft.color === color.value} onClick={() => setSelectionDraft((current) => current ? { ...current, color: color.value } : current)}></button>)}</div>
@@ -1512,7 +1519,70 @@ function DataSafetyModal({ backups, migrationSnapshots, health, pendingRestore, 
   </section></div>;
 }
 
+function FocusedReaderApp({ articleId }: { articleId: string }) {
+  const [article, setArticle] = useState<Article | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState(() => localStorage.getItem('reader-theme') || 'light');
+  const [toast, setToast] = useState<Toast | null>(null);
+  const notify = useCallback((message: string, tone: Toast['tone'] = 'normal') => setToast({ id: Date.now(), message, tone }), []);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void api.getArticle(articleId)
+      .then((next) => { if (!cancelled) setArticle(next); })
+      .catch((error) => { if (!cancelled) notify(error instanceof Error ? error.message : '内容加载失败', 'error'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [articleId, notify]);
+  useEffect(() => {
+    document.title = article ? `${article.title} — Reader` : '专注阅读 — Reader';
+  }, [article]);
+  useEffect(() => { localStorage.setItem('reader-theme', theme); }, [theme]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+  const focusLibrary = () => {
+    void window.readerDesktop?.focusLibrary().then((focused) => {
+      if (!focused) notify('无法返回资料库', 'error');
+    }).catch(() => notify('无法返回资料库', 'error'));
+  };
+  const openSource = (id: string) => {
+    void window.readerDesktop?.openArticleWindow(id).then((opened) => {
+      if (!opened) notify('来源内容已不存在', 'error');
+    }).catch(() => notify('无法打开来源内容', 'error'));
+  };
+  return <div className="app-stage focused-reader-stage" data-theme={theme} data-desktop="true">
+    <ReaderPane
+      article={article}
+      loadingTitle={loading ? '专注阅读' : undefined}
+      collections={[]}
+      focusedCitation={null}
+      onDismissCitation={() => {}}
+      onPatch={async () => {}}
+      onAddTags={async () => {}}
+      onRemoveTags={async () => {}}
+      onToggleAI={() => {}}
+      onEdit={() => {}}
+      onHistory={() => {}}
+      onOpenSource={openSource}
+      onFocusLibrary={focusLibrary}
+      onToggleTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+      readOnly
+      notify={notify}
+    />
+    {toast && <div className={`toast ${toast.tone === 'error' ? 'error' : ''}`} role="status">{toast.message}</div>}
+  </div>;
+}
+
 export function App() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('readerWindow') === '1') return <FocusedReaderApp articleId={params.get('article') || ''}/>;
+  return <ReaderWorkspace/>;
+}
+
+function ReaderWorkspace() {
   const isDesktop = new URLSearchParams(window.location.search).get('desktop') === '1';
   const [articles, setArticles] = useState<ArticleSummary[]>([]); const [collections, setCollections] = useState<Collection[]>([]); const [smartCollections, setSmartCollections] = useState<SmartCollection[]>([]); const [tags, setTags] = useState<Tag[]>([]); const [sources, setSources] = useState<Source[]>([]); const [jobs, setJobs] = useState<ImportJob[]>([]); const [stats, setStats] = useState(initialStats);
   const [backgroundWork, setBackgroundWork] = useState(initialBackgroundWorkState);
@@ -1836,7 +1906,7 @@ export function App() {
       <div className={`workspace ${aiOpen ? 'with-ai' : ''}`}>
         <Sidebar view={view} setView={setView} collectionId={collectionId} setCollectionId={setCollectionId} smartCollectionId={smartCollectionId} setSmartCollectionId={setSmartCollectionId} collections={collections} smartCollections={smartCollections} tags={tags} tagFilter={tagFilter} setTagFilter={setTagFilter} stats={stats} sources={sources} onAdd={() => setAddOpen(true)} onSources={() => setSourcesOpen(true)} onCollections={() => setCollectionsOpen(true)} onSmartCollections={() => setSmartCollectionsOpen(true)} onDuplicates={openDuplicates} onDataSafety={() => void openSafety()} onMoveArticles={(ids, targetCollectionId) => void moveDraggedArticles(ids, targetCollectionId)}/>
         <ArticleList articles={articles} total={articleTotal} hasMore={Boolean(articleCursor)} loadingMore={loadingMore} onLoadMore={() => void loadMoreArticles()} selectedId={selectedId} onSelect={selectArticle} loading={loading} title={title} query={query} setQuery={setQuery} contentFilter={contentFilter} setContentFilter={setContentFilter} layout={libraryLayout} setLayout={setLibraryLayout} selectedIds={selectedIds} onToggleSelection={toggleSelection} onSelectAll={selectAll} onClearSelection={() => setSelectedIds(new Set())} onBatch={(patch, message) => void batchOrganize(patch, message)} onExport={() => setExportOpen(true)} onCompose={() => setComposeOpen(true)} collections={collections} tags={tags} archiveView={view === 'archive'}/>
-        <ReaderPane article={currentArticle} loadingTitle={selectedId && !currentArticle ? selectedSummary?.title || '当前内容' : undefined} collections={collections} focusedCitation={focusedCitation} onDismissCitation={() => setFocusedCitation(null)} onPatch={patchSelected} onAddTags={addTags} onRemoveTags={removeTags} onToggleAI={() => setAIOpen((value) => !value)} onEdit={() => setEditOpen(true)} onHistory={() => void openHistory()} onOpenSource={(id) => void openSourceArticle(id)} notify={notify}/>
+        <ReaderPane article={currentArticle} loadingTitle={selectedId && !currentArticle ? selectedSummary?.title || '当前内容' : undefined} collections={collections} focusedCitation={focusedCitation} onDismissCitation={() => setFocusedCitation(null)} onPatch={patchSelected} onAddTags={addTags} onRemoveTags={removeTags} onToggleAI={() => setAIOpen((value) => !value)} onEdit={() => setEditOpen(true)} onHistory={() => void openHistory()} onOpenSource={(id) => void openSourceArticle(id)} onOpenWindow={isDesktop && currentArticle ? () => { void window.readerDesktop?.openArticleWindow(currentArticle.id).then((opened) => { if (!opened) notify('无法打开专注阅读窗口', 'error'); }).catch(() => notify('无法打开专注阅读窗口', 'error')); } : undefined} notify={notify}/>
         {aiOpen && <AIPanel article={currentArticle} onClose={() => setAIOpen(false)} onArticleUpdated={updateArticleInState} onDerivedCreated={showDerivedArticle} onOpenCitation={(citation) => void openCitation(citation)} configurationVersion={aiConfigurationVersion} notify={notify}/>}
       </div>
     </div>

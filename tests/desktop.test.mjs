@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createReaderServer } from '../src/server/server.mjs';
-import { extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from '../desktop/security.mjs';
+import { extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from '../desktop/security.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -29,6 +29,14 @@ test('desktop data root is isolated and overrides must be absolute', () => {
   assert.equal(resolveDesktopDataRoot('/Users/test/Library/Application Support/Reader'), '/Users/test/Library/Application Support/Reader/ReaderData');
   assert.equal(resolveDesktopDataRoot('/ignored', '/tmp/reader-desktop-test'), '/tmp/reader-desktop-test');
   assert.throws(() => resolveDesktopDataRoot('/ignored', 'relative/path'), /必须是绝对路径/);
+});
+
+test('focused reader window ids stay bounded without narrowing valid local article ids', () => {
+  assert.equal(normalizeArticleWindowId('local-first-reading'), 'local-first-reading');
+  assert.equal(normalizeArticleWindowId('导入文章 01'), '导入文章 01');
+  for (const candidate of ['', 'a'.repeat(201), 'article\nother', 'article\u0000other', null, 42]) {
+    assert.equal(normalizeArticleWindowId(candidate), null);
+  }
 });
 
 test('desktop deep links only prefill one credential-free web URL', () => {
@@ -115,7 +123,7 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /createRendererRecoveryController/);
   assert.match(main, /createImportNotificationController/);
   assert.match(main, /onImportBatchFinished/);
-  assert.match(main, /!mainWindow\.isFocused\(\)/);
+  assert.match(main, /BrowserWindow\.getAllWindows\(\)\.some/);
   assert.match(main, /sendCommand\('import-queue'\)/);
   assert.match(main, /window\.webContents\.on\('render-process-gone'/);
   assert.match(main, /window\.webContents\.on\('did-finish-load'/);
@@ -143,6 +151,33 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(release, /不生成自动更新 ZIP/);
 
   assert.deepEqual(packageJSON.build.protocols, [{ name: 'Reader URL', schemes: ['reader-local'], role: 'Viewer' }]);
+});
+
+test('focused reading windows use narrow trusted IPC, deduplicate by article and stay read-only', async () => {
+  const main = await readFile(path.join(projectRoot, 'desktop', 'main.mjs'), 'utf8');
+  const preload = await readFile(path.join(projectRoot, 'desktop', 'preload.cjs'), 'utf8');
+  const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
+  const styles = await readFile(path.join(projectRoot, 'src', 'web', 'styles.css'), 'utf8');
+
+  assert.match(main, /const articleWindows = new Map\(\)/);
+  assert.match(main, /const existing = articleWindows\.get\(articleId\)/);
+  assert.match(main, /new BrowserWindow\(desktopWindowOptions\(\{ focusedReader: true \}\)\)/);
+  assert.match(main, /isAllowedAppURL\(event\.senderFrame\?\.url \|\| event\.sender\.getURL\(\), appOrigin\)/);
+  assert.match(main, /readerServer\?\.database\.getArticle\(articleId\)/);
+  assert.match(main, /new URLSearchParams\(\{ desktop: '1', readerWindow: '1', article: articleId \}\)/);
+  assert.match(preload, /openArticleWindow\(articleId\)/);
+  assert.match(preload, /ipcRenderer\.invoke\('reader:open-article-window', articleId\)/);
+  assert.match(preload, /focusLibrary\(\)/);
+  assert.match(main, /if \(\(!mainWindow \|\| mainWindow\.isDestroyed\(\)\) && appOrigin\) await createWindow\(\)/);
+  assert.doesNotMatch(preload, /BrowserWindow|loadURL|database/);
+  assert.match(app, /function FocusedReaderApp/);
+  assert.match(app, /readOnly/);
+  assert.match(app, /aria-label=\{readOnly \? '文章正文，只读'/);
+  assert.match(app, /readOnly \? '返回资料库即可创建'/);
+  assert.match(app, /!readOnly && selectionDraft/);
+  assert.match(app, /!readOnly && <button type="button" className="annotation-delete"/);
+  assert.match(styles, /\.focused-reader-stage \.reader-toolbar/);
+  assert.match(styles, /-webkit-app-region: drag/);
 });
 
 test('sidebar collections keep their declared keyboard tree contract', async () => {
