@@ -150,6 +150,7 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /app\.on\('open-url'/);
   assert.match(main, /extractReaderDeepLink\(commandLine\)/);
   assert.match(main, /app\.setAsDefaultProtocolClient\(READER_PROTOCOL_SCHEME\)/);
+  assert.match(main, /process\.env\.READER_RELEASE_QA !== '1'/);
   assert.match(main, /if \(!window\.isDestroyed\(\)\) \{/);
   assert.match(main, /window\.show\(\)/);
   assert.doesNotMatch(main, /once\('ready-to-show'/);
@@ -168,6 +169,15 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(release, /notarize\(\{\s*appPath,/);
   assert.match(release, /build-mac-update\.mjs/);
   assert.match(release, /不生成自动更新 ZIP/);
+  assert.match(release, /verify-packaged-accessibility\.mjs/);
+
+  const accessibilityGate = await readFile(path.join(projectRoot, 'scripts', 'verify-packaged-accessibility.mjs'), 'utf8');
+  assert.match(accessibilityGate, /--remote-debugging-address=127\.0\.0\.1/);
+  assert.match(accessibilityGate, /--remote-debugging-port=0/);
+  assert.match(accessibilityGate, /READER_RELEASE_QA: '1'/);
+  assert.match(accessibilityGate, /Accessibility\.getFullAXTree/);
+  assert.match(accessibilityGate, /assertNamedControls\(workspaceTree, '主工作区'\)/);
+  assert.match(accessibilityGate, /temporary data isolated=true/);
 
   assert.deepEqual(packageJSON.build.protocols, [{ name: 'Reader URL', schemes: ['reader-local'], role: 'Viewer' }]);
   assert.deepEqual(packageJSON.build.extraResources, [{ from: 'build/Reader Spotlight Helper.app', to: 'Reader Spotlight Helper.app' }]);
@@ -275,6 +285,8 @@ test('modal dialogs isolate background and lower dialog layers while preserving 
   assert.match(app, /const dialogs = \[\.\.\.document\.querySelectorAll<HTMLElement>\('\[role="dialog"\]\[aria-modal="true"\]'\)\]/);
   assert.match(app, /appWindow\?\.toggleAttribute\('inert', Boolean\(dialog\)\)/);
   assert.match(app, /candidate\.toggleAttribute\('inert', candidate !== dialog\)/);
+  assert.match(app, /const labelledElement = \(dialog: HTMLElement\)/);
+  assert.match(app, /\(label \|\| focusableElements\(dialog\)\[0\] \|\| dialog\)\.focus\(\)/);
   assert.match(app, /if \(dialog && !dialog\.contains\(target\)\)/);
   assert.match(app, /\(focusableElements\(dialog\)\[0\] \|\| dialog\)\.focus\(\)/);
   assert.match(app, /event\.key === 'Escape'/);

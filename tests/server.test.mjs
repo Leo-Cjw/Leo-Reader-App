@@ -7,6 +7,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import yauzl from 'yauzl';
 import { ReaderDatabase } from '../src/server/db.mjs';
 import { createReaderServer } from '../src/server/server.mjs';
+import { SCHEMA_VERSION } from '../src/server/schema.mjs';
 import { APP_VERSION } from '../src/server/version.mjs';
 
 async function json(url, init) {
@@ -50,6 +51,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(health.response.status, 200);
   assert.equal(health.body.storage, 'sqlite');
   assert.equal(health.body.version, APP_VERSION);
+  assert.equal(health.body.schemaVersion, SCHEMA_VERSION);
   assert.deepEqual(health.body.background, {
     suspended: false,
     online: true,
@@ -69,7 +71,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.sourceSyncPauseReasons, ['offline', 'low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.42.0');
+  assert.equal(APP_VERSION, '0.43.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });

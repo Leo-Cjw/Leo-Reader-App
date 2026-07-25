@@ -188,6 +188,10 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 0.31.0 按 Electron 官方方式从外部设置 `AXManualAccessibility` 后验证打包候选 App 的 macOS 原生可访问树，不把测试开关写入产品设置。Chromium 将 pressed 按钮映射为带 0/1 值的 `AXCheckBox`，将当前导航映射为 `AXARIACurrent`，并把文章关联描述映射为 `AXCustomContent`；通过 `AXPress` 触发筛选、导航与文章选择后，原生状态均随 React 状态更新。最终产物把描述节点改为 HTML `hidden` 后，以其精确 Chromium 可访问树确认描述仍关联按钮且不再生成重复静态文本；最终包的原生 AX 复验与人工 VoiceOver 听读仍是正式发行门禁。
 
+0.43.0 把打包 App 的 Chromium Accessibility Domain 变成每次 macOS 发行的阻断门禁。流水线用随机回环调试端口和独立临时 Chromium/Reader 数据目录启动已经合并、签名的候选 App，核对健康响应版本与 schema、重复 DOM id、主工作区的命名 landmarks/资料夹 tree，以及全部暴露交互控件都有可访问名称；随后逐一打开设置、添加内容、订阅、普通/智能资料夹、重复治理、导入队列和数据安全八个核心模态框，验证背景从 AX 树移除、焦点进入、Tab 留在窗口、Escape 关闭并回到原入口。带 `aria-labelledby` 的复杂对话框现在先聚焦命名标题，避免初次进入时把整张窗口内容当作单一焦点朗读。
+
+门禁只绑定 `127.0.0.1` 的随机端口，使用 `READER_RELEASE_QA=1` 跳过默认 URL scheme 注册，并在退出后删除临时资料；不会打开用户资料库、改写协议偏好或保留调试端口。该自动化验证 Chromium 最终 AX 树与真实键盘焦点行为，但不冒充 VoiceOver 听读、AppKit 外层 AX 或正式签名系统集成验收。
+
 发行流水线分别构建 x86_64 与 arm64 应用，再用项目内的流式 Mach-O 合并工具生成通用主程序、Helper 与 Share Extension；两套 `@napi-rs/canvas` 原生模块按架构保留在独立包路径，由运行时选择。Electron 压缩包必须匹配依赖自带的官方 SHA-256 清单。合并后按代码类型应用最小 entitlement、执行深度严格验证，并生成带“应用程序”快捷方式且通过 `hdiutil verify` 的压缩 DMG。
 
 0.27.0 在桌面主进程集中监听 Electron 的 suspend/resume、网络在线状态、macOS 电源与热状态。电池电量只通过只读的 `/usr/bin/pmset -g batt` 获取，不写系统设置：断网或电池供电且不高于 20% 时只暂停自动来源调度，本地附件导入与用户主动同步保持可用；睡眠、严重/临界热状态或 CPU 被系统限制到 50% 以下时暂停导入队列与自动同步。服务端把这些条件与待恢复写锁合并为单一串行策略，只有全部原因解除后才恢复对应 worker，避免唤醒或网络恢复绕过资料库恢复锁。当前脱敏状态通过 `/api/health` 提供，并在订阅中心显示面向用户的暂停原因。

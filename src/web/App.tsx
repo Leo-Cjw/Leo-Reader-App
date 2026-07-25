@@ -263,6 +263,9 @@ function DialogAccessibilityManager() {
     const modalDialogs = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];
     const topDialog = () => modalDialogs().at(-1) || null;
     const focusableElements = (dialog: HTMLElement) => [...dialog.querySelectorAll<HTMLElement>(dialogFocusableSelector)].filter((element) => element.getClientRects().length > 0);
+    const labelledElement = (dialog: HTMLElement) => (dialog.getAttribute('aria-labelledby') || '').split(/\s+/)
+      .map((id) => document.getElementById(id))
+      .find((element): element is HTMLElement => element instanceof HTMLElement && dialog.contains(element)) || null;
     const reconcile = () => {
       const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];
       const dialog = dialogs.at(-1) || null;
@@ -274,7 +277,9 @@ function DialogAccessibilityManager() {
       activeDialog = dialog;
       if (dialog) {
         if (!dialog.hasAttribute('tabindex')) dialog.tabIndex = -1;
-        if (!dialog.contains(document.activeElement)) (focusableElements(dialog)[0] || dialog).focus();
+        const label = labelledElement(dialog);
+        if (label && !label.hasAttribute('tabindex')) label.tabIndex = -1;
+        if (!dialog.contains(document.activeElement)) (label || focusableElements(dialog)[0] || dialog).focus();
       } else if (opener?.isConnected) {
         opener.focus();
         opener = null;

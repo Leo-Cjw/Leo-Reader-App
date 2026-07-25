@@ -1,4 +1,4 @@
-# Reader for Mac 0.42.0
+# Reader for Mac 0.43.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.42.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.43.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -44,7 +44,7 @@ Vite 开发界面位于 `http://127.0.0.1:4311`，并把 `/api` 代理到 4312 �
 npm run desktop:pack
 ```
 
-该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块、嵌套 Spotlight helper 与 Share Extension 架构和 entitlement，执行签名验证，再生成并校验 DMG。输出位于 `release/mac-universal/Reader.app` 与 `release/Reader-<version>-universal.dmg`。未提供正式发行凭据时保留 ad-hoc 模式，并主动删除同版本残留的更新 ZIP。
+该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块、嵌套 Spotlight helper 与 Share Extension 架构和 entitlement，执行签名验证，再从隔离临时资料库启动最终 App，核对完整 Chromium AX 树、命名控件和八个核心模态框焦点闭环，最后生成并校验 DMG。输出位于 `release/mac-universal/Reader.app` 与 `release/Reader-<version>-universal.dmg`。未提供正式发行凭据时保留 ad-hoc 模式，并主动删除同版本残留的更新 ZIP。
 
 流水线已预留正式发行入口。先用 `xcrun notarytool store-credentials` 把公证凭据写入 Keychain，再提供证书名称和凭据配置名：
 
@@ -82,7 +82,7 @@ npm run desktop:pack
 - 资料管理：可创建、改名、嵌套和安全删除的树形资料夹；父资料夹可聚合子树内容。支持单篇和批量移动、添加/移除标签、收藏、已读、归档与恢复。
 - 智能整理：可以把关键词、内容类型、标签、来源、原资料夹、阅读/收藏状态、高亮、附件和保存时间组合成“全部满足”或“任一满足”的动态资料夹；规则、结果计数和自定义顺序都保存在本地。文章卡片可直接拖到普通资料夹，同级资料夹与智能资料夹可拖动排序。
 - 资料视图：网页、订阅、附件、笔记与媒体筛选；列表和双列画廊可切换，画廊直接使用本地图片、PDF 缩略图和视频首帧。列表使用稳定游标分页，明确显示已加载数和命中总数，不会在 100 条后静默截断；列表响应不携带正文，选中后才读取单篇详情，长文章不会放大整页传输。
-- 键盘与读屏基础：文章卡片使用同级原生“打开”和“选择”按钮，并播报未读/收藏、来源、日期、类型、资料夹、标签和有限摘要；导航当前项、筛选、功能切换与批量选择均公开当前/按下状态。产品导航、内容区、阅读器和文章助手提供可区分的 landmark 名称，正文异步切换通过 persistent live status 播报且不会短暂暴露上一文章；macOS“减少动态效果”会停用界面动画和平滑滚动。全部 14 个顶层模态框管理初始焦点、Tab 回环、Escape 和关闭后恢复；打开期间主窗口及较低层窗口成为不可交互的 inert 子树，程序化菜单焦点也不能逃出当前窗口。侧栏资料夹支持完整树键盘；Markdown 编辑器支持初始焦点、⌘S、可播报保存状态和可见上传焦点；附件、编辑器图片、Reader ZIP、OPML 与备份恢复均以可见键盘按钮打开系统文件选择器；静态正文具备不开放编辑面的原生 Range 键盘选区，光标、选区、颜色、定位与批注保存均提供焦点或 live status 反馈，并避让 VoiceOver 的 Control+Option 导航组合键。
+- 键盘与读屏基础：文章卡片使用同级原生“打开”和“选择”按钮，并播报未读/收藏、来源、日期、类型、资料夹、标签和有限摘要；导航当前项、筛选、功能切换与批量选择均公开当前/按下状态。产品导航、内容区、阅读器和文章助手提供可区分的 landmark 名称，正文异步切换通过 persistent live status 播报且不会短暂暴露上一文章；macOS“减少动态效果”会停用界面动画和平滑滚动。全部 14 个顶层模态框管理初始焦点、Tab 回环、Escape 和关闭后恢复；复杂命名窗口先聚焦标题，打开期间主窗口及较低层窗口成为不可交互的 inert 子树，程序化菜单焦点也不能逃出当前窗口。发行流水线会从最终 App 直接核对主工作区及八个核心模态框的 AX 树与焦点闭环。侧栏资料夹支持完整树键盘；Markdown 编辑器支持初始焦点、⌘S、可播报保存状态和可见上传焦点；附件、编辑器图片、Reader ZIP、OPML 与备份恢复均以可见键盘按钮打开系统文件选择器；静态正文具备不开放编辑面的原生 Range 键盘选区，光标、选区、颜色、定位与批注保存均提供焦点或 live status 反馈，并避让 VoiceOver 的 Control+Option 导航组合键。
 - 选择性导出：多选任意内容，生成标准 Markdown ZIP；可选携带原始附件，正文中的本地资源改写为相对路径，manifest 保留来源、标签和附件 SHA-256。v3 包同时包含 Reader 专用 sidecar，使正文、摘要、阅读状态和扩展元数据可以无损往返而不影响 Markdown 的独立使用。
 - 选择性导入：在“添加 → Reader ZIP”中先安全预检，再逐篇勾选并指定目标资料夹；已有 Reader ID 或原链接默认跳过，不隐式覆盖。支持 v3 无损包和既有 v2 Markdown 包的兼容恢复。
 - 重复治理：按规范化原链接、完整正文或标题摘要检测重复组；用户明确选择保留版本后合并标签、收藏、摘要与阅读进度，副本仅归档且可恢复。
@@ -210,4 +210,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.42.0 变更见 [docs/RELEASE_NOTES_0.42.0.md](docs/RELEASE_NOTES_0.42.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.43.0 变更见 [docs/RELEASE_NOTES_0.43.0.md](docs/RELEASE_NOTES_0.43.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

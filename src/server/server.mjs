@@ -269,6 +269,7 @@ export async function createReaderServer({
         return sendJSON(response, 200, {
           ok: true,
           version: APP_VERSION,
+          schemaVersion: SCHEMA_VERSION,
           storage: 'sqlite',
           restoredOnStart: Boolean(appliedRestore),
           background: backgroundWork.snapshot(),

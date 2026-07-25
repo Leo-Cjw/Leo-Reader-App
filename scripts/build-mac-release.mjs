@@ -115,6 +115,7 @@ run(path.join(projectRoot, 'node_modules', '.bin', 'electron-builder'), [
   '--mac', 'dir', '--arm64', `--config.electronDist=${arm64Dist}`
 ]);
 run(process.execPath, [path.join(projectRoot, 'scripts', 'build-universal-mac.mjs')]);
+run(process.execPath, [path.join(projectRoot, 'scripts', 'verify-packaged-accessibility.mjs')]);
 
 const packageMetadata = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
 const appPath = path.join(releaseRoot, 'mac-universal', 'Reader.app');

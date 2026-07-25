@@ -303,7 +303,7 @@ async function createWindow() {
 }
 
 async function startReader() {
-  if (app.isPackaged) app.setAsDefaultProtocolClient(READER_PROTOCOL_SCHEME);
+  if (app.isPackaged && process.env.READER_RELEASE_QA !== '1') app.setAsDefaultProtocolClient(READER_PROTOCOL_SCHEME);
   const dataRoot = resolveDesktopDataRoot(app.getPath('userData'), process.env.READER_DESKTOP_DATA_ROOT || '');
   readerServer = await createReaderServer({
     rootDir: dataRoot,

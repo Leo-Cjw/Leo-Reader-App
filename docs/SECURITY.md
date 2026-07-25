@@ -144,6 +144,7 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 - 产品导航、内容区、阅读器和文章助手的 landmark 名称只来自固定界面文案或当前已经载入的本地文章标题，不触发额外数据库、文件或网络读取。
 - 文章切换的 polite live status 只播报“正在载入/已载入”和当前标题；详情尚未匹配当前文章 ID 时不向阅读器或文章助手暴露上一文章正文。
 - 顶层模态框打开时，主窗口及较低层模态框使用浏览器原生 `inert`，避免被鼠标、键盘、程序化焦点或辅助技术继续操作。inert 只改变当前渲染器交互树，不读取正文、不写入资料库，也不扩大 preload 或 IPC 权限；全部窗口关闭后立即清除。
+- macOS 发行前可访问性门禁只以 `127.0.0.1` 随机调试端口连接本轮自己启动的候选 App，并把 Chromium profile 与 Reader 资料根目录放进权限受限的临时目录。QA 环境仅跳过默认 URL scheme 注册；退出会终止自己的进程并删除临时资料，不读取或改变用户现有 Reader 数据、系统分享偏好、Spotlight 设置或协议处理器。调试端口不会进入正常产品启动参数。
 - macOS“减少动态效果”只改变 CSS 动画、过渡和本机滚动方式，不写入设置、诊断日志或资料库，也不改变任务状态。
 
 ## 可迁移导入导出与重复治理
@@ -185,6 +186,7 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 npm run audit:dependencies
 npm test
 npm run build
+npm run qa:accessibility
 ```
 
-0.42.0 的依赖审计、123 项自动测试、Share Extension Swift URL 自测、激活规则/最小 entitlement/Universal 打包门禁，以及真实 `pluginkit`、`NSSharingService` 和 Reader 预填不入库闭环记录在对应发行说明；0.41.0 的 schema v11 outbox、helper 输入/输出/超时边界、双重深链校验、默认关闭/删除闭环和真实 Core Spotlight 写入查询删除，以及更早版本门禁继续有效。解析进程测试覆盖独立 PID、Node 权限、最小环境、V8 heap、并发/排队、随机响应边界、超时、崩溃、输入输出超限及故障后的继续工作；既有测试继续覆盖屏幕阅读器、文件选择器、键盘选区、更新签名、后台状态、摘要/详情边界、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.42.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon Gatekeeper、跨版本自动升级、正式签名包系统通知、Spotlight 点击与 Share Extension、恢复提示重载按钮人工点击、原生 AX 复验和启用 VoiceOver 的完整人工听读。
+0.43.0 的依赖审计、123 项自动测试、最终包完整 AX 树、八个核心模态框焦点闭环与隔离临时资料 QA 记录在对应发行说明；0.42.0 的 Share Extension Swift URL 自测、激活规则/最小 entitlement/Universal 打包门禁、真实系统分享闭环，以及 0.41.0 的 Spotlight 门禁继续有效。解析进程测试覆盖独立 PID、Node 权限、最小环境、V8 heap、并发/排队、随机响应边界、超时、崩溃、输入输出超限及故障后的继续工作；既有测试继续覆盖屏幕阅读器、文件选择器、键盘选区、更新签名、后台状态、摘要/详情边界、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.43.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon Gatekeeper、跨版本自动升级、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读。
