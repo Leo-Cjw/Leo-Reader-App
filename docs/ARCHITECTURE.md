@@ -31,6 +31,10 @@ flowchart LR
 
 生产构建由 Electron 主进程启动随机回环端口的本地服务，再由沙箱化渲染进程加载静态界面和 `/api`。应用包中的 `dist` 只读，SQLite、附件与备份写入 `Application Support/Reader/ReaderData`，升级应用不会覆盖资料。数据模型和 API 仍保持独立边界，便于未来用 SwiftUI/WKWebView 逐模块替换。
 
+0.35.0 在打包元数据中注册唯一的 `reader-local` URL scheme，作为浏览器、快捷指令和未来 Share Extension 的外部保存边界。主进程在 `ready` 前监听 macOS `open-url`，并同时从冷启动/第二实例 argv 中提取候选；解析器只接受 `reader-local://add`、唯一 `url` 参数、最长 2,048 字符且不含用户名或密码的 HTTP(S) 目标。未知动作、重复/额外参数、外层 fragment、其他目标协议和畸形输入直接忽略。
+
+合格目标最多在主进程和 preload 各排队 20 个，只有渲染器完成加载后才通过单向 `reader:add-url` IPC 送入页面。preload 不公开任意 IPC 发送、文件系统或网络能力；React 逐个把目标预填到既有“添加内容”模态框，用户仍需选择资料夹并明确提交。深链处理本身不调用本地 API、不解析 DNS、不创建导入任务；提交后继续复用服务端 `assertPublicURL` 的 DNS、私网、凭据和长度校验，因此外部入口不会绕过原有 SSRF 边界。
+
 ## 数据模型
 
 - `articles`：统一承载网页、Markdown、RSS、PDF 元数据和未来附件记录。

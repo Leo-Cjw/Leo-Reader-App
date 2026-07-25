@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createReaderServer } from '../src/server/server.mjs';
-import { isAllowedAppURL, isSafeExternalURL, resolveDesktopDataRoot } from '../desktop/security.mjs';
+import { extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from '../desktop/security.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -29,6 +29,51 @@ test('desktop data root is isolated and overrides must be absolute', () => {
   assert.equal(resolveDesktopDataRoot('/Users/test/Library/Application Support/Reader'), '/Users/test/Library/Application Support/Reader/ReaderData');
   assert.equal(resolveDesktopDataRoot('/ignored', '/tmp/reader-desktop-test'), '/tmp/reader-desktop-test');
   assert.throws(() => resolveDesktopDataRoot('/ignored', 'relative/path'), /必须是绝对路径/);
+});
+
+test('desktop deep links only prefill one credential-free web URL', () => {
+  assert.equal(READER_PROTOCOL_SCHEME, 'reader-local');
+  assert.equal(
+    parseReaderDeepLink('reader-local://add?url=https%3A%2F%2Fexample.com%2Farticle%3Fpage%3D2%23notes'),
+    'https://example.com/article?page=2#notes'
+  );
+  assert.equal(parseReaderDeepLink('reader-local://add/?url=http%3A%2F%2Fexample.com'), 'http://example.com/');
+  assert.equal(extractReaderDeepLink(['Reader', '--flag', 'reader-local://add?url=https%3A%2F%2Fexample.com%2Ffrom-argv']), 'https://example.com/from-argv');
+
+  for (const candidate of [
+    'reader-local://add',
+    'reader-local://add?url=javascript%3Aalert(1)',
+    'reader-local://add?url=file%3A%2F%2F%2Ftmp%2Fprivate',
+    'reader-local://add?url=https%3A%2F%2Fuser%3Asecret%40example.com',
+    'reader-local://add?url=https%3A%2F%2Fexample.com&url=https%3A%2F%2Fother.example',
+    'reader-local://add?url=https%3A%2F%2Fexample.com&action=import',
+    'reader-local://settings?url=https%3A%2F%2Fexample.com',
+    'reader-local://user@add?url=https%3A%2F%2Fexample.com',
+    'reader-local://add/path?url=https%3A%2F%2Fexample.com',
+    'reader-local://add?url=https%3A%2F%2Fexample.com#fragment',
+    'reader://add?url=https%3A%2F%2Fexample.com'
+  ]) assert.equal(parseReaderDeepLink(candidate), null, candidate);
+  assert.equal(parseReaderDeepLink(`reader-local://add?url=${encodeURIComponent(`https://example.com/${'a'.repeat(2049)}`)}`), null);
+  assert.equal(extractReaderDeepLink(['Reader', '--flag']), null);
+});
+
+test('desktop URL handoff waits for the renderer and still requires add-dialog confirmation', async () => {
+  const main = await readFile(path.join(projectRoot, 'desktop', 'main.mjs'), 'utf8');
+  const preload = await readFile(path.join(projectRoot, 'desktop', 'preload.cjs'), 'utf8');
+  const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
+
+  assert.match(main, /const pendingAddURLs = \[\]/);
+  assert.match(main, /if \(!rendererReady .* return/);
+  assert.match(main, /mainWindow\.webContents\.send\('reader:add-url', url\)/);
+  assert.match(main, /rendererReady = true;\s+flushPendingAddURLs\(\)/);
+  assert.match(preload, /if \(!addURLListeners\.size\)/);
+  assert.match(preload, /for \(const url of pendingAddURLs\.splice\(0\)\) callback\(url\)/);
+  assert.match(app, /const \[externalAddURLs, setExternalAddURLs\] = useState<string\[\]>\(\[\]\)/);
+  assert.match(app, /window\.readerDesktop\?\.onAddURL/);
+  assert.match(app, /initialURL=\{externalAddURLs\[0\]\}/);
+  assert.match(app, /const \[url, setURL\] = useState\(initialURL\)/);
+  assert.match(app, /if \(tab === 'url'\) \{ const job = await api\.createURLImport\(url, collection\)/);
+  assert.doesNotMatch(main, /createURLImport|api\/import-jobs/);
 });
 
 test('server can serve packaged web assets while writing only to the user data root', async (t) => {
@@ -68,7 +113,11 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /await backgroundCoordinator\.start\(\)/);
   assert.match(main, /createUpdateController/);
   assert.match(main, /检查更新…/);
-  assert.match(main, /if \(!window\.isDestroyed\(\)\) window\.show\(\)/);
+  assert.match(main, /app\.on\('open-url'/);
+  assert.match(main, /extractReaderDeepLink\(commandLine\)/);
+  assert.match(main, /app\.setAsDefaultProtocolClient\(READER_PROTOCOL_SCHEME\)/);
+  assert.match(main, /if \(!window\.isDestroyed\(\)\) \{/);
+  assert.match(main, /window\.show\(\)/);
   assert.doesNotMatch(main, /once\('ready-to-show'/);
 
   const html = await readFile(path.join(projectRoot, 'index.html'), 'utf8');
@@ -85,6 +134,8 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(release, /notarize\(\{\s*appPath,/);
   assert.match(release, /build-mac-update\.mjs/);
   assert.match(release, /不生成自动更新 ZIP/);
+
+  assert.deepEqual(packageJSON.build.protocols, [{ name: 'Reader URL', schemes: ['reader-local'], role: 'Viewer' }]);
 });
 
 test('sidebar collections keep their declared keyboard tree contract', async () => {
@@ -189,4 +240,6 @@ test('file imports use visible keyboard buttons without exposing desktop paths',
   assert.match(styles, /\.source-import:focus-visible/);
   assert.match(styles, /\.restore-file:focus-visible/);
   assert.doesNotMatch(preload, /showOpenDialog|readFile|filePath/);
+  assert.match(preload, /onAddURL\(callback\)/);
+  assert.match(preload, /ipcRenderer\.on\('reader:add-url'/);
 });

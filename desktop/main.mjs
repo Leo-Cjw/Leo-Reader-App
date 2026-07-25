@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { app, autoUpdater, BrowserWindow, dialog, Menu, net, powerMonitor, session, shell } from 'electron';
 import { createReaderServer } from '../src/server/server.mjs';
-import { DESKTOP_COMMANDS, isAllowedAppURL, isSafeExternalURL, resolveDesktopDataRoot } from './security.mjs';
+import { DESKTOP_COMMANDS, extractReaderDeepLink, isAllowedAppURL, isSafeExternalURL, parseReaderDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
 import { createDesktopBackgroundCoordinator } from './background-state.mjs';
 import { createUpdateController } from './updates.mjs';
 
@@ -17,6 +17,8 @@ let backgroundCoordinator = null;
 let updateController = null;
 let appOrigin = '';
 let shutdownStarted = false;
+let rendererReady = false;
+const pendingAddURLs = [];
 
 async function closeReader() {
   backgroundCoordinator?.stop();
@@ -31,6 +33,31 @@ async function closeReader() {
 function sendCommand(command) {
   if (!DESKTOP_COMMANDS.has(command) || !mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('reader:command', command);
+}
+
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function flushPendingAddURLs() {
+  if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) return;
+  for (const url of pendingAddURLs.splice(0)) mainWindow.webContents.send('reader:add-url', url);
+}
+
+function queueAddURL(url) {
+  if (!pendingAddURLs.includes(url) && pendingAddURLs.length < 20) pendingAddURLs.push(url);
+  flushPendingAddURLs();
+}
+
+function handleDeepLink(candidate) {
+  const url = parseReaderDeepLink(candidate);
+  if (!url) return false;
+  queueAddURL(url);
+  focusMainWindow();
+  return true;
 }
 
 function installMenu() {
@@ -128,6 +155,7 @@ function configureNavigation(window) {
 }
 
 async function createWindow() {
+  rendererReady = false;
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -151,13 +179,21 @@ async function createWindow() {
   mainWindow = window;
   configureNavigation(window);
   window.on('closed', () => {
-    if (mainWindow === window) mainWindow = null;
+    if (mainWindow === window) {
+      mainWindow = null;
+      rendererReady = false;
+    }
   });
   await window.loadURL(`${appOrigin}/?desktop=1`);
-  if (!window.isDestroyed()) window.show();
+  if (!window.isDestroyed()) {
+    rendererReady = true;
+    flushPendingAddURLs();
+    window.show();
+  }
 }
 
 async function startReader() {
+  if (app.isPackaged) app.setAsDefaultProtocolClient(READER_PROTOCOL_SCHEME);
   const dataRoot = resolveDesktopDataRoot(app.getPath('userData'), process.env.READER_DESKTOP_DATA_ROOT || '');
   readerServer = await createReaderServer({
     rootDir: dataRoot,
@@ -192,14 +228,22 @@ async function startReader() {
 }
 
 if (lockAcquired) {
-  app.on('second-instance', () => {
+  const initialAddURL = extractReaderDeepLink(process.argv);
+  if (initialAddURL) queueAddURL(initialAddURL);
+
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    handleDeepLink(url);
+  });
+
+  app.on('second-instance', (_event, commandLine) => {
+    const addURL = extractReaderDeepLink(commandLine);
+    if (addURL) queueAddURL(addURL);
     if (!mainWindow) {
-      void createWindow();
+      if (appOrigin) void createWindow();
       return;
     }
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+    focusMainWindow();
   });
 
   app.whenReady().then(startReader).catch((error) => {

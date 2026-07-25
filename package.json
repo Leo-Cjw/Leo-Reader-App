@@ -1,6 +1,6 @@
 {
   "name": "reader-local-first",
-  "version": "0.34.0",
+  "version": "0.35.0",
   "description": "A private, local-first reading and knowledge workspace for macOS.",
   "author": "Reader",
   "private": true,
@@ -63,6 +63,15 @@
     "directories": {
       "output": "release"
     },
+    "protocols": [
+      {
+        "name": "Reader URL",
+        "schemes": [
+          "reader-local"
+        ],
+        "role": "Viewer"
+      }
+    ],
     "afterPack": "scripts/after-pack.cjs",
     "mac": {
       "icon": "build/Reader.icns",

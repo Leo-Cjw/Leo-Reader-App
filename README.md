@@ -1,14 +1,14 @@
-# Reader for Mac 0.34.0
+# Reader for Mac 0.35.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
-当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
+当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、安全的 `reader-local://` 外部保存入口、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
 
 ## 快速开始
 
 ### Mac App
 
-打开 `Reader-0.34.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.35.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -61,6 +61,7 @@ npm run desktop:pack
 ## 已实现能力
 
 - URL 导入：先写入持久化任务队列，再在一次性权限受限解析进程中用 Mozilla Readability 抽取标题、作者、摘要和正文，转换为 GFM Markdown；代表图片和最多 16 张正文图片通过安全下载、文件签名检查与哈希去重后保存在本机。
+- 外部保存入口：打包 App 注册 `reader-local://add?url=<编码后的网页地址>`。浏览器、快捷指令或未来 Share Extension 唤起 Reader 时，只把一个经过协议、动作、参数、长度和凭据检查的 HTTP(S) 地址预填到现有添加窗口；冷启动和运行中第二次唤起均受支持，用户确认前不会创建任务、联网或写入资料库。
 - 网络采集：每次请求和重定向都拒绝本机、局域网及云元数据地址；实际 TCP 连接固定到已验证的公网 IP，同时保留原域名进行 Host/TLS 校验，避免 DNS rebinding 绕过。
 - 微信公众号：使用专用解析器识别账号、作者、标题、正文与延迟加载图片；微信验证页不会入库。旧版本误存的验证页会自动恢复原链接，重新导入时保留历史版本并原地修复。
 - 离线完整度：阅读页明确显示离线完整、部分离线或仅正文离线；下载失败的图片降级为可点击在线链接，不会在阅读时静默发起远程图片请求。
@@ -202,4 +203,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.34.0 变更见 [docs/RELEASE_NOTES_0.34.0.md](docs/RELEASE_NOTES_0.34.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.35.0 变更见 [docs/RELEASE_NOTES_0.35.0.md](docs/RELEASE_NOTES_0.35.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

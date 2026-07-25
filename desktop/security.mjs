@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+export const READER_PROTOCOL_SCHEME = 'reader-local';
+
 export const DESKTOP_COMMANDS = new Set([
   'new',
   'search',
@@ -24,6 +26,39 @@ export function isSafeExternalURL(candidate) {
   } catch {
     return false;
   }
+}
+
+export function parseReaderDeepLink(candidate) {
+  if (typeof candidate !== 'string' || candidate.length > 8192) return null;
+  try {
+    const deepLink = new URL(candidate);
+    if (deepLink.protocol !== `${READER_PROTOCOL_SCHEME}:`
+      || deepLink.hostname !== 'add'
+      || (deepLink.pathname !== '' && deepLink.pathname !== '/')
+      || deepLink.username
+      || deepLink.password
+      || deepLink.port
+      || deepLink.hash
+      || [...deepLink.searchParams.keys()].some((key) => key !== 'url')) return null;
+    const values = deepLink.searchParams.getAll('url');
+    if (values.length !== 1) return null;
+    const targetValue = values[0].trim();
+    if (!targetValue || targetValue.length > 2048) return null;
+    const target = new URL(targetValue);
+    if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password) return null;
+    return target.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function extractReaderDeepLink(argv) {
+  if (!Array.isArray(argv)) return null;
+  for (const candidate of argv) {
+    const target = parseReaderDeepLink(candidate);
+    if (target) return target;
+  }
+  return null;
 }
 
 export function resolveDesktopDataRoot(userDataPath, override = '') {

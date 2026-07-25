@@ -69,7 +69,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.sourceSyncPauseReasons, ['offline', 'low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.34.0');
+  assert.equal(APP_VERSION, '0.35.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -225,6 +225,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(archivedDuplicate.archived, true);
   assert.equal(archivedDuplicate.metadata.mergedInto, duplicateA.body.article.id);
 
+  await app.setBackgroundWorkState({ online: false });
   const source = await app.database.createSource({ kind: 'rss', title: 'Reader 测试订阅', url: 'https://example.com/feed.xml', syncIntervalMinutes: 60 });
   await app.database.updateSource(source.id, { next_fetch_at: '2099-01-01T00:00:00.000Z', last_status: 'ok' });
   const sources = await json(`${base}/api/sources`);
@@ -242,6 +243,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   const sourceDelete = await json(`${base}/api/sources/${source.id}`, { method: 'DELETE' });
   assert.equal(sourceDelete.body.deleted, true);
   assert.equal((await json(`${base}/api/sources`)).body.sources.length, 0);
+  await app.setBackgroundWorkState({ online: true });
 
   const backup = await json(`${base}/api/backups`, { method: 'POST' });
   assert.equal(backup.response.status, 201);

@@ -23,6 +23,7 @@ declare global {
     readerDesktop?: {
       platform: string;
       onCommand(callback: (command: DesktopCommand) => void): () => void;
+      onAddURL(callback: (url: string) => void): () => void;
     };
   }
 }
@@ -1077,10 +1078,15 @@ function EditorModal({ article, onClose, onSave, onUploadImage, notify }: { arti
   </section></div>;
 }
 
-function AddModal({ collections, onClose, onCreated, onQueued, onImported, notify, onSourceCreated, onOpenConnectors }: { collections: Collection[]; onClose: () => void; onCreated: (article: Article) => void; onQueued: (job: ImportJob) => void; onImported: () => Promise<void>; notify: (message: string, tone?: Toast['tone']) => void; onSourceCreated: (source: Source) => void; onOpenConnectors: () => void }) {
+function AddModal({ collections, initialURL = '', onClose, onCreated, onQueued, onImported, notify, onSourceCreated, onOpenConnectors }: { collections: Collection[]; initialURL?: string; onClose: () => void; onCreated: (article: Article) => void; onQueued: (job: ImportJob) => void; onImported: () => Promise<void>; notify: (message: string, tone?: Toast['tone']) => void; onSourceCreated: (source: Source) => void; onOpenConnectors: () => void }) {
   const [tab, setTab] = useState<'url' | 'attachment' | 'markdown' | 'feed' | 'package'>('url');
-  const [url, setURL] = useState(''); const [title, setTitle] = useState(''); const [content, setContent] = useState(''); const [file, setFile] = useState<File | null>(null); const [packageFile, setPackageFile] = useState<File | null>(null); const [packagePreview, setPackagePreview] = useState<PortableImportPreview | null>(null); const [packageSelection, setPackageSelection] = useState<Set<string>>(new Set()); const [collection, setCollection] = useState('inbox'); const [busy, setBusy] = useState(false);
+  const [url, setURL] = useState(initialURL); const [title, setTitle] = useState(''); const [content, setContent] = useState(''); const [file, setFile] = useState<File | null>(null); const [packageFile, setPackageFile] = useState<File | null>(null); const [packagePreview, setPackagePreview] = useState<PortableImportPreview | null>(null); const [packageSelection, setPackageSelection] = useState<Set<string>>(new Set()); const [collection, setCollection] = useState('inbox'); const [busy, setBusy] = useState(false);
   const [sourceKind, setSourceKind] = useState<Source['kind']>('rss'); const [sourceInterval, setSourceInterval] = useState(60);
+  useEffect(() => {
+    if (!initialURL) return;
+    setTab('url');
+    setURL(initialURL);
+  }, [initialURL]);
   const isWeChatURL = /^https?:\/\/mp\.weixin\.qq\.com\//i.test(url.trim());
   const close = async () => {
     if (packagePreview) await api.cancelMarkdownImport(packagePreview.id).catch(() => {});
@@ -1127,7 +1133,7 @@ function AddModal({ collections, onClose, onCreated, onQueued, onImported, notif
     <header><div><span className="eyebrow">本地采集</span><h2>添加到 Reader</h2></div><button className="icon-button" type="button" aria-label="关闭添加窗口" disabled={busy} onClick={() => void close()}>×</button></header>
     <div className="modal-tabs" role="group" aria-label="添加内容类型">{([['url','网页 URL'],['attachment','附件'],['markdown','Markdown'],['package','Reader ZIP'],['feed','自动订阅']] as const).map(([value,label]) => <button type="button" key={value} aria-pressed={tab === value} className={tab === value ? 'active' : ''} disabled={busy} onClick={() => void changeTab(value)}>{label}</button>)}</div>
     <div className="modal-body">
-      {(tab === 'url' || tab === 'feed') && <label><span>{tab === 'feed' ? sourceKind === 'x' ? 'X 用户名或主页' : sourceKind === 'weibo' ? '微博数字 UID 或主页' : '订阅地址' : '网页地址'}</span><input autoFocus type={tab === 'feed' && (sourceKind === 'x' || sourceKind === 'weibo') ? 'text' : 'url'} value={url} onChange={(event) => setURL(event.target.value)} placeholder={tab === 'feed' ? sourceKind === 'youtube' ? 'https://www.youtube.com/@channel' : sourceKind === 'x' ? '@XDevelopers' : sourceKind === 'weibo' ? '例如：1234567890' : 'https://example.com/feed.xml' : 'https://example.com/article'}/></label>}
+      {(tab === 'url' || tab === 'feed') && <label><span>{tab === 'feed' ? sourceKind === 'x' ? 'X 用户名或主页' : sourceKind === 'weibo' ? '微博数字 UID 或主页' : '订阅地址' : '网页地址'}</span><input autoFocus aria-label={tab === 'url' ? '网页地址' : undefined} type={tab === 'feed' && (sourceKind === 'x' || sourceKind === 'weibo') ? 'text' : 'url'} value={url} onChange={(event) => setURL(event.target.value)} placeholder={tab === 'feed' ? sourceKind === 'youtube' ? 'https://www.youtube.com/@channel' : sourceKind === 'x' ? '@XDevelopers' : sourceKind === 'weibo' ? '例如：1234567890' : 'https://example.com/feed.xml' : 'https://example.com/article'}/></label>}
       {tab === 'attachment' && <FilePickerButton className="file-drop" ariaLabel={file ? `更换附件，当前为 ${file.name}` : '选择 PDF、图片、视频或文本'} accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.mp4,.mov,.m4v,.webm,.txt,.md,.markdown" onFiles={(files) => setFile(files[0] || null)}><span className="file-drop-icon">＋</span><strong>{file ? file.name : '选择 PDF、图片、视频或文本'}</strong><small>{file ? `${formatBytes(file.size)} · ${file.type || '未知类型'}` : '单个文件最大 100 MB，原文件和内容都只保存在本机。'}</small></FilePickerButton>}
       {tab === 'package' && !packagePreview && <><FilePickerButton className="file-drop" ariaLabel={packageFile ? `更换 Reader Markdown ZIP，当前为 ${packageFile.name}` : '选择 Reader Markdown ZIP'} accept=".zip,application/zip" onFiles={(files) => setPackageFile(files[0] || null)}><span className="file-drop-icon">↥</span><strong>{packageFile ? packageFile.name : '选择 Reader Markdown ZIP'}</strong><small>{packageFile ? `${formatBytes(packageFile.size)} · 等待安全检查` : '只接受 Reader 导出的 ZIP，最大 2 GB；预览前不会写入资料库。'}</small></FilePickerButton><div className="privacy-note"><strong>导入与完整恢复严格分离</strong><span>Reader 会拒绝越界路径、未知文件、超限内容和附件哈希不符；检查通过后仍需逐篇确认，已有 ID 或原链接默认跳过。</span></div></>}
       {tab === 'package' && packagePreview && <div className="portable-import-review">
@@ -1484,6 +1490,7 @@ export function App() {
   const [loading, setLoading] = useState(true); const [aiOpen, setAIOpen] = useState(true); const [addOpen, setAddOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [historyOpen, setHistoryOpen] = useState(false); const [sourcesOpen, setSourcesOpen] = useState(false); const [collectionsOpen, setCollectionsOpen] = useState(false); const [smartCollectionsOpen, setSmartCollectionsOpen] = useState(false); const [queueOpen, setQueueOpen] = useState(false); const [safetyOpen, setSafetyOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [connectorSettingsOpen, setConnectorSettingsOpen] = useState(false); const [exportOpen, setExportOpen] = useState(false); const [composeOpen, setComposeOpen] = useState(false); const [duplicatesOpen, setDuplicatesOpen] = useState(false); const [focusedCitation, setFocusedCitation] = useState<RAGCitation | null>(null); const [busySource, setBusySource] = useState<string | null>(null); const [busyCollection, setBusyCollection] = useState(false); const [busySmartCollection, setBusySmartCollection] = useState(false); const [busyHistory, setBusyHistory] = useState(false); const [busySafety, setBusySafety] = useState(false); const [busyImportQueue, setBusyImportQueue] = useState(false); const [busyExport, setBusyExport] = useState(false); const [busyCompose, setBusyCompose] = useState(false); const [busyDuplicates, setBusyDuplicates] = useState(false); const [aiConfigurationVersion, setAIConfigurationVersion] = useState(0);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false); const [busyDiagnostics, setBusyDiagnostics] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('reader-theme') || 'light'); const [libraryLayout, setLibraryLayout] = useState<LibraryLayout>(() => localStorage.getItem('reader-library-layout') === 'gallery' ? 'gallery' : 'list'); const [toast, setToast] = useState<Toast | null>(null);
+  const [externalAddURLs, setExternalAddURLs] = useState<string[]>([]);
   const jobStates = useRef(new Map<string, ImportJob['status']>());
   const articleRequestId = useRef(0);
   const articleDetailRequestId = useRef(0);
@@ -1491,6 +1498,12 @@ export function App() {
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), 2600); return () => window.clearTimeout(timer); }, [toast]);
   useEffect(() => { localStorage.setItem('reader-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('reader-library-layout', libraryLayout); }, [libraryLayout]);
+  useEffect(() => window.readerDesktop?.onAddURL((url) => {
+    setExternalAddURLs((current) => current.includes(url) || current.length >= 20 ? current : [...current, url]);
+  }), []);
+  useEffect(() => {
+    if (externalAddURLs.length) setAddOpen(true);
+  }, [externalAddURLs]);
 
   const articleFilters = useMemo(() => ({
     types: contentFilter === 'articles' ? ['article'] : contentFilter === 'feeds' ? ['rss', 'youtube', 'x', 'weibo'] : contentFilter === 'attachments' ? ['pdf', 'image', 'video', 'attachment'] : contentFilter === 'notes' ? ['markdown'] : undefined,
@@ -1763,6 +1776,10 @@ export function App() {
   const deleteSource = async (source: Source) => { if (!window.confirm(`删除订阅“${source.title}”？已保存的文章会保留。`)) return; setBusySource(source.id); try { await api.deleteSource(source.id); setSources((current) => current.filter((item) => item.id !== source.id)); notify('订阅已删除，已保存文章仍在本机'); } catch (error) { notify(error instanceof Error ? error.message : '订阅删除失败', 'error'); } finally { setBusySource(null); } };
   const importOPML = async (file: File) => { setBusySource('opml'); try { const result = await api.importOPML(file); setSources(result.sources); notify(`OPML 导入完成：新增 ${result.imported}，跳过 ${result.duplicates}${result.failed ? `，失败 ${result.failed}` : ''}`); } catch (error) { notify(error instanceof Error ? error.message : 'OPML 导入失败', 'error'); } finally { setBusySource(null); } };
   const activeJobCount = jobs.filter((job) => job.status === 'pending' || job.status === 'running').length;
+  const closeAddModal = () => {
+    setAddOpen(false);
+    setExternalAddURLs((current) => current.length ? current.slice(1) : current);
+  };
   useEffect(() => {
     return window.readerDesktop?.onCommand((command) => {
       if (command === 'new') setAddOpen(true);
@@ -1789,7 +1806,7 @@ export function App() {
         {aiOpen && <AIPanel article={currentArticle} onClose={() => setAIOpen(false)} onArticleUpdated={updateArticleInState} onDerivedCreated={showDerivedArticle} onOpenCitation={(citation) => void openCitation(citation)} configurationVersion={aiConfigurationVersion} notify={notify}/>}
       </div>
     </div>
-    {addOpen && <AddModal collections={collections} onClose={() => setAddOpen(false)} onCreated={created} onQueued={queued} onImported={async () => { await Promise.all([refreshArticles(), refreshChrome()]); }} notify={notify} onSourceCreated={(source) => { setSources((current) => [...current, source]); void refreshChrome(); }} onOpenConnectors={() => { setAddOpen(false); setConnectorSettingsOpen(true); }}/>}
+    {addOpen && <AddModal collections={collections} initialURL={externalAddURLs[0]} onClose={closeAddModal} onCreated={created} onQueued={queued} onImported={async () => { await Promise.all([refreshArticles(), refreshChrome()]); }} notify={notify} onSourceCreated={(source) => { setSources((current) => [...current, source]); void refreshChrome(); }} onOpenConnectors={() => { closeAddModal(); setConnectorSettingsOpen(true); }}/>}
     {editOpen && selected && <EditorModal article={selected} onClose={() => setEditOpen(false)} onSave={saveEditor} onUploadImage={uploadEditorImage} notify={notify}/>}
     {historyOpen && selected && <VersionHistoryModal article={selected} revisions={revisions} preview={revisionPreview} busy={busyHistory} onClose={() => setHistoryOpen(false)} onSelect={(version) => void selectRevision(version)} onRestore={(version) => void restoreRevision(version)}/>}
     {sourcesOpen && <SourcesModal sources={sources} background={backgroundWork} onClose={() => setSourcesOpen(false)} onSync={(source) => void syncSource(source)} onUpdate={(source, patch) => void updateSource(source, patch)} onDelete={(source) => void deleteSource(source)} onImport={(file) => void importOPML(file)} onConnections={() => { setSourcesOpen(false); setConnectorSettingsOpen(true); }} busySource={busySource}/>}
