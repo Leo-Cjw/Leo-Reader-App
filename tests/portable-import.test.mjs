@@ -6,7 +6,7 @@ import { PassThrough } from 'node:stream';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { ReaderDatabase } from '../src/server/db.mjs';
 import { cleanupPortableImports, validatePortableEntryPath } from '../src/server/portable-import.mjs';
 import { createReaderServer } from '../src/server/server.mjs';
@@ -22,7 +22,7 @@ async function zipBuffer(entries) {
   const chunks = [];
   output.on('data', (chunk) => chunks.push(chunk));
   const ended = once(output, 'end');
-  const archive = archiver('zip', { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
   archive.pipe(output);
   for (const [name, content] of entries) archive.append(content, { name });
   await archive.finalize();

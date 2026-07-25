@@ -126,6 +126,25 @@ test('screen reader state mirrors visual selection and article metadata', async 
   assert.match(app, /backgroundWork\.importsPaused \? `\$\{activeJobCount\} 个导入任务已暂停`/);
 });
 
+test('named panes announce asynchronous reading state and honor reduced motion', async () => {
+  const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
+  const styles = await readFile(path.join(projectRoot, 'src', 'web', 'styles.css'), 'utf8');
+
+  assert.match(app, /className="sidebar" aria-label="产品导航"/);
+  assert.match(app, /className="ai-panel" aria-label="AI 文章助手"/);
+  assert.match(app, /aria-labelledby="library-pane-title" aria-busy=\{loading \|\| loadingMore\}/);
+  assert.match(app, /<h1 id="library-pane-title">/);
+  assert.match(app, /const currentArticle = selected\?\.id === selectedId \? selected : null/);
+  assert.match(app, /已载入文章：\$\{currentArticle\.title\}/);
+  assert.match(app, /aria-busy=\{Boolean\(loadingTitle\)\}/);
+  assert.match(app, /aria-label=\{`阅读器：\$\{article\.title\}`\}/);
+  assert.match(app, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/);
+  assert.equal((app.match(/behavior: preferredScrollBehavior\(\)/g) || []).length, 2);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(styles, /animation-duration: \.01ms !important/);
+  assert.match(styles, /transition-duration: \.01ms !important/);
+});
+
 test('editor and highlights keep their declared keyboard and announcement contract', async () => {
   const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
   const styles = await readFile(path.join(projectRoot, 'src', 'web', 'styles.css'), 'utf8');

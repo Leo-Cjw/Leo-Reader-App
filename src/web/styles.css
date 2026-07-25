@@ -672,3 +672,12 @@ button, select { cursor: pointer; }
   .ai-panel { position: absolute; z-index: 12; top: 46px; right: 0; bottom: 0; width: 320px; box-shadow: -18px 0 40px rgba(0,0,0,.16); }
   .titlebar { grid-template-columns: 150px minmax(110px,1fr) 400px; }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

@@ -5,7 +5,7 @@ import { access, chmod, cp, mkdir, mkdtemp, open, readFile, readdir, rename, rm,
 import { once } from 'node:events';
 import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import yauzl from 'yauzl';
 import { SCHEMA_VERSION } from './schema.mjs';
 import { ReaderDatabase, sqlValue } from './db.mjs';
@@ -148,7 +148,7 @@ async function hasEncryptedMagic(filePath) {
 
 async function writeZip({ snapshot, manifestPath, stagedFiles, archivePath }) {
   const output = createWriteStream(archivePath, { flags: 'wx', mode: 0o600 });
-  const archive = archiver('zip', { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
   archive.on('warning', (error) => { if (error.code !== 'ENOENT') output.destroy(error); });
   archive.on('error', (error) => output.destroy(error));
   archive.pipe(output);

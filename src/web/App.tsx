@@ -242,6 +242,10 @@ function TrafficLights() {
   return <div className="traffic-lights" aria-hidden="true"><i></i><i></i><i></i></div>;
 }
 
+function preferredScrollBehavior(): ScrollBehavior {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+}
+
 const dialogFocusableSelector = [
   'a[href]', 'button:not([disabled])', 'input:not([disabled]):not([type="hidden"])',
   'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])'
@@ -389,7 +393,7 @@ function Sidebar({ view, setView, collectionId, setCollectionId, smartCollection
     event.stopPropagation();
     if (targetId) focusCollection(targetId);
   };
-  return <aside className="sidebar" data-screen-label="产品导航">
+  return <aside className="sidebar" aria-label="产品导航">
     <div className="brand-row"><div className="brand"><span className="brand-mark">R</span><strong>Reader</strong></div><button className="icon-button" type="button" aria-label="添加内容" onClick={onAdd}>＋</button></div>
     <nav className="nav-stack" aria-label="资料库">
       {items.map((item) => <button key={item.view} type="button" aria-current={view === item.view && !collectionId && !smartCollectionId && !tagFilter ? 'page' : undefined} className={`nav-item ${view === item.view && !collectionId && !smartCollectionId && !tagFilter ? 'active' : ''}`} onClick={() => { setView(item.view); setCollectionId(null); setSmartCollectionId(null); setTagFilter(''); }}>
@@ -449,8 +453,8 @@ function ArticleList({ articles, total, hasMore, loadingMore, onLoadMore, select
     onBatch({ tags_add: [tag] }, `已为 ${selectedIds.size} 条内容添加标签`);
     setBatchTag('');
   };
-  return <section className="library-pane" data-screen-label="内容队列">
-    <header className="library-header"><div><h1>{title}</h1><p>{loading ? '正在读取本地资料库…' : selectedIds.size ? `已选择 ${selectedIds.size} / 已加载 ${articles.length} 条` : hasMore ? `已加载 ${articles.length} / 共 ${total} 条` : `${total} 条内容`}</p></div><div className="library-header-actions"><button className="icon-button" type="button" aria-label={selectedIds.size ? '取消选择' : '选择已加载内容'} onClick={selectedIds.size ? onClearSelection : onSelectAll}>{selectedIds.size ? '×' : '✓'}</button><button className="icon-button" type="button" aria-label={layout === 'list' ? '切换到画廊视图' : '切换到列表视图'} onClick={() => setLayout(layout === 'list' ? 'gallery' : 'list')}>{layout === 'list' ? '▦' : '☷'}</button></div></header>
+  return <section className="library-pane" aria-labelledby="library-pane-title" aria-busy={loading || loadingMore}>
+    <header className="library-header"><div><h1 id="library-pane-title">{title}</h1><p role="status" aria-live="polite" aria-atomic="true">{loading ? '正在读取本地资料库…' : selectedIds.size ? `已选择 ${selectedIds.size} / 已加载 ${articles.length} 条` : hasMore ? `已加载 ${articles.length} / 共 ${total} 条` : `${total} 条内容`}</p></div><div className="library-header-actions"><button className="icon-button" type="button" aria-label={selectedIds.size ? '取消选择' : '选择已加载内容'} onClick={selectedIds.size ? onClearSelection : onSelectAll}>{selectedIds.size ? '×' : '✓'}</button><button className="icon-button" type="button" aria-label={layout === 'list' ? '切换到画廊视图' : '切换到列表视图'} onClick={() => setLayout(layout === 'list' ? 'gallery' : 'list')}>{layout === 'list' ? '▦' : '☷'}</button></div></header>
     <div className="search-box"><span>⌕</span><input aria-label="搜索资料库" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索全文、标题或作者"/><kbd>⌘K</kbd></div>
     <div className="library-filters" role="group" aria-label="内容类型">{filters.map((filter) => <button type="button" key={filter.value} aria-pressed={contentFilter === filter.value} className={contentFilter === filter.value ? 'active' : ''} onClick={() => { setContentFilter(filter.value); if (filter.value === 'media') setLayout('gallery'); }}>{filter.label}</button>)}</div>
     <div className={`article-list ${layout === 'gallery' ? 'gallery' : ''}`}>
@@ -478,8 +482,8 @@ function ArticleList({ articles, total, hasMore, loadingMore, onLoadMore, select
   </section>;
 }
 
-function ReaderPane({ article, collections, focusedCitation, onDismissCitation, onPatch, onAddTags, onRemoveTags, onToggleAI, onEdit, onHistory, onOpenSource, notify }: {
-  article: Article | null; collections: Collection[]; focusedCitation: RAGCitation | null; onDismissCitation: () => void; onPatch: (patch: Partial<Article>) => Promise<void>; onAddTags: (tags: string[]) => Promise<void>; onRemoveTags: (tags: string[]) => Promise<void>; onToggleAI: () => void; onEdit: () => void; onHistory: () => void; onOpenSource: (id: string) => void; notify: (message: string, tone?: Toast['tone']) => void;
+function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDismissCitation, onPatch, onAddTags, onRemoveTags, onToggleAI, onEdit, onHistory, onOpenSource, notify }: {
+  article: Article | null; loadingTitle?: string; collections: Collection[]; focusedCitation: RAGCitation | null; onDismissCitation: () => void; onPatch: (patch: Partial<Article>) => Promise<void>; onAddTags: (tags: string[]) => Promise<void>; onRemoveTags: (tags: string[]) => Promise<void>; onToggleAI: () => void; onEdit: () => void; onHistory: () => void; onOpenSource: (id: string) => void; notify: (message: string, tone?: Toast['tone']) => void;
 }) {
   const progressTimer = useRef<number | undefined>(undefined);
   const articleBodyRef = useRef<HTMLDivElement>(null);
@@ -710,7 +714,7 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
       return;
     }
     const target = range.startContainer.parentElement;
-    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target?.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'center' });
     const registry = highlightRegistry();
     const HighlightClass = nativeHighlightConstructor();
     if (registry && HighlightClass) {
@@ -721,10 +725,10 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
     setHighlightAnnouncement(`已定位高亮 ${index + 1}：${highlight.quote.slice(0, 80)}`);
   };
   const focusAnnotations = () => {
-    annotationsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    annotationsRef.current?.scrollIntoView({ behavior: preferredScrollBehavior(), block: 'start' });
     window.requestAnimationFrame(() => annotationsRef.current?.focus({ preventScroll: true }));
   };
-  if (!article) return <main className="reader-pane empty-reader"><div><strong>选择一篇内容开始阅读</strong><span>阅读进度、收藏和批注都会保存在本地。</span></div></main>;
+  if (!article) return <main className="reader-pane empty-reader" aria-label="阅读器" aria-busy={Boolean(loadingTitle)}><div><strong>{loadingTitle ? `正在载入“${loadingTitle}”` : '选择一篇内容开始阅读'}</strong><span>{loadingTitle ? '正文从本地资料库读取，完成后会自动显示。' : '阅读进度、收藏和批注都会保存在本地。'}</span></div></main>;
   const embeddedIds = new Set(Array.isArray(article.metadata?.embeddedAttachmentIds) ? article.metadata.embeddedAttachmentIds.filter((id): id is string => typeof id === 'string') : []);
   for (const attachment of article.attachments || []) if (article.content.includes(attachment.url) || (attachment.thumbnail_url && article.content.includes(attachment.thumbnail_url))) embeddedIds.add(attachment.id);
   const leadAttachmentId = typeof article.metadata?.leadAttachmentId === 'string' ? article.metadata.leadAttachmentId : '';
@@ -739,7 +743,7 @@ function ReaderPane({ article, collections, focusedCitation, onDismissCitation, 
     await onAddTags([tag]);
     setTagInput('');
   };
-  return <main className="reader-pane" data-screen-label="阅读器">
+  return <main className="reader-pane" aria-label={`阅读器：${article.title}`}>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{highlightAnnouncement}</span>
     <div className="reader-toolbar">
       <button className="icon-button" type="button" aria-label={article.is_favorite ? '取消收藏' : '收藏'} onClick={() => void onPatch({ is_favorite: !article.is_favorite })}>{article.is_favorite ? '★' : '☆'}</button>
@@ -841,7 +845,7 @@ function AIPanel({ article, onClose, onArticleUpdated, onDerivedCreated, onOpenC
     finally { setBusy(false); }
   };
   const visibleSummary = summary?.summary || article.summary;
-  return <aside className="ai-panel" data-screen-label="AI 文章助手">
+  return <aside className="ai-panel" aria-label="AI 文章助手">
     <header><div className="ai-title"><span>✦</span><strong>文章助手</strong></div><button className="icon-button" aria-label="关闭文章助手" type="button" onClick={onClose}>×</button></header>
     <div className="ai-tabs" role="group" aria-label="文章助手功能"><button type="button" aria-pressed={tab === 'summary'} className={tab === 'summary' ? 'active' : ''} onClick={() => setTab('summary')}>摘要</button><button type="button" aria-pressed={tab === 'chat'} className={tab === 'chat' ? 'active' : ''} onClick={() => setTab('chat')}>对话</button><button type="button" aria-pressed={tab === 'translate'} className={tab === 'translate' ? 'active' : ''} onClick={() => setTab('translate')}>翻译</button></div>
     <div className="ai-content">
@@ -1573,6 +1577,11 @@ export function App() {
   }, []);
 
   const selectedArticles = useMemo(() => articles.filter((article) => selectedIds.has(article.id)), [articles, selectedIds]);
+  const selectedSummary = selectedId ? articles.find((article) => article.id === selectedId) : undefined;
+  const currentArticle = selected?.id === selectedId ? selected : null;
+  const detailAnnouncement = selectedId
+    ? currentArticle ? `已载入文章：${currentArticle.title}` : `正在载入文章：${selectedSummary?.title || '当前内容'}`
+    : '未选择文章';
   const title = smartCollectionId ? smartCollections.find((item) => item.id === smartCollectionId)?.name || '智能资料夹' : tagFilter ? `# ${tagFilter}` : collectionId ? collections.find((item) => item.id === collectionId)?.name || '资料夹' : viewLabels[view];
 
   const updateArticleInState = useCallback((article: Article) => {
@@ -1770,13 +1779,14 @@ export function App() {
 
   return <div className="app-stage" data-theme={theme} data-desktop={isDesktop ? 'true' : 'false'}>
     <DialogAccessibilityManager/>
+    <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{detailAnnouncement}</span>
     <div className="app-window">
       <header className="titlebar"><TrafficLights/><div className="save-state"><i></i><span>{activeJobCount ? backgroundWork.importsPaused ? `${activeJobCount} 个导入任务已暂停` : `${activeJobCount} 个导入任务处理中` : '本地资料库已保存'}</span></div><div className="title-actions"><button className="button queue-button" type="button" onClick={() => setQueueOpen(true)}>导入队列{activeJobCount ? <b>{activeJobCount}</b> : null}</button><button className="button" type="button" onClick={() => setSettingsOpen(true)}>设置</button><button className="button" type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '深色' : '浅色'}</button><button className="button primary" type="button" onClick={() => setAddOpen(true)}>＋ 添加 <kbd>⌘N</kbd></button></div></header>
       <div className={`workspace ${aiOpen ? 'with-ai' : ''}`}>
         <Sidebar view={view} setView={setView} collectionId={collectionId} setCollectionId={setCollectionId} smartCollectionId={smartCollectionId} setSmartCollectionId={setSmartCollectionId} collections={collections} smartCollections={smartCollections} tags={tags} tagFilter={tagFilter} setTagFilter={setTagFilter} stats={stats} sources={sources} onAdd={() => setAddOpen(true)} onSources={() => setSourcesOpen(true)} onCollections={() => setCollectionsOpen(true)} onSmartCollections={() => setSmartCollectionsOpen(true)} onDuplicates={openDuplicates} onDataSafety={() => void openSafety()} onMoveArticles={(ids, targetCollectionId) => void moveDraggedArticles(ids, targetCollectionId)}/>
         <ArticleList articles={articles} total={articleTotal} hasMore={Boolean(articleCursor)} loadingMore={loadingMore} onLoadMore={() => void loadMoreArticles()} selectedId={selectedId} onSelect={selectArticle} loading={loading} title={title} query={query} setQuery={setQuery} contentFilter={contentFilter} setContentFilter={setContentFilter} layout={libraryLayout} setLayout={setLibraryLayout} selectedIds={selectedIds} onToggleSelection={toggleSelection} onSelectAll={selectAll} onClearSelection={() => setSelectedIds(new Set())} onBatch={(patch, message) => void batchOrganize(patch, message)} onExport={() => setExportOpen(true)} onCompose={() => setComposeOpen(true)} collections={collections} tags={tags} archiveView={view === 'archive'}/>
-        <ReaderPane article={selected} collections={collections} focusedCitation={focusedCitation} onDismissCitation={() => setFocusedCitation(null)} onPatch={patchSelected} onAddTags={addTags} onRemoveTags={removeTags} onToggleAI={() => setAIOpen((value) => !value)} onEdit={() => setEditOpen(true)} onHistory={() => void openHistory()} onOpenSource={(id) => void openSourceArticle(id)} notify={notify}/>
-        {aiOpen && <AIPanel article={selected} onClose={() => setAIOpen(false)} onArticleUpdated={updateArticleInState} onDerivedCreated={showDerivedArticle} onOpenCitation={(citation) => void openCitation(citation)} configurationVersion={aiConfigurationVersion} notify={notify}/>}
+        <ReaderPane article={currentArticle} loadingTitle={selectedId && !currentArticle ? selectedSummary?.title || '当前内容' : undefined} collections={collections} focusedCitation={focusedCitation} onDismissCitation={() => setFocusedCitation(null)} onPatch={patchSelected} onAddTags={addTags} onRemoveTags={removeTags} onToggleAI={() => setAIOpen((value) => !value)} onEdit={() => setEditOpen(true)} onHistory={() => void openHistory()} onOpenSource={(id) => void openSourceArticle(id)} notify={notify}/>
+        {aiOpen && <AIPanel article={currentArticle} onClose={() => setAIOpen(false)} onArticleUpdated={updateArticleInState} onDerivedCreated={showDerivedArticle} onOpenCitation={(citation) => void openCitation(citation)} configurationVersion={aiConfigurationVersion} notify={notify}/>}
       </div>
     </div>
     {addOpen && <AddModal collections={collections} onClose={() => setAddOpen(false)} onCreated={created} onQueued={queued} onImported={async () => { await Promise.all([refreshArticles(), refreshChrome()]); }} notify={notify} onSourceCreated={(source) => { setSources((current) => [...current, source]); void refreshChrome(); }} onOpenConnectors={() => { setAddOpen(false); setConnectorSettingsOpen(true); }}/>}

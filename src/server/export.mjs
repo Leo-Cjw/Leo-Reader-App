@@ -2,7 +2,7 @@ import path from 'node:path';
 import { access, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { once } from 'node:events';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { APP_VERSION } from './version.mjs';
 
 const MAX_EXPORT_ARTICLES = 500;
@@ -177,7 +177,7 @@ export async function prepareMarkdownExport({ database, filesDir, ids, includeAt
 }
 
 export async function streamMarkdownExport(response, prepared) {
-  const archive = archiver('zip', { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
   archive.on('warning', (error) => { if (error.code !== 'ENOENT') response.destroy(error); });
   archive.on('error', (error) => response.destroy(error));
   response.writeHead(200, {
