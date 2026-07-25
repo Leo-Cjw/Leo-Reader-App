@@ -1,6 +1,6 @@
 {
   "name": "reader-local-first",
-  "version": "0.41.0",
+  "version": "0.42.0",
   "description": "A private, local-first reading and knowledge workspace for macOS.",
   "author": "Reader",
   "private": true,
@@ -17,10 +17,11 @@
     "benchmark:rag": "node scripts/benchmark-rag.mjs",
     "icon:mac": "node scripts/build-mac-icon.mjs",
     "desktop": "npm run build && electron .",
-    "desktop:pack:x64": "npm run build && npm run icon:mac && npm run spotlight:mac && electron-builder --mac dir --x64",
+    "desktop:pack:x64": "npm run build && npm run icon:mac && npm run spotlight:mac && npm run share:mac && electron-builder --mac dir --x64",
     "desktop:pack": "node scripts/build-mac-release.mjs",
     "desktop:dmg": "node scripts/build-mac-dmg.mjs",
-    "spotlight:mac": "node scripts/build-spotlight-helper.mjs"
+    "spotlight:mac": "node scripts/build-spotlight-helper.mjs",
+    "share:mac": "node scripts/build-share-extension.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

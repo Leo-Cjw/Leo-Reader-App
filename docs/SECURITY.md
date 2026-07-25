@@ -111,6 +111,14 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 - 系统结果只生成 `reader-local://open?article=<id>`。Swift helper 与 Electron 主进程分别校验固定前缀、长度、控制字符和唯一参数，主进程还确认文章真实存在；无效结果不会打开窗口、网络或文件。
 - 关闭时 Reader 必须先确认专属 Spotlight domain 已删除，之后才保存关闭并清空 outbox。删除失败时设置保持开启并返回通用错误，避免把“已关闭”误报成“系统仍留有索引”。
 
+## macOS Share Extension
+
+- `.appex` 只声明严格匹配的单个网页 URL，不激活文本、文件、图片、视频或任意附件。输入经 `NSItemProvider` 取得后重新限制协议、host、长度、控制字符和凭据；异常值会取消扩展请求，不打开 Reader。
+- 扩展签名只包含 App Sandbox entitlement，不申请网络、用户文件、App Group、Keychain 或硬件能力，也不读取 Reader 数据目录。它唯一的跨进程输出是由 `URLComponents` 生成的 `reader-local://add?url=...`，继续受 Electron 主进程第二次语法校验。
+- 用户先在系统分享菜单明确选择“存入 Reader”；扩展只打开既有添加窗口并预填 URL，不调用本机 API、不做 DNS 或 HTTP 请求、不创建导入任务。只有用户在 Reader 内选择资料夹并点击“加入导入队列”后，服务端才执行权威 SSRF 校验并写入持久化队列。
+- Share Extension 不保存来源内容、失败载荷或共享历史，不写诊断日志。系统若没有启用该扩展，用户需从分享菜单的“编辑扩展”手动启用；Reader 不调用 `pluginkit` 修改用户的扩展偏好。
+- 正式签名流水线关闭 entitlement 自动补全，为主程序使用仅含 V8 JIT 的显式权限；产物回读要求主程序、Share Extension 与 Spotlight helper 分别精确等于 `allow-jit`、App Sandbox 和空集合，拒绝额外 App Group 或硬件能力。扩展在父 App 重签后再次验证，避免深度签名静默剥离。
+
 ## 应用更新
 
 - 只有打包后的 macOS App 且 `/usr/bin/codesign` 同时报告 `Developer ID Application` authority 与有效 Team Identifier 时，Reader 才设置更新 feed。开发模式、ad-hoc、Apple Development 或异常签名包不连接更新服务；这也保证当前本地交付不会静默获得未验证代码。
@@ -179,4 +187,4 @@ npm test
 npm run build
 ```
 
-0.41.0 的依赖审计、120 项自动测试、schema v11 outbox、helper 输入/输出/超时边界、双重深链校验、默认关闭/删除闭环和真实 Core Spotlight 写入查询删除记录在对应发行说明；0.40.0 的订阅通知独立 opt-in、自动/手动边界与批次脱敏，以及更早版本门禁继续有效。解析进程测试覆盖独立 PID、Node 权限、最小环境、V8 heap、并发/排队、随机响应边界、超时、崩溃、输入输出超限及故障后的继续工作；既有测试继续覆盖屏幕阅读器、文件选择器、键盘选区、更新签名、后台状态、摘要/详情边界、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.41.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon Gatekeeper、跨版本自动升级、正式签名包系统通知与 Spotlight 点击、恢复提示重载按钮人工点击、原生 AX 复验和启用 VoiceOver 的完整人工听读。
+0.42.0 的依赖审计、123 项自动测试、Share Extension Swift URL 自测、激活规则/最小 entitlement/Universal 打包门禁，以及真实 `pluginkit`、`NSSharingService` 和 Reader 预填不入库闭环记录在对应发行说明；0.41.0 的 schema v11 outbox、helper 输入/输出/超时边界、双重深链校验、默认关闭/删除闭环和真实 Core Spotlight 写入查询删除，以及更早版本门禁继续有效。解析进程测试覆盖独立 PID、Node 权限、最小环境、V8 heap、并发/排队、随机响应边界、超时、崩溃、输入输出超限及故障后的继续工作；既有测试继续覆盖屏幕阅读器、文件选择器、键盘选区、更新签名、后台状态、摘要/详情边界、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.42.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon Gatekeeper、跨版本自动升级、正式签名包系统通知、Spotlight 点击与 Share Extension、恢复提示重载按钮人工点击、原生 AX 复验和启用 VoiceOver 的完整人工听读。

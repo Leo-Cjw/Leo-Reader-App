@@ -1,14 +1,14 @@
-# Reader for Mac 0.41.0
+# Reader for Mac 0.42.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
-当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、默认关闭且可彻底删除的 macOS Spotlight 本机索引、安全的 `reader-local://` 外部保存入口、按文章去重的专注阅读窗口、渲染界面崩溃恢复、可选的隐私安全导入与订阅通知、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
+当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、可从系统分享菜单接收网页的沙箱化 Share Extension、默认关闭且可彻底删除的 macOS Spotlight 本机索引、安全的 `reader-local://` 外部保存入口、按文章去重的专注阅读窗口、渲染界面崩溃恢复、可选的隐私安全导入与订阅通知、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
 
 ## 快速开始
 
 ### Mac App
 
-打开 `Reader-0.41.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.42.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -44,7 +44,7 @@ Vite 开发界面位于 `http://127.0.0.1:4311`，并把 `/api` 代理到 4312 �
 npm run desktop:pack
 ```
 
-该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块与嵌套 Spotlight helper 架构，执行签名验证，再生成并校验 DMG。输出位于 `release/mac-universal/Reader.app` 与 `release/Reader-<version>-universal.dmg`。未提供正式发行凭据时保留 ad-hoc 模式，并主动删除同版本残留的更新 ZIP。
+该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块、嵌套 Spotlight helper 与 Share Extension 架构和 entitlement，执行签名验证，再生成并校验 DMG。输出位于 `release/mac-universal/Reader.app` 与 `release/Reader-<version>-universal.dmg`。未提供正式发行凭据时保留 ad-hoc 模式，并主动删除同版本残留的更新 ZIP。
 
 流水线已预留正式发行入口。先用 `xcrun notarytool store-credentials` 把公证凭据写入 Keychain，再提供证书名称和凭据配置名：
 
@@ -61,7 +61,8 @@ npm run desktop:pack
 ## 已实现能力
 
 - URL 导入：先写入持久化任务队列，再在一次性权限受限解析进程中用 Mozilla Readability 抽取标题、作者、摘要和正文，转换为 GFM Markdown；代表图片和最多 16 张正文图片通过安全下载、文件签名检查与哈希去重后保存在本机。
-- 外部保存入口：打包 App 注册 `reader-local://add?url=<编码后的网页地址>`。浏览器、快捷指令或未来 Share Extension 唤起 Reader 时，只把一个经过协议、动作、参数、长度和凭据检查的 HTTP(S) 地址预填到现有添加窗口；冷启动和运行中第二次唤起均受支持，用户确认前不会创建任务、联网或写入资料库。
+- 外部保存入口：打包 App 注册 `reader-local://add?url=<编码后的网页地址>`。浏览器、快捷指令或 Share Extension 唤起 Reader 时，只把一个经过协议、动作、参数、长度和凭据检查的 HTTP(S) 地址预填到现有添加窗口；冷启动和运行中第二次唤起均受支持，用户确认前不会创建任务、联网或写入资料库。
+- 系统分享扩展：安装后可从 Safari、浏览器及其他提供网页 URL 的 Mac App 选择“存入 Reader”。独立 Universal `.appex` 只声明单个网页 URL、运行于 App Sandbox，不联网、不读写文件、不访问资料库或共享容器；它把合格链接交给上述外部保存入口后立即结束，Reader 仍要求选择资料夹并点击“加入导入队列”。若系统分享菜单未显示，可在分享菜单的“编辑扩展”中启用“存入 Reader”。
 - 网络采集：每次请求和重定向都拒绝本机、局域网及云元数据地址；实际 TCP 连接固定到已验证的公网 IP，同时保留原域名进行 Host/TLS 校验，避免 DNS rebinding 绕过。
 - 微信公众号：使用专用解析器识别账号、作者、标题、正文与延迟加载图片；微信验证页不会入库。旧版本误存的验证页会自动恢复原链接，重新导入时保留历史版本并原地修复。
 - 离线完整度：阅读页明确显示离线完整、部分离线或仅正文离线；下载失败的图片降级为可点击在线链接，不会在阅读时静默发起远程图片请求。
@@ -209,4 +210,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.41.0 变更见 [docs/RELEASE_NOTES_0.41.0.md](docs/RELEASE_NOTES_0.41.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.42.0 变更见 [docs/RELEASE_NOTES_0.42.0.md](docs/RELEASE_NOTES_0.42.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

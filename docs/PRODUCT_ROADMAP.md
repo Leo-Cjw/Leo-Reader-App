@@ -1,8 +1,8 @@
 # 成熟产品路线图
 
-## 当前基线：Reader for Mac 0.41.0
+## 当前基线：Reader for Mac 0.42.0
 
-已完成可运行的 local-first 主链路：本地 SQLite、数据迁移、正文高亮与批注、文章/目录/标签、收藏与阅读状态、URL/RSS/YouTube/X/微博/Markdown 采集、全文搜索、阅读器、明暗主题和 AI 适配器。0.41.0 增加默认关闭、受数据保护且可彻底删除的 macOS Spotlight 索引，使用 Universal Swift helper、持久化 revision outbox 与双重深链校验；0.40.0 增加独立 opt-in、仅自动批次触发且不暴露来源内容的后台订阅通知；此前迭代已完成专注窗口、导入通知、渲染器恢复、模态隔离、安全外部保存入口、辅助技术状态、后台控制与解析进程隔离。120 项自动测试覆盖 Spotlight 迁移/队列/重试/删除/深链/打包、通知、专注窗口、导入、恢复、模态与 AX、解析进程、更新门禁、搜索、迁移与全部产品主链路。
+已完成可运行的 local-first 主链路：本地 SQLite、数据迁移、正文高亮与批注、文章/目录/标签、收藏与阅读状态、URL/RSS/YouTube/X/微博/Markdown 采集、全文搜索、阅读器、明暗主题和 AI 适配器。0.42.0 增加仅接收单网页 URL、运行于 App Sandbox 且仍要求 Reader 内确认的 Universal macOS Share Extension，并收紧正式签名主程序 entitlement；0.41.0 增加默认关闭、受数据保护且可彻底删除的 macOS Spotlight 索引；此前迭代已完成订阅通知、专注窗口、导入通知、渲染器恢复、模态隔离、安全外部保存入口、辅助技术状态、后台控制与解析进程隔离。123 项自动测试覆盖 Share Extension Swift URL 处理/激活/权限/打包、Spotlight 迁移/队列/重试/删除/深链、通知、专注窗口、导入、恢复、模态与 AX、解析进程、更新门禁、搜索、迁移与全部产品主链路。
 
 ## M2：完整内容采集（进行中）
 
@@ -26,7 +26,7 @@
 
 ## M3：原生 macOS 发行
 
-- [部分完成] Electron 外壳、单实例、原生窗口/菜单、Dock 生命周期、系统另存为，以及附件、编辑器图片、Reader ZIP、OPML 与备份恢复的系统文件选择器均已完成；0.37 增加渲染界面崩溃后的原生恢复与安全退出，0.35 已提供可供浏览器、快捷指令与未来扩展复用的安全确认式 URL scheme，Share Extension 本体仍待实现。
+- [部分完成] Electron 外壳、单实例、原生窗口/菜单、Dock 生命周期、系统另存为，以及附件、编辑器图片、Reader ZIP、OPML 与备份恢复的系统文件选择器均已完成；0.37 增加渲染界面崩溃后的原生恢复与安全退出，0.42 已在 0.35 安全确认式 URL scheme 上实现单网页 URL 的沙箱化 Share Extension。选中文本和文件分享仍待独立设计。
 - [部分完成] 渲染器沙箱、CSP、权限拒绝、Keychain、通用架构、ad-hoc 签名、DMG，以及只允许 Developer ID 正式包使用的自动更新均已完成；hardened runtime、App/DMG 公证和可验证更新 ZIP 流水线已接入，仍需真实证书、公证凭据、正式 GitHub Release 与 Apple Silicon 真机升级验收。
 - [部分完成] 应用快捷键、菜单命令、分别默认关闭且仅显示聚合计数的后台导入/订阅通知、按文章去重的独立专注阅读窗口，以及默认关闭、受保护并可删除的 Spotlight 本机索引已完成。系统通知与 Spotlight 结果点击仍需随 Developer ID 签名/公证包验收。
 - [已完成] 睡眠/唤醒、离线恢复、电池电量不高于 20% 与系统严重热/降频状态下的后台调度策略；待恢复锁和系统条件不会互相绕过。
@@ -71,4 +71,4 @@
 
 ## 优先顺序
 
-下一迭代建议取得 Apple Developer ID，运行已接入的 App/DMG 公证流水线，发布首个携带 universal 更新 ZIP 的正式 GitHub Release，并在 Intel 与 Apple Silicon 真机完成 Gatekeeper、0.40→0.41 自动升级、系统通知、Spotlight 结果点击及资料库不丢失验收。代码内可在现有确认式 URL scheme 上实现 Share Extension，并继续完成启用 VoiceOver 的人工听读与剩余语义审计；其后推进国际化、可选本地嵌入与混合重排。
+下一迭代建议取得 Apple Developer ID，运行已接入的 App/DMG 公证流水线，发布首个携带 universal 更新 ZIP 的正式 GitHub Release，并在 Intel 与 Apple Silicon 真机完成 Gatekeeper、0.41→0.42 自动升级、系统通知、Spotlight 结果点击、Share Extension 及资料库不丢失验收。代码内继续完成启用 VoiceOver 的人工听读与剩余语义审计；其后推进国际化、可选本地嵌入与混合重排。

@@ -31,7 +31,7 @@ flowchart LR
 
 生产构建由 Electron 主进程启动随机回环端口的本地服务，再由沙箱化渲染进程加载静态界面和 `/api`。应用包中的 `dist` 只读，SQLite、附件与备份写入 `Application Support/Reader/ReaderData`，升级应用不会覆盖资料。数据模型和 API 仍保持独立边界，便于未来用 SwiftUI/WKWebView 逐模块替换。
 
-0.35.0 在打包元数据中注册唯一的 `reader-local` URL scheme，作为浏览器、快捷指令和未来 Share Extension 的外部保存边界。主进程在 `ready` 前监听 macOS `open-url`，并同时从冷启动/第二实例 argv 中提取候选；解析器只接受 `reader-local://add`、唯一 `url` 参数、最长 2,048 字符且不含用户名或密码的 HTTP(S) 目标。未知动作、重复/额外参数、外层 fragment、其他目标协议和畸形输入直接忽略。
+0.35.0 在打包元数据中注册唯一的 `reader-local` URL scheme，作为浏览器、快捷指令和 Share Extension 的外部保存边界。主进程在 `ready` 前监听 macOS `open-url`，并同时从冷启动/第二实例 argv 中提取候选；解析器只接受 `reader-local://add`、唯一 `url` 参数、最长 2,048 字符且不含用户名或密码的 HTTP(S) 目标。未知动作、重复/额外参数、外层 fragment、其他目标协议和畸形输入直接忽略。
 
 合格目标最多在主进程和 preload 各排队 20 个，只有渲染器完成加载后才通过单向 `reader:add-url` IPC 送入页面。preload 不公开任意 IPC 发送、文件系统或网络能力；React 逐个把目标预填到既有“添加内容”模态框，用户仍需选择资料夹并明确提交。深链处理本身不调用本地 API、不解析 DNS、不创建导入任务；提交后继续复用服务端 `assertPublicURL` 的 DNS、私网、凭据和长度校验，因此外部入口不会绕过原有 SSRF 边界。
 
@@ -46,6 +46,10 @@ flowchart LR
 0.41.0 增加显式 opt-in 的 Core Spotlight 桥。Electron 不直接链接原生框架；发行构建先把 Swift helper 分别编译为 x86_64/arm64，再合并为嵌套、无 Dock 图标的 Universal `.app`，由最终 App 深度签名覆盖。服务端只通过 stdin 发送至多 100 条 JSON，helper 只继承固定 `PATH`/`LANG`，命令行和进程环境都不携带正文。helper 使用 `completeUntilFirstUserAuthentication` 保护级别和 Reader 专属命名 index/domain，系统结果由 helper 转成受限 `reader-local://open?article=<id>`；主进程再次校验 scheme、action、唯一参数、长度、控制字符和数据库存在性后打开只读专注窗口。
 
 schema v11 新增 `spotlight_outbox`，文章可索引字段、归档状态和标签的触发器以每文章单行、单调 revision 记录 `upsert/delete`。服务只在设置明确开启时轮询，批次成功后按 `(article_id, revision)` 条件确认；处理中再次编辑会留下更高 revision，helper 超时、退出、无效响应或 Core Spotlight 失败都不会丢队列或阻断 Reader。启用会重新排队全部文章；停用必须先删除 Reader domain，确认成功后再清空 outbox 并原子保存关闭状态。
+
+0.42.0 增加嵌入 `Contents/PlugIns` 的 macOS Share Extension。Swift 构建分别面向 x86_64/arm64，再合并为 bundle ID 受宿主前缀约束的 Universal `.appex`；激活规则启用 strict matching，只接受一个 `public.url`。扩展以普通 `NSViewController` 提供短暂、可访问的交接状态，通过 `NSItemProvider` 读取唯一 URL，在独立 Swift 校验器中限制为最长 2,048 字符、无控制字符/用户名/密码的 HTTP(S) 地址，再用 `URLComponents` 构造唯一 `reader-local://add?url=...` 并交给 `NSWorkspace`。扩展不联网、不读写文件、不访问 SQLite、Keychain、UserDefaults 或 App Group；系统选择扩展是第一次用户动作，Reader 既有添加窗口仍是最终写入确认。
+
+最终签名不再依赖无差别 `codesign --deep` 保存扩展权限：流水线先处理全部嵌套代码，再用只含 `com.apple.security.app-sandbox` 的 entitlement 重新签名 `.appex`，最后带主程序最小 `allow-jit` entitlement 重签宿主并执行深度严格验证。Developer ID 路径禁用自动 entitlement 补全并按文件选择权限，Spotlight helper 使用空权限，Share Extension 精确使用 sandbox，Electron helper 保留各自运行所需默认项；构建门禁回读并要求三者权限集合精确相等，拒绝额外 App Group 或未使用的硬件权限。
 
 ## 数据模型
 
@@ -184,7 +188,7 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 0.31.0 按 Electron 官方方式从外部设置 `AXManualAccessibility` 后验证打包候选 App 的 macOS 原生可访问树，不把测试开关写入产品设置。Chromium 将 pressed 按钮映射为带 0/1 值的 `AXCheckBox`，将当前导航映射为 `AXARIACurrent`，并把文章关联描述映射为 `AXCustomContent`；通过 `AXPress` 触发筛选、导航与文章选择后，原生状态均随 React 状态更新。最终产物把描述节点改为 HTML `hidden` 后，以其精确 Chromium 可访问树确认描述仍关联按钮且不再生成重复静态文本；最终包的原生 AX 复验与人工 VoiceOver 听读仍是正式发行门禁。
 
-发行流水线分别构建 x86_64 与 arm64 应用，再用项目内的流式 Mach-O 合并工具生成通用主程序和 Helper；两套 `@napi-rs/canvas` 原生模块按架构保留在独立包路径，由运行时选择。Electron 压缩包必须匹配依赖自带的官方 SHA-256 清单。合并后执行 ad-hoc 深度签名、严格验证，并生成带“应用程序”快捷方式且通过 `hdiutil verify` 的压缩 DMG。
+发行流水线分别构建 x86_64 与 arm64 应用，再用项目内的流式 Mach-O 合并工具生成通用主程序、Helper 与 Share Extension；两套 `@napi-rs/canvas` 原生模块按架构保留在独立包路径，由运行时选择。Electron 压缩包必须匹配依赖自带的官方 SHA-256 清单。合并后按代码类型应用最小 entitlement、执行深度严格验证，并生成带“应用程序”快捷方式且通过 `hdiutil verify` 的压缩 DMG。
 
 0.27.0 在桌面主进程集中监听 Electron 的 suspend/resume、网络在线状态、macOS 电源与热状态。电池电量只通过只读的 `/usr/bin/pmset -g batt` 获取，不写系统设置：断网或电池供电且不高于 20% 时只暂停自动来源调度，本地附件导入与用户主动同步保持可用；睡眠、严重/临界热状态或 CPU 被系统限制到 50% 以下时暂停导入队列与自动同步。服务端把这些条件与待恢复写锁合并为单一串行策略，只有全部原因解除后才恢复对应 worker，避免唤醒或网络恢复绕过资料库恢复锁。当前脱敏状态通过 `/api/health` 提供，并在订阅中心显示面向用户的暂停原因。
 
@@ -195,7 +199,7 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
 
 - 取得真实 Apple Developer ID 与公证凭据，发布首个正式 GitHub Release，并完成跨版本自动升级演练。
-- Share Extension 和更完整的跨应用导入体验；Spotlight 已完成默认关闭的本机索引与深链闭环，仍需在 Developer ID、公证包和 Apple Silicon 真机验证系统结果点击。系统通知也仍需在正式签名包上完成可用性验收。
+- Share Extension 已完成单网页 URL 的沙箱化系统交接；文件、选中文本等更完整的跨应用导入仍待独立设计。Spotlight 已完成默认关闭的本机索引与深链闭环，仍需在 Developer ID、公证包和 Apple Silicon 真机验证系统结果点击；系统通知与 Share Extension 也仍需在正式签名包上完成最终可用性验收。
 
 当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron 与 Canvas 切片完成官方哈希、Mach-O 架构及签名结构验证，仍应在 Apple Silicon 真机上补运行验收。
 
