@@ -3,6 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, 
 import { createReadStream, createWriteStream } from 'node:fs';
 import { access, chmod, cp, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { once } from 'node:events';
+import { Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
 import { ZipArchive } from 'archiver';
@@ -32,6 +33,10 @@ async function hashFile(filePath) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(filePath)) hash.update(chunk);
   return hash.digest('hex');
+}
+
+function verificationReceiptPath(rootDir, id) {
+  return path.join(rootDir, 'data', 'backups', `reader-backup-${id}.verification.json`);
 }
 
 async function collectFiles(root, prefix = '') {
@@ -137,6 +142,31 @@ async function decryptBackupFile(sourcePath, destinationPath, passphrase) {
   } finally { key.fill(0); }
 }
 
+async function authenticateEncryptedBackupFile(sourcePath, passphrase) {
+  const parsed = await readEncryptedHeader(sourcePath);
+  const key = await deriveBackupKey(validateBackupPassphrase(passphrase), parsed.salt, parsed);
+  const decipher = createDecipheriv('aes-256-gcm', key, parsed.iv, { authTagLength: ENCRYPTED_TAG_BYTES });
+  decipher.setAAD(parsed.header);
+  decipher.setAuthTag(parsed.tag);
+  const hash = createHash('sha256');
+  const sink = new Writable({
+    write(chunk, _encoding, callback) {
+      hash.update(chunk);
+      callback();
+    }
+  });
+  try {
+    await pipeline(
+      createReadStream(sourcePath, { start: ENCRYPTED_HEADER_BYTES, end: parsed.info.size - ENCRYPTED_TAG_BYTES - 1 }),
+      decipher,
+      sink
+    );
+    return hash.digest('hex');
+  } catch {
+    throw new Error('加密备份认证回读失败');
+  } finally { key.fill(0); }
+}
+
 async function hasEncryptedMagic(filePath) {
   const handle = await open(filePath, 'r');
   try {
@@ -161,13 +191,18 @@ async function writeZip({ snapshot, manifestPath, stagedFiles, archivePath }) {
 }
 
 export async function createBackup({ database, rootDir, appVersion = '0.12.0', reason = 'manual', passphrase = '' }) {
+  const automatic = reason === 'automatic';
+  if (automatic && passphrase) throw Object.assign(new Error('自动恢复点不能保存口令或创建加密备份'), { status: 400 });
   const backupsDir = path.join(rootDir, 'data', 'backups');
   const filesDir = path.join(rootDir, 'data', 'files');
   await mkdir(backupsDir, { recursive: true });
   const staging = await mkdtemp(path.join(backupsDir, '.build-'));
   const snapshot = path.join(staging, 'reader.sqlite3');
+  let archivePath = '';
+  let receiptPath = '';
   try {
     await database.execute(`VACUUM INTO ${sqlValue(snapshot)};`);
+    await sqliteIntegrity(snapshot);
     const stagedFiles = path.join(staging, 'files');
     if (await exists(filesDir)) await cp(filesDir, stagedFiles, { recursive: true, errorOnExist: false });
     const inventory = await collectFiles(stagedFiles);
@@ -181,20 +216,48 @@ export async function createBackup({ database, rootDir, appVersion = '0.12.0', r
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
     const id = randomUUID();
     const encrypted = Boolean(passphrase);
-    const automatic = reason === 'automatic';
-    if (automatic && encrypted) throw Object.assign(new Error('自动恢复点不能保存口令或创建加密备份'), { status: 400 });
     const fileName = `${automatic ? 'reader-auto-backup' : 'reader-backup'}-${timestampSlug()}-${id}.readerbackup.${encrypted ? 'enc' : 'zip'}`;
-    const archivePath = path.join(backupsDir, fileName);
+    archivePath = path.join(backupsDir, fileName);
     if (encrypted) {
       const plainArchive = path.join(staging, 'payload.readerbackup.zip');
       await writeZip({ snapshot, manifestPath, stagedFiles, archivePath: plainArchive });
+      await verifyPlainBackupArchive(plainArchive, manifest);
+      const plainSha256 = await hashFile(plainArchive);
       await encryptBackupFile(plainArchive, archivePath, passphrase);
+      if (await authenticateEncryptedBackupFile(archivePath, passphrase) !== plainSha256) throw new Error('加密备份认证回读不一致');
       await unlink(plainArchive);
-    } else await writeZip({ snapshot, manifestPath, stagedFiles, archivePath });
+    } else {
+      await writeZip({ snapshot, manifestPath, stagedFiles, archivePath });
+      await verifyPlainBackupArchive(archivePath, manifest);
+    }
     const info = await stat(archivePath);
-    return { id, file_name: fileName, byte_size: info.size, sha256: await hashFile(archivePath), created_at: manifest.createdAt, reason, encrypted, automatic, manifest };
+    const sha256 = await hashFile(archivePath);
+    const verifiedAt = new Date().toISOString();
+    receiptPath = verificationReceiptPath(rootDir, id);
+    await writeFile(receiptPath, `${JSON.stringify({
+      format: 'reader-backup-verification', formatVersion: 1, backupId: id, fileName,
+      byteSize: info.size, sha256, verifiedAt
+    }, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    return { id, file_name: fileName, byte_size: info.size, sha256, created_at: manifest.createdAt, verified_at: verifiedAt, reason, encrypted, automatic, manifest };
+  } catch (error) {
+    if (receiptPath) await unlink(receiptPath).catch(() => {});
+    if (archivePath) await unlink(archivePath).catch(() => {});
+    throw error;
   } finally {
     await rm(staging, { recursive: true, force: true });
+  }
+}
+
+async function readVerificationReceipt(rootDir, backup, info) {
+  try {
+    const receipt = JSON.parse(await readFile(verificationReceiptPath(rootDir, backup.id), 'utf8'));
+    if (receipt.format !== 'reader-backup-verification' || receipt.formatVersion !== 1
+      || receipt.backupId !== backup.id || receipt.fileName !== backup.file_name
+      || receipt.byteSize !== info.size || !/^[0-9a-f]{64}$/.test(String(receipt.sha256 || ''))
+      || Number.isNaN(new Date(receipt.verifiedAt).getTime())) return null;
+    return { sha256: receipt.sha256, verified_at: new Date(receipt.verifiedAt).toISOString() };
+  } catch {
+    return null;
   }
 }
 
@@ -206,7 +269,9 @@ export async function listBackups(rootDir) {
     const match = entry.isFile() && entry.name.match(/^reader-(auto-)?backup-(.+)-([0-9a-f-]{36})\.readerbackup\.(zip|enc)$/i);
     if (!match) continue;
     const info = await stat(path.join(backupsDir, entry.name));
-    rows.push({ id: match[3], file_name: entry.name, byte_size: info.size, created_at: info.birthtime.toISOString(), encrypted: match[4].toLowerCase() === 'enc', automatic: Boolean(match[1]) });
+    const backup = { id: match[3], file_name: entry.name, byte_size: info.size, created_at: info.birthtime.toISOString(), encrypted: match[4].toLowerCase() === 'enc', automatic: Boolean(match[1]) };
+    const verification = await readVerificationReceipt(rootDir, backup, info);
+    rows.push({ ...backup, sha256: verification?.sha256, verified_at: verification?.verified_at || null });
   }
   return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
@@ -217,6 +282,9 @@ export async function pruneAutomaticBackups(rootDir, retain = 3) {
   const removed = [];
   for (const backup of automatic.slice(safeRetain)) {
     await unlink(path.join(rootDir, 'data', 'backups', backup.file_name));
+    await unlink(verificationReceiptPath(rootDir, backup.id)).catch((error) => {
+      if (error?.code !== 'ENOENT') throw error;
+    });
     removed.push(backup.id);
   }
   return removed;
@@ -258,10 +326,104 @@ function openZip(filePath) {
 
 export function validateBackupEntryPath(name) {
   if (!name || name.includes('\\') || name.includes('\0') || name.startsWith('/') || /^[A-Za-z]:/.test(name)) throw new Error('备份包含不安全路径');
-  const normalized = path.posix.normalize(name);
-  if (normalized === '..' || normalized.startsWith('../') || normalized !== name.replace(/\/$/, '') && `${normalized}/` !== name) throw new Error('备份包含不安全路径');
+  const withoutDirectorySlash = name.endsWith('/') ? name.slice(0, -1) : name;
+  const normalized = path.posix.normalize(withoutDirectorySlash);
+  if (!withoutDirectorySlash || withoutDirectorySlash.endsWith('/') || normalized === '..' || normalized.startsWith('../') || normalized !== withoutDirectorySlash) throw new Error('备份包含不安全路径');
   if (!(normalized === 'manifest.json' || normalized === 'reader.sqlite3' || normalized === 'files' || normalized.startsWith('files/'))) throw new Error('备份包含未知文件');
   return normalized;
+}
+
+async function hashZipEntry(zip, entry) {
+  const stream = await new Promise((resolve, reject) => zip.openReadStream(entry, (error, value) => error ? reject(error) : resolve(value)));
+  const hash = createHash('sha256');
+  let byteSize = 0;
+  for await (const chunk of stream) {
+    byteSize += chunk.length;
+    hash.update(chunk);
+  }
+  return { byteSize, sha256: hash.digest('hex') };
+}
+
+export async function verifyPlainBackupArchive(archivePath, manifest) {
+  if (!manifest || manifest.format !== 'reader-local-backup' || manifest.formatVersion !== 1
+    || !/^[0-9a-f]{64}$/.test(String(manifest.databaseSha256 || '')) || !Array.isArray(manifest.files)) {
+    throw new Error('备份验证清单无效');
+  }
+  const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2));
+  const expected = new Map([
+    ['reader.sqlite3', { sha256: manifest.databaseSha256, byteSize: null }],
+    ['manifest.json', { sha256: createHash('sha256').update(manifestBytes).digest('hex'), byteSize: manifestBytes.length }]
+  ]);
+  const expectedDirectories = new Set(['files/']);
+  for (const file of manifest.files) {
+    const relativePath = String(file?.path || '');
+    const name = `files/${relativePath}`;
+    validateBackupEntryPath(name);
+    const byteSize = Number(file?.byteSize);
+    const sha256 = String(file?.sha256 || '');
+    if (!relativePath || name.endsWith('/') || !Number.isSafeInteger(byteSize) || byteSize < 0
+      || !/^[0-9a-f]{64}$/.test(sha256) || expected.has(name)) {
+      throw new Error('备份验证清单无效');
+    }
+    expected.set(name, { byteSize, sha256 });
+    const parts = relativePath.split('/');
+    for (let index = 1; index < parts.length; index += 1) {
+      expectedDirectories.add(`files/${parts.slice(0, index).join('/')}/`);
+    }
+  }
+
+  const zip = await openZip(archivePath);
+  const seen = new Set();
+  const seenEntries = new Set();
+  let total = 0;
+  let entries = 0;
+  await new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      zip.close();
+      reject(error);
+    };
+    zip.once('error', fail);
+    zip.once('end', () => {
+      if (settled) return;
+      settled = true;
+      const missing = [...expected.keys()].filter((name) => !seen.has(name));
+      if (missing.length) return reject(new Error('备份归档缺少清单内容'));
+      resolve();
+    });
+    zip.on('entry', async (entry) => {
+      try {
+        entries += 1;
+        if (entries > MAX_ARCHIVE_ENTRIES) throw new Error('备份文件数量超过限制');
+        validateBackupEntryPath(entry.fileName);
+        if (seenEntries.has(entry.fileName)) throw new Error('备份归档包含重复文件');
+        seenEntries.add(entry.fileName);
+        const unixMode = (entry.externalFileAttributes >>> 16) & 0xffff;
+        if ((unixMode & 0o170000) === 0o120000) throw new Error('备份不允许包含符号链接');
+        total += entry.uncompressedSize;
+        if (total > MAX_EXTRACTED_BYTES) throw new Error('备份解压后超过 5 GB 限制');
+        if (entry.fileName.endsWith('/')) {
+          if (!expectedDirectories.has(entry.fileName)) throw new Error('备份包含未知目录');
+        } else {
+          const expectedEntry = expected.get(entry.fileName);
+          if (!expectedEntry) throw new Error('备份包含未知文件');
+          const actual = await hashZipEntry(zip, entry);
+          if ((expectedEntry.byteSize !== null && actual.byteSize !== expectedEntry.byteSize)
+            || actual.byteSize !== entry.uncompressedSize || actual.sha256 !== expectedEntry.sha256) {
+            throw new Error('备份归档内容或校验值不一致');
+          }
+          seen.add(entry.fileName);
+        }
+        zip.readEntry();
+      } catch (error) {
+        fail(error);
+      }
+    });
+    zip.readEntry();
+  });
+  return { entries: seen.size, byte_size: total };
 }
 
 async function extractZipSafely(archivePath, destination) {

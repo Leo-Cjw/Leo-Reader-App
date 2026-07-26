@@ -79,7 +79,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.automaticBackupPauseReasons, ['low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.51.0');
+  assert.equal(APP_VERSION, '0.52.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -266,6 +266,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.ok(enabledAutomatic.body.automaticBackup.last_backup_at);
   const automaticList = await json(`${base}/api/backups`);
   assert.equal(automaticList.body.backups.filter((item) => item.automatic).length, 1);
+  assert.match(automaticList.body.backups.find((item) => item.automatic).verified_at, /^\d{4}-\d{2}-\d{2}T/);
   const disabledAutomatic = await json(`${base}/api/settings/automatic-backups`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }) });
   assert.equal(disabledAutomatic.body.automaticBackup.enabled, false);
   assert.equal((await json(`${base}/api/backups`)).body.backups.filter((item) => item.automatic).length, 1);
@@ -273,6 +274,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   const backup = await json(`${base}/api/backups`, { method: 'POST' });
   assert.equal(backup.response.status, 201);
   assert.match(backup.body.backup.file_name, /\.readerbackup\.zip$/);
+  assert.match(backup.body.backup.verified_at, /^\d{4}-\d{2}-\d{2}T/);
   const download = await fetch(`${base}/api/backups/${backup.body.backup.id}/download`, { method: 'HEAD' });
   assert.equal(download.status, 200);
   assert.equal(download.headers.get('content-type'), 'application/zip');
@@ -281,6 +283,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   const encryptedBackup = await json(`${base}/api/backups`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ encrypted: true, passphrase }) });
   assert.equal(encryptedBackup.response.status, 201);
   assert.equal(encryptedBackup.body.backup.encrypted, true);
+  assert.match(encryptedBackup.body.backup.verified_at, /^\d{4}-\d{2}-\d{2}T/);
   assert.match(encryptedBackup.body.backup.file_name, /\.readerbackup\.enc$/);
   const encryptedDownload = await fetch(`${base}/api/backups/${encryptedBackup.body.backup.id}/download`);
   assert.equal(encryptedDownload.headers.get('content-type'), 'application/vnd.reader.backup+encrypted');

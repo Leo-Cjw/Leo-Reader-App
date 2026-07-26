@@ -287,6 +287,7 @@ export interface Backup {
   file_name: string;
   byte_size: number;
   created_at: string;
+  verified_at?: string | null;
   sha256?: string;
   reason?: string;
   encrypted: boolean;

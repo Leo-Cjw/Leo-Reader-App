@@ -6,12 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { listMigrationSnapshots, ReaderDatabase, resolveMigrationSnapshot } from '../src/server/db.mjs';
 import { schemaSQL } from '../src/server/schema.mjs';
-import { applyPendingRestore, createBackup, getPendingRestore, listBackups, pruneAutomaticBackups, resolveBackup, scheduleMigrationSnapshotRestore, scheduleRestore, validateBackupEntryPath, validateBackupPassphrase } from '../src/server/backup.mjs';
+import { applyPendingRestore, createBackup, getPendingRestore, listBackups, pruneAutomaticBackups, resolveBackup, scheduleMigrationSnapshotRestore, scheduleRestore, validateBackupEntryPath, validateBackupPassphrase, verifyPlainBackupArchive } from '../src/server/backup.mjs';
 
 test('backup entry paths reject traversal, absolute paths and unknown files', () => {
   assert.equal(validateBackupEntryPath('files/image.png'), 'files/image.png');
+  assert.equal(validateBackupEntryPath('files/nested/'), 'files/nested');
   assert.throws(() => validateBackupEntryPath('../outside.txt'), /不安全路径/);
   assert.throws(() => validateBackupEntryPath('/etc/passwd'), /不安全路径/);
+  assert.throws(() => validateBackupEntryPath('files/nested//'), /不安全路径/);
   assert.throws(() => validateBackupEntryPath('unexpected.js'), /未知文件/);
 });
 
@@ -31,6 +33,7 @@ test('automatic recovery point names are explicit and rotation never removes oth
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(manual.automatic, false);
+  assert.match(manual.verified_at, /^\d{4}-\d{2}-\d{2}T/);
   assert.match(automatic[0].file_name, /^reader-auto-backup-/);
   assert.equal((await listBackups(root)).filter((backup) => backup.automatic).length, 4);
   const removed = await pruneAutomaticBackups(root, 3);
@@ -39,9 +42,49 @@ test('automatic recovery point names are explicit and rotation never removes oth
   assert.equal(remaining.filter((backup) => backup.automatic).length, 3);
   assert.ok(remaining.some((backup) => backup.id === manual.id));
   await assert.rejects(
+    stat(path.join(root, 'data', 'backups', `reader-backup-${removed[0]}.verification.json`)),
+    (error) => error.code === 'ENOENT'
+  );
+  await assert.rejects(
     createBackup({ database: db, rootDir: root, appVersion: '0.51.0', reason: 'automatic', passphrase: 'correct horse battery staple' }),
     /不能保存口令/
   );
+});
+
+test('created backups are stream-verified and verification receipts fail closed', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'reader-backup-verification-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const db = await new ReaderDatabase(path.join(root, 'data', 'reader.sqlite3')).initialize();
+  await db.createArticle({ title: 'Verified backup', content: 'The archive must be readable before success is reported.' });
+  const nestedFiles = path.join(root, 'data', 'files', 'nested');
+  await mkdir(nestedFiles, { recursive: true });
+  await writeFile(path.join(nestedFiles, 'sample.bin'), 'verified-attachment-bytes');
+
+  const backup = await createBackup({ database: db, rootDir: root, appVersion: '0.52.0' });
+  const resolved = await resolveBackup(root, backup.id);
+  assert.match(backup.verified_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal((await stat(path.join(root, 'data', 'backups', `reader-backup-${backup.id}.verification.json`))).mode & 0o777, 0o600);
+  const verification = await verifyPlainBackupArchive(resolved.path, backup.manifest);
+  assert.equal(verification.entries, backup.manifest.files.length + 2);
+  assert.ok(verification.byte_size > 0);
+
+  await assert.rejects(
+    verifyPlainBackupArchive(resolved.path, { ...backup.manifest, databaseSha256: '0'.repeat(64) }),
+    /内容或校验值不一致/
+  );
+  const damagedArchivePath = path.join(root, 'damaged.readerbackup.zip');
+  const damagedArchive = await readFile(resolved.path);
+  damagedArchive[64] ^= 0x01;
+  await writeFile(damagedArchivePath, damagedArchive);
+  await assert.rejects(verifyPlainBackupArchive(damagedArchivePath, backup.manifest));
+
+  const listedBackup = (await listBackups(root))[0];
+  assert.equal(listedBackup.verified_at, backup.verified_at);
+  assert.equal(listedBackup.sha256, backup.sha256);
+  await writeFile(path.join(root, 'data', 'backups', `reader-backup-${backup.id}.verification.json`), '{"format":"tampered"}');
+  const unverifiedListing = (await listBackups(root)).find((item) => item.id === backup.id);
+  assert.equal(unverifiedListing.verified_at, null);
+  assert.equal(unverifiedListing.sha256, undefined);
 });
 
 test('complete backup is validated and restored on the next startup', async (t) => {
@@ -57,7 +100,6 @@ test('complete backup is validated and restored on the next startup', async (t) 
   await writeFile(path.join(filesDir, 'sample.bin'), 'attachment-before-backup');
   const backup = await createBackup({ database: db, rootDir: root, appVersion: '0.3.0' });
   assert.equal(backup.manifest.counts.articles, 4);
-  assert.equal((await listBackups(root)).length, 1);
   const resolved = await resolveBackup(root, backup.id);
   assert.ok(resolved?.path);
 
@@ -195,8 +237,10 @@ test('encrypted backup authenticates the full archive and restores only with the
   const passphrase = 'correct horse battery staple';
   const backup = await createBackup({ database: db, rootDir: root, appVersion: '0.5.0', passphrase });
   assert.equal(backup.encrypted, true);
+  assert.match(backup.verified_at, /^\d{4}-\d{2}-\d{2}T/);
   assert.match(backup.file_name, /\.readerbackup\.enc$/);
   assert.equal((await listBackups(root))[0].encrypted, true);
+  assert.equal((await listBackups(root))[0].verified_at, backup.verified_at);
   const resolved = await resolveBackup(root, backup.id);
   const encrypted = await readFile(resolved.path);
   assert.equal(encrypted.subarray(0, 8).toString('ascii'), 'RDRBKENC');

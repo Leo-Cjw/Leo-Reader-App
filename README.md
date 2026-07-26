@@ -1,4 +1,4 @@
-# Reader for Mac 0.51.0
+# Reader for Mac 0.52.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.51.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.52.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -91,7 +91,7 @@ npm run desktop:pack
 - AI：默认完全本地的提取式摘要、多资料结构化整理与 RAG 问答；可在当前文章或整个资料库中检索，回答附带可点击的原文片段。文章新增、编辑、导入完成和版本恢复会在同一事务中重建分块索引。用户还可明确启用固定回环 Ollama `/api/embed` 的本地语义索引；模型测试使用 9 句内置中英/跨语言探针报告语义分离度，查询以每 band 三个低置信位候选桶扩大近邻召回，再用精确余弦和全文结果混排。索引失败会退回词法检索，关闭后删除全部派生向量。远程生成可选择既有 Reader Gateway、OpenAI、回环 Ollama 或其他 OpenAI-compatible 服务，从服务读取受限模型目录或手填模型 ID；只有用户主动执行任务时才发送既有边界内的内容，密钥存入 macOS Keychain。
 - 安全：阻止 localhost、私网 IP 与云元数据地址；限制跳转、超时和 4 MB 正文响应体；单张图片 12 MB、单篇本地化预算 48 MB。
 - 媒体读取：同源私有文件端点，支持 HTTP Range，可流畅拖动本地视频。
-- 数据安全：一键生成包含 SQLite、附件和 SHA-256 清单的完整备份；默认可使用口令创建 `.readerbackup.enc` 认证加密文件，也兼容明文 `.readerbackup.zip`。恢复前完成解密、哈希与 SQLite 完整性校验，并在下次启动时原子替换。
+- 数据安全：一键生成包含 SQLite、附件和 SHA-256 清单的完整备份；默认可使用口令创建 `.readerbackup.enc` 认证加密文件，也兼容明文 `.readerbackup.zip`。Reader 只有在重新流式读取归档、核对数据库/manifest/全部附件哈希，并对加密输出完成 GCM 认证回读后才报告创建成功；恢复前仍会独立执行完整校验，并在下次启动时原子替换。
 - 自动恢复点：默认关闭；明确开启后每 24 小时最多创建一份本机明文完整备份，并只轮转 Reader 严格标记的最近 3 份自动恢复点。手动、加密、修复前和恢复前备份永不被这项轮转删除；任务服从导入占用、睡眠、低电量、系统资源限制和资料恢复锁。
 - 资料库体检：在数据安全中心检查 SQLite 页结构、外键、迁移审计、本机文件权限、附件可用性和本地检索索引；结果只返回汇总，不包含正文、附件名、记录 ID 或磁盘路径。
 - 受控修复：只有在核心完整性、关联、迁移与附件检查均通过时，才能收紧本地权限或从正文重建全文/RAG 索引。索引写入前自动创建完整备份；正文、状态和附件不会被修复流程改写。
@@ -106,7 +106,7 @@ npm run desktop:pack
 - 导入暂存：`data/imports/`
 - 系统分享文件暂存：`~/Library/Containers/com.reader.localfirst.share-extension/Data/Library/Caches/ReaderShareStaging/`（目录 `0700`、文件 `0600`；取消/成功即清理，最长保留 24 小时，不进入资料库或备份）
 - Markdown ZIP 预检暂存：`data/portable-imports/`（24 小时自动过期）
-- 完整备份：`data/backups/`
+- 完整备份：`data/backups/`（0.52 起新建备份带权限为 `0600` 的本机创建时验证凭据；凭据不进入备份包）
 - 升级前数据库快照：`data/migration-backups/`
 - 可再生缩略图：`data/thumbnails/`
 - 待恢复暂存：`data/restore/`
@@ -232,4 +232,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.51.0 变更见 [docs/RELEASE_NOTES_0.51.0.md](docs/RELEASE_NOTES_0.51.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.52.0 变更见 [docs/RELEASE_NOTES_0.52.0.md](docs/RELEASE_NOTES_0.52.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
