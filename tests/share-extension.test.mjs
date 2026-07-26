@@ -70,13 +70,14 @@ test('Share Extension stages one bounded file with private permissions, digest a
 });
 
 test('Share Extension declares strict single URL, text or file activation and sandbox-only entitlement', async () => {
+  const packageJSON = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
   const plist = JSON.parse(execFileSync('/usr/bin/plutil', [
     '-convert', 'json', '-o', '-', path.join(nativeRoot, 'Info.plist')
   ], { encoding: 'utf8' }));
   assert.equal(plist.CFBundleIdentifier, 'com.reader.localfirst.share-extension');
   assert.equal(plist.CFBundlePackageType, 'XPC!');
-  assert.equal(plist.CFBundleShortVersionString, '0.52.0');
-  assert.equal(plist.CFBundleVersion, '50');
+  assert.equal(plist.CFBundleShortVersionString, packageJSON.version);
+  assert.equal(plist.CFBundleVersion, packageJSON.build.buildVersion);
   assert.equal(plist.LSMinimumSystemVersion, '12.0');
   assert.equal(plist.NSExtension.NSExtensionPointIdentifier, 'com.apple.share-services');
   assert.equal(plist.NSExtension.NSExtensionPrincipalClass, 'ReaderShareViewController');
@@ -103,7 +104,8 @@ test('mac packaging embeds, signs and verifies a Universal Share Extension witho
     '-convert', 'json', '-o', '-', path.join(projectRoot, 'native', 'entitlements.mac.plist')
   ], { encoding: 'utf8' }));
 
-  assert.equal(packageJSON.version, '0.52.0');
+  assert.equal(packageJSON.version, '0.53.0');
+  assert.equal(packageJSON.build.buildVersion, '53');
   assert.equal(packageJSON.scripts['share:mac'], 'node scripts/build-share-extension.mjs');
   assert.match(packageJSON.scripts['desktop:pack:x64'], /share:mac/);
   assert.deepEqual(appEntitlements, { 'com.apple.security.cs.allow-jit': true });
@@ -123,6 +125,7 @@ test('mac packaging embeds, signs and verifies a Universal Share Extension witho
   assert.match(universal, /Share Extension 签名 entitlement 不是精确的 App Sandbox/);
   assert.match(universal, /Reader 主程序签名 entitlement 不是精确的 allow-jit/);
   assert.match(universal, /Spotlight helper 不应包含 entitlement/);
+  assert.match(universal, /assertBundleMetadata/);
   assert.match(universal, /'--entitlements', emptyEntitlements, spotlightHelperApp/);
   assert.match(universal, /'--verify', '--strict', '--verbose=1', spotlightHelperApp/);
   for (const capability of ['audio-input', 'bluetooth', 'camera', 'location', 'print', 'usb']) {

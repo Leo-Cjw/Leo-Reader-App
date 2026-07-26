@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { signAsync } from '@electron/osx-sign';
 import { makeUniversalApp } from '@electron/universal';
+import { assertBundleMetadata, readBundlePlist, releaseBundleMetadata } from './lib/bundle-metadata.mjs';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const lipoCommand = path.join(projectRoot, 'scripts', 'toolchain', 'lipo');
@@ -13,6 +14,9 @@ const x64AppPath = path.resolve(process.env.READER_X64_APP || path.join(projectR
 const arm64AppPath = path.resolve(process.env.READER_ARM64_APP || path.join(projectRoot, 'release', 'mac-arm64', 'Reader.app'));
 const outAppPath = path.resolve(process.env.READER_UNIVERSAL_APP || path.join(projectRoot, 'release', 'mac-universal', 'Reader.app'));
 const spotlightHelperApp = path.join(outAppPath, 'Contents', 'Resources', 'Reader Spotlight Helper.app');
+const shareExtensionApp = path.join(outAppPath, 'Contents', 'PlugIns', 'Reader Share Extension.appex');
+const packageMetadata = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
+const releaseMetadata = releaseBundleMetadata(packageMetadata);
 
 function signedEntitlements(codePath) {
   const xml = execFileSync('/usr/bin/codesign', ['-d', '--entitlements', ':-', codePath], {
@@ -40,6 +44,14 @@ await makeUniversalApp({
   mergeASARs: true,
   x64ArchFiles: '**/node_modules/@napi-rs/canvas-darwin-*/skia.*.node'
 });
+
+for (const [bundlePath, label] of [
+  [outAppPath, 'Reader'],
+  [spotlightHelperApp, 'Reader Spotlight Helper'],
+  [shareExtensionApp, 'Reader Share Extension']
+]) {
+  assertBundleMetadata(readBundlePlist(path.join(bundlePath, 'Contents', 'Info.plist')), label, releaseMetadata);
+}
 
 const developerIdentity = process.env.READER_MAC_SIGN_IDENTITY?.trim();
 let signature = 'unsigned';
@@ -116,12 +128,7 @@ if (spotlightArchitectures.join(',') !== 'arm64,x86_64') {
   throw new Error(`Spotlight helper 不是通用架构：${spotlightArchitectures.join(', ')}`);
 }
 
-const shareExtension = path.join(
-  outAppPath,
-  'Contents',
-  'PlugIns',
-  'Reader Share Extension.appex'
-);
+const shareExtension = shareExtensionApp;
 const shareExecutable = path.join(shareExtension, 'Contents', 'MacOS', 'Reader Share Extension');
 await access(shareExecutable);
 const shareArchitectures = execFileSync(lipoCommand, ['-archs', shareExecutable], { encoding: 'utf8' }).trim().split(/\s+/).sort();
@@ -147,4 +154,5 @@ console.log(outAppPath);
 console.log(`architectures=${architectures.join(',')}`);
 console.log(`spotlightArchitectures=${spotlightArchitectures.join(',')}`);
 console.log(`shareArchitectures=${shareArchitectures.join(',')}`);
+console.log(`bundleVersion=${releaseMetadata.version} (${releaseMetadata.buildVersion})`);
 console.log(`signature=${signature}`);

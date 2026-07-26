@@ -4,9 +4,37 @@ import { chmod, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { assertBundleMetadata, releaseBundleMetadata } from '../scripts/lib/bundle-metadata.mjs';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const lipo = path.join(projectRoot, 'scripts', 'toolchain', 'lipo');
+
+test('macOS release metadata requires one numeric version and build identity for every bundle', () => {
+  const metadata = releaseBundleMetadata({ version: '0.53.0', build: { buildVersion: '53' } });
+  assert.deepEqual(metadata, { version: '0.53.0', buildVersion: '53' });
+  assert.doesNotThrow(() => assertBundleMetadata({
+    CFBundleShortVersionString: '0.53.0',
+    CFBundleVersion: '53'
+  }, 'Reader Share Extension', metadata));
+  assert.throws(() => releaseBundleMetadata({ version: '0.53', build: { buildVersion: '53' } }), /三段数字/);
+  assert.throws(() => releaseBundleMetadata({ version: '0.53.0', build: { buildVersion: '0' } }), /正整数/);
+  assert.throws(() => assertBundleMetadata({
+    CFBundleShortVersionString: '0.53.0',
+    CFBundleVersion: '52'
+  }, 'Reader Spotlight Helper', metadata), /构建号不一致/);
+});
+
+test('native bundle templates match the canonical package release identity', async () => {
+  const packageMetadata = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
+  const metadata = releaseBundleMetadata(packageMetadata);
+  for (const [plistPath, label] of [
+    [path.join(projectRoot, 'native', 'share-extension', 'Info.plist'), 'Reader Share Extension'],
+    [path.join(projectRoot, 'native', 'spotlight-helper', 'Info.plist'), 'Reader Spotlight Helper']
+  ]) {
+    const plist = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], { encoding: 'utf8' }));
+    assert.doesNotThrow(() => assertBundleMetadata(plist, label, metadata));
+  }
+});
 
 function thinMachO(cputype, cpusubtype, marker) {
   const binary = Buffer.alloc(96, marker);

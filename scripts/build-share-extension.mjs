@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { copyFile, mkdir, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { releaseBundleMetadata, stampBundleMetadata } from './lib/bundle-metadata.mjs';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const sourceRoot = path.join(projectRoot, 'native', 'share-extension');
@@ -10,6 +11,8 @@ const macOSDirectory = path.join(extensionPath, 'Contents', 'MacOS');
 const executable = path.join(macOSDirectory, 'Reader Share Extension');
 const entitlements = path.join(sourceRoot, 'entitlements.plist');
 const lipo = path.join(projectRoot, 'scripts', 'toolchain', 'lipo');
+const packageMetadata = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
+const releaseMetadata = releaseBundleMetadata(packageMetadata);
 
 function run(command, args) {
   execFileSync(command, args, { cwd: projectRoot, stdio: 'inherit' });
@@ -39,7 +42,9 @@ for (const [architecture, output] of architectures) {
   ]);
 }
 run(lipo, [...architectures.map(([, output]) => output), '-create', '-output', executable]);
-await copyFile(path.join(sourceRoot, 'Info.plist'), path.join(extensionPath, 'Contents', 'Info.plist'));
+const outputPlist = path.join(extensionPath, 'Contents', 'Info.plist');
+await copyFile(path.join(sourceRoot, 'Info.plist'), outputPlist);
+stampBundleMetadata(outputPlist, releaseMetadata, 'Reader Share Extension');
 run('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', entitlements, extensionPath]);
 run('/usr/bin/codesign', ['--verify', '--strict', '--verbose=1', extensionPath]);
 

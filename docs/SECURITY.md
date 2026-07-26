@@ -209,4 +209,4 @@ npm run qa:share
 npm run qa:upgrade
 ```
 
-0.52.0 的依赖审计、144 项自动测试、词法/多探针向量双性能门禁、确定性语义分离/近邻召回集、最终包 AX、Share 和跨版本升级门禁均记录在对应发行说明。新增测试覆盖创建时流式哈希回读、嵌套附件、归档损坏、manifest 不一致、验证凭据权限与篡改降级、加密认证回读及自动轮转凭据清理；0.51 的自动恢复点、旧备份兼容和全部既有恢复门禁继续执行。0.52.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。
+0.53.0 的依赖审计、146 项自动测试、词法/多探针向量双性能门禁、确定性语义分离/近邻召回集、最终包版本身份、AX、Share 和跨版本升级门禁均记录在对应发行说明。新增测试要求 macOS 发行版本为三段数字、构建号为正整数，并拒绝嵌入 bundle 的营销版本或构建号漂移；Share Extension 与 Spotlight helper 的临时构建副本在签名前从同一发行元数据盖印，Universal 合并后连同主 App 一起回读验证。0.52 的创建时备份验证、0.51 的自动恢复点和全部既有恢复门禁继续执行。0.53.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。

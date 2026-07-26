@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { copyFile, mkdir, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { releaseBundleMetadata, stampBundleMetadata } from './lib/bundle-metadata.mjs';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const source = path.join(projectRoot, 'native', 'spotlight-helper', 'main.swift');
@@ -10,6 +11,8 @@ const appPath = path.join(projectRoot, 'build', 'Reader Spotlight Helper.app');
 const macOSDirectory = path.join(appPath, 'Contents', 'MacOS');
 const executable = path.join(macOSDirectory, 'Reader Spotlight Helper');
 const lipo = path.join(projectRoot, 'scripts', 'toolchain', 'lipo');
+const packageMetadata = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
+const releaseMetadata = releaseBundleMetadata(packageMetadata);
 
 function run(command, args) {
   execFileSync(command, args, { cwd: projectRoot, stdio: 'inherit' });
@@ -35,7 +38,9 @@ for (const [architecture, output] of architectures) {
   ]);
 }
 run(lipo, [...architectures.map(([, output]) => output), '-create', '-output', executable]);
-await copyFile(plist, path.join(appPath, 'Contents', 'Info.plist'));
+const outputPlist = path.join(appPath, 'Contents', 'Info.plist');
+await copyFile(plist, outputPlist);
+stampBundleMetadata(outputPlist, releaseMetadata, 'Reader Spotlight Helper');
 run('/usr/bin/codesign', ['--force', '--sign', '-', appPath]);
 run('/usr/bin/codesign', ['--verify', '--strict', '--verbose=1', appPath]);
 const actual = execFileSync(lipo, ['-archs', executable], { encoding: 'utf8' }).trim().split(/\s+/).sort();
