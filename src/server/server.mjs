@@ -157,6 +157,22 @@ function publicPendingRestore(marker) {
   return safe;
 }
 
+function assertTrustedLoopbackRequest(request, server, host, configuredPort) {
+  if (host !== '127.0.0.1') return;
+  const address = server.address();
+  const activePort = address && typeof address === 'object' ? address.port : configuredPort;
+  const authority = `127.0.0.1:${activePort}`;
+  if (String(request.headers.host || '').toLowerCase() !== authority) {
+    throw new HTTPError(403, '拒绝非 Reader 本机来源');
+  }
+  const origin = String(request.headers.origin || '');
+  if (origin && origin !== `http://${authority}`) throw new HTTPError(403, '拒绝跨站请求');
+  const fetchSite = String(request.headers['sec-fetch-site'] || '').toLowerCase();
+  if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') {
+    throw new HTTPError(403, '拒绝跨站请求');
+  }
+}
+
 function mimeType(filePath) {
   const extension = path.extname(filePath).toLowerCase();
   return ({ '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' })[extension] || 'application/octet-stream';
@@ -278,6 +294,7 @@ export async function createReaderServer({
     let requestPath = '/';
     const requestMethod = request.method || 'GET';
     try {
+      assertTrustedLoopbackRequest(request, server, host, port);
       const url = new URL(request.url || '/', `http://${request.headers.host || `${host}:${port}`}`);
       const method = requestMethod;
       const pathname = decodeURIComponent(url.pathname);

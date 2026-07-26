@@ -10,17 +10,17 @@ const projectRoot = path.resolve(import.meta.dirname, '..');
 const lipo = path.join(projectRoot, 'scripts', 'toolchain', 'lipo');
 
 test('macOS release metadata requires one numeric version and build identity for every bundle', () => {
-  const metadata = releaseBundleMetadata({ version: '0.53.0', build: { buildVersion: '53' } });
-  assert.deepEqual(metadata, { version: '0.53.0', buildVersion: '53' });
+  const metadata = releaseBundleMetadata({ version: '0.54.0', build: { buildVersion: '54' } });
+  assert.deepEqual(metadata, { version: '0.54.0', buildVersion: '54' });
   assert.doesNotThrow(() => assertBundleMetadata({
-    CFBundleShortVersionString: '0.53.0',
-    CFBundleVersion: '53'
+    CFBundleShortVersionString: '0.54.0',
+    CFBundleVersion: '54'
   }, 'Reader Share Extension', metadata));
-  assert.throws(() => releaseBundleMetadata({ version: '0.53', build: { buildVersion: '53' } }), /三段数字/);
-  assert.throws(() => releaseBundleMetadata({ version: '0.53.0', build: { buildVersion: '0' } }), /正整数/);
+  assert.throws(() => releaseBundleMetadata({ version: '0.54', build: { buildVersion: '54' } }), /三段数字/);
+  assert.throws(() => releaseBundleMetadata({ version: '0.54.0', build: { buildVersion: '0' } }), /正整数/);
   assert.throws(() => assertBundleMetadata({
-    CFBundleShortVersionString: '0.53.0',
-    CFBundleVersion: '52'
+    CFBundleShortVersionString: '0.54.0',
+    CFBundleVersion: '53'
   }, 'Reader Spotlight Helper', metadata), /构建号不一致/);
 });
 

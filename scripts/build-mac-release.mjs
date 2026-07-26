@@ -115,6 +115,7 @@ run(path.join(projectRoot, 'node_modules', '.bin', 'electron-builder'), [
   '--mac', 'dir', '--arm64', `--config.electronDist=${arm64Dist}`
 ]);
 run(process.execPath, [path.join(projectRoot, 'scripts', 'build-universal-mac.mjs')]);
+run(process.execPath, [path.join(projectRoot, 'scripts', 'verify-packaged-loopback.mjs')]);
 run(process.execPath, [path.join(projectRoot, 'scripts', 'verify-packaged-accessibility.mjs')]);
 run(process.execPath, [path.join(projectRoot, 'scripts', 'verify-packaged-share.mjs')]);
 run(process.execPath, [path.join(projectRoot, 'scripts', 'verify-packaged-upgrade.mjs')]);

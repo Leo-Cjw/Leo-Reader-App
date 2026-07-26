@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,6 +15,23 @@ async function json(url, init) {
   const response = await fetch(url, init);
   const body = await response.json();
   return { response, body };
+}
+
+async function rawJSON(url, { method = 'GET', headers = {}, body = '' } = {}) {
+  return await new Promise((resolve, reject) => {
+    const request = http.request(url, { method, headers }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('error', reject);
+      response.on('end', () => {
+        try {
+          resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+        } catch (error) { reject(error); }
+      });
+    });
+    request.on('error', reject);
+    request.end(body);
+  });
 }
 
 async function readZipEntries(bytes) {
@@ -79,7 +97,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.automaticBackupPauseReasons, ['low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.53.0');
+  assert.equal(APP_VERSION, '0.54.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -298,6 +316,46 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(cancelledRestore.body.cancelled, true);
   const invalidRestore = await json(`${base}/api/backups/restore`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: Buffer.from('not a Reader backup') });
   assert.equal(invalidRestore.response.status, 400);
+});
+
+test('loopback API rejects DNS rebinding and cross-site browser requests before any write', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-loopback-boundary-'));
+  let app;
+  t.after(async () => { await app?.close(); await rm(dir, { recursive: true, force: true }); });
+  app = await createReaderServer({ rootDir: dir, dbPath: path.join(dir, 'reader.sqlite3'), port: 0 });
+  const address = await app.listen();
+  const authority = `127.0.0.1:${address.port}`;
+  const base = `http://${authority}`;
+  const payload = JSON.stringify({ mode: 'markdown', title: 'Cross-site write', content: 'This must never be saved.' });
+  const initialTotal = (await app.database.stats()).total;
+
+  const rebinding = await rawJSON(`${base}/api/health`, {
+    headers: { host: 'reader.attacker.invalid' }
+  });
+  assert.equal(rebinding.status, 403);
+  assert.match(rebinding.body.error, /本机来源/);
+
+  const crossOrigin = await rawJSON(`${base}/api/articles`, {
+    method: 'POST',
+    headers: { host: authority, origin: 'https://attacker.invalid', 'content-type': 'application/json' },
+    body: payload
+  });
+  assert.equal(crossOrigin.status, 403);
+  assert.match(crossOrigin.body.error, /跨站/);
+
+  const crossSite = await rawJSON(`${base}/api/articles`, {
+    headers: { host: authority, 'sec-fetch-site': 'cross-site' }
+  });
+  assert.equal(crossSite.status, 403);
+  assert.equal((await app.database.stats()).total, initialTotal);
+
+  const trusted = await json(`${base}/api/articles`, {
+    method: 'POST',
+    headers: { origin: base, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'markdown', title: 'Trusted local write', content: 'The exact Reader origin remains usable.' })
+  });
+  assert.equal(trusted.response.status, 201);
+  assert.equal((await app.database.stats()).total, initialTotal + 1);
 });
 
 test('migration snapshots are listed without private paths and can be exported safely', async (t) => {

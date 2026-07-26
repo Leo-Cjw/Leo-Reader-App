@@ -1,6 +1,6 @@
 {
   "name": "reader-local-first",
-  "version": "0.53.0",
+  "version": "0.54.0",
   "description": "A private, local-first reading and knowledge workspace for macOS.",
   "author": "Reader",
   "private": true,
@@ -13,6 +13,7 @@
     "start": "node src/server/server.mjs",
     "test": "node --test tests/*.test.mjs",
     "audit:dependencies": "node scripts/audit-dependencies.mjs",
+    "qa:loopback": "node scripts/verify-packaged-loopback.mjs",
     "qa:accessibility": "node scripts/verify-packaged-accessibility.mjs",
     "qa:share": "node scripts/verify-packaged-share.mjs",
     "qa:upgrade": "node scripts/verify-packaged-upgrade.mjs",
@@ -54,7 +55,7 @@
     "ws": "8.21.1"
   },
   "build": {
-    "buildVersion": "53",
+    "buildVersion": "54",
     "appId": "com.reader.localfirst",
     "productName": "Reader",
     "asar": true,

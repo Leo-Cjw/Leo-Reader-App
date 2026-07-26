@@ -117,18 +117,21 @@ test('current Reader migrates the frozen schema v11 database to v12 without crea
   assert.equal((await database.one('SELECT count(*) AS count FROM chunk_embedding_buckets;')).count, 0);
 });
 
-test('macOS release runs accessibility, Share and upgrade gates before producing the DMG', async () => {
+test('macOS release runs loopback, accessibility, Share and upgrade gates before producing the DMG', async () => {
   for (const script of [
+    'verify-packaged-loopback.mjs',
     'verify-packaged-accessibility.mjs',
     'verify-packaged-share.mjs',
     'verify-packaged-upgrade.mjs'
   ]) execFileSync(process.execPath, ['--check', path.join(projectRoot, 'scripts', script)]);
   const releaseScript = await readFile(path.join(projectRoot, 'scripts', 'build-mac-release.mjs'), 'utf8');
+  const loopback = releaseScript.indexOf('verify-packaged-loopback.mjs');
   const accessibility = releaseScript.indexOf('verify-packaged-accessibility.mjs');
   const share = releaseScript.indexOf('verify-packaged-share.mjs');
   const upgrade = releaseScript.indexOf('verify-packaged-upgrade.mjs');
   const dmg = releaseScript.indexOf('build-mac-dmg.mjs');
-  assert.ok(accessibility >= 0);
+  assert.ok(loopback >= 0);
+  assert.ok(accessibility > loopback);
   assert.ok(share > accessibility);
   assert.ok(upgrade > share);
   assert.ok(dmg > upgrade);
