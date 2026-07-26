@@ -43,8 +43,8 @@ test('Share Extension declares strict single URL or selected text activation and
   ], { encoding: 'utf8' }));
   assert.equal(plist.CFBundleIdentifier, 'com.reader.localfirst.share-extension');
   assert.equal(plist.CFBundlePackageType, 'XPC!');
-  assert.equal(plist.CFBundleShortVersionString, '0.45.0');
-  assert.equal(plist.CFBundleVersion, '45');
+  assert.equal(plist.CFBundleShortVersionString, '0.46.0');
+  assert.equal(plist.CFBundleVersion, '46');
   assert.equal(plist.LSMinimumSystemVersion, '12.0');
   assert.equal(plist.NSExtension.NSExtensionPointIdentifier, 'com.apple.share-services');
   assert.equal(plist.NSExtension.NSExtensionPrincipalClass, 'ReaderShareViewController');
@@ -70,7 +70,7 @@ test('mac packaging embeds, signs and verifies a Universal Share Extension witho
     '-convert', 'json', '-o', '-', path.join(projectRoot, 'native', 'entitlements.mac.plist')
   ], { encoding: 'utf8' }));
 
-  assert.equal(packageJSON.version, '0.45.0');
+  assert.equal(packageJSON.version, '0.46.0');
   assert.equal(packageJSON.scripts['share:mac'], 'node scripts/build-share-extension.mjs');
   assert.match(packageJSON.scripts['desktop:pack:x64'], /share:mac/);
   assert.deepEqual(appEntitlements, { 'com.apple.security.cs.allow-jit': true });

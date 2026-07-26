@@ -28,6 +28,28 @@ async function dispatchKey(client, key, code, nativeVirtualKeyCode) {
   await client.call('Input.dispatchKeyEvent', { ...params, type: 'keyUp' });
 }
 
+async function openIntermediateDialog(client, name, find, dialogLabel) {
+  const opened = await client.value(`(() => {
+    const candidate = ${find};
+    if (!(candidate instanceof HTMLElement)) return { found: false, focused: false };
+    candidate.focus();
+    const focused = document.activeElement === candidate;
+    candidate.click();
+    return { found: true, focused };
+  })()`);
+  assert.equal(opened.found, true, `找不到“${name}”入口`);
+  assert.equal(opened.focused, true, `“${name}”入口无法获得焦点`);
+  await waitFor(`${name}中间对话框`, async () => client.value(`(() => {
+    const dialogs = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')];
+    const dialog = dialogs.at(-1);
+    const label = dialog?.getAttribute('aria-label')
+      || (dialog?.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(' ');
+    return dialogs.length === 1 && label === ${JSON.stringify(dialogLabel)}
+      && dialog.contains(document.activeElement);
+  })()`));
+}
+
 async function verifyDialog(client, specification) {
   const opened = await client.value(`(() => {
     const candidate = ${specification.find};
@@ -190,9 +212,85 @@ try {
   ];
   for (const dialog of dialogs) await verifyDialog(client, dialog);
 
+  const additionalDialogs = [
+    {
+      name: 'Markdown 编辑器',
+      find: "document.querySelector('.reader-toolbar button[aria-label=\"编辑文章\"]')",
+      dialogLabel: 'Markdown 编辑器',
+      openerMatch: '.reader-toolbar button[aria-label="编辑文章"]'
+    },
+    {
+      name: '版本历史',
+      find: "document.querySelector('.reader-toolbar button[aria-label=\"查看版本历史\"]')",
+      dialogLabel: '版本历史',
+      openerMatch: '.reader-toolbar button[aria-label="查看版本历史"]'
+    }
+  ];
+  for (const dialog of additionalDialogs) await verifyDialog(client, dialog);
+
+  const selected = await client.value(`(() => {
+    const button = document.querySelector('button[aria-label="选择已加载内容"]');
+    if (!(button instanceof HTMLButtonElement)) return false;
+    button.focus();
+    button.click();
+    return true;
+  })()`);
+  assert.equal(selected, true, '无法进入批量选择以验证创作与导出窗口');
+  await waitFor('批量工具栏', async () => client.value(
+    "document.querySelector('.batch-toolbar') !== null && document.querySelector('button[aria-label=\"取消选择\"]') !== null"
+  ));
+  await verifyDialog(client, {
+    name: '二次创作',
+    find: "document.querySelector('.batch-toolbar > button[aria-label=\"使用已选内容创作\"]')",
+    dialogLabel: '从 3 篇资料开始创作',
+    openerMatch: '.batch-toolbar > button[aria-label="使用已选内容创作"]',
+    initialFocus: { tag: 'H2', text: '从 3 篇资料开始创作' }
+  });
+  await verifyDialog(client, {
+    name: '导出资料包',
+    find: "document.querySelector('.batch-toolbar > button[aria-label=\"导出已选内容\"]')",
+    dialogLabel: '导出资料包',
+    openerMatch: '.batch-toolbar > button[aria-label="导出已选内容"]'
+  });
+  await client.value(`(() => {
+    const button = document.querySelector('button[aria-label="取消选择"]');
+    if (!(button instanceof HTMLButtonElement)) throw new Error('找不到取消选择按钮');
+    button.click();
+    return true;
+  })()`);
+  await waitFor('退出批量选择', async () => client.value("document.querySelector('.batch-toolbar') === null"));
+
+  await openIntermediateDialog(
+    client,
+    '订阅管理',
+    "document.querySelector('button[aria-label=\"管理订阅\"]')",
+    '订阅管理'
+  );
+  await verifyDialog(client, {
+    name: '社交连接器',
+    find: "[...document.querySelectorAll('[role=\"dialog\"] button')].find((button) => button.textContent?.trim() === '连接器')",
+    dialogLabel: '社交连接器',
+    openerMatch: 'button[aria-label="管理订阅"]',
+    initialFocus: { tag: 'H2', text: '社交连接器' }
+  });
+
+  await openIntermediateDialog(
+    client,
+    '数据安全中心',
+    "document.querySelector('.local-status')",
+    '数据安全中心'
+  );
+  await verifyDialog(client, {
+    name: '本地运行日志',
+    find: "[...document.querySelectorAll('[role=\"dialog\"] button')].find((button) => button.textContent?.trim() === '查看本地日志')",
+    dialogLabel: '本地运行日志',
+    openerMatch: '.local-status'
+  });
+
+  assert.equal(dialogs.length + additionalDialogs.length + 4, 14, '最终包必须覆盖全部 14 个顶层模态框');
   console.log(`Reader ${health.version} 打包可访问性门禁通过`);
   console.log(`AX exposed nodes=${workspaceTree.length}`);
-  console.log(`dialogs=${dialogs.length}`);
+  console.log('dialogs=14');
   console.log('unnamed interactive controls=0');
   console.log('temporary data isolated=true');
 } finally {

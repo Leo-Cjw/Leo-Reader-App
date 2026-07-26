@@ -306,9 +306,16 @@ test('modal dialogs isolate background and lower dialog layers while preserving 
   assert.match(app, /\(label \|\| focusableElements\(dialog\)\[0\] \|\| dialog\)\.focus\(\)/);
   assert.match(app, /if \(dialog && !dialog\.contains\(target\)\)/);
   assert.match(app, /\(focusableElements\(dialog\)\[0\] \|\| dialog\)\.focus\(\)/);
+  assert.match(app, /target !== document\.body/);
+  assert.match(app, /document\.addEventListener\('click', trackOutsideActivation, true\)/);
+  assert.match(app, /const restoreTarget = opener\?\.isConnected/);
   assert.match(app, /event\.key === 'Escape'/);
-  assert.match(app, /else if \(opener\?\.isConnected\)/);
   assert.match(app, /document\.querySelector<HTMLElement>\('\.app-window'\)\?\.removeAttribute\('inert'\)/);
+  const packagedGate = await readFile(path.join(projectRoot, 'scripts', 'verify-packaged-accessibility.mjs'), 'utf8');
+  assert.match(packagedGate, /dialogs\.length \+ additionalDialogs\.length \+ 4, 14/);
+  for (const label of ['Markdown 编辑器', '版本历史', '从 3 篇资料开始创作', '导出资料包', '社交连接器', '本地运行日志']) {
+    assert.match(packagedGate, new RegExp(label));
+  }
 });
 
 test('editor and highlights keep their declared keyboard and announcement contract', async () => {

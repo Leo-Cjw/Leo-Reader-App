@@ -260,7 +260,9 @@ function DialogAccessibilityManager() {
     let activeDialog: HTMLElement | null = null;
     let opener: HTMLElement | null = null;
     let reconcileFrame = 0;
-    let lastOutsideFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    let lastOutsideFocus = document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+      ? document.activeElement
+      : null;
     const modalDialogs = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];
     const topDialog = () => modalDialogs().at(-1) || null;
     const focusableElements = (dialog: HTMLElement) => [...dialog.querySelectorAll<HTMLElement>(dialogFocusableSelector)].filter((element) => element.getClientRects().length > 0);
@@ -274,15 +276,21 @@ function DialogAccessibilityManager() {
       appWindow?.toggleAttribute('inert', Boolean(dialog));
       for (const candidate of dialogs) candidate.toggleAttribute('inert', candidate !== dialog);
       if (dialog === activeDialog) return;
-      if (!activeDialog && dialog) opener = lastOutsideFocus;
+      if (!activeDialog && dialog) {
+        const current = document.activeElement;
+        opener = current instanceof HTMLElement && current !== document.body && !dialog.contains(current)
+          ? current
+          : lastOutsideFocus;
+      }
       activeDialog = dialog;
       if (dialog) {
         if (!dialog.hasAttribute('tabindex')) dialog.tabIndex = -1;
         const label = labelledElement(dialog);
         if (label && !label.hasAttribute('tabindex')) label.tabIndex = -1;
         if (!dialog.contains(document.activeElement)) (label || focusableElements(dialog)[0] || dialog).focus();
-      } else if (opener?.isConnected) {
-        opener.focus();
+      } else {
+        const restoreTarget = opener?.isConnected ? opener : lastOutsideFocus?.isConnected ? lastOutsideFocus : null;
+        if (restoreTarget && restoreTarget !== document.body) restoreTarget.focus();
         opener = null;
       }
     };
@@ -298,7 +306,12 @@ function DialogAccessibilityManager() {
         (focusableElements(dialog)[0] || dialog).focus();
         return;
       }
-      if (!dialog) lastOutsideFocus = target;
+      if (!dialog && target !== document.body) lastOutsideFocus = target;
+    };
+    const trackOutsideActivation = (event: MouseEvent) => {
+      if (topDialog()) return;
+      const target = event.target instanceof Element ? event.target.closest<HTMLElement>('button, a[href], input, select, textarea, [tabindex]') : null;
+      if (target && target !== document.body) lastOutsideFocus = target;
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       const dialog = topDialog();
@@ -329,11 +342,13 @@ function DialogAccessibilityManager() {
     const observer = new MutationObserver(scheduleReconcile);
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener('focusin', trackOutsideFocus, true);
+    document.addEventListener('click', trackOutsideActivation, true);
     document.addEventListener('keydown', handleKeyDown, true);
     reconcile();
     return () => {
       observer.disconnect();
       document.removeEventListener('focusin', trackOutsideFocus, true);
+      document.removeEventListener('click', trackOutsideActivation, true);
       document.removeEventListener('keydown', handleKeyDown, true);
       window.cancelAnimationFrame(reconcileFrame);
       document.querySelector<HTMLElement>('.app-window')?.removeAttribute('inert');
@@ -500,7 +515,7 @@ function ArticleList({ articles, total, hasMore, loadingMore, onLoadMore, select
       })}
       {hasMore && <div className="load-more-row"><button className="button" type="button" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? '正在加载…' : '加载更多'}</button><span>还有 {(total - articles.length).toLocaleString()} 条内容</span></div>}
     </div>
-    {selectedIds.size > 0 && <div className="batch-toolbar" aria-label="批量整理"><div className="batch-count"><strong>{selectedIds.size}</strong><span>条已选</span></div><button type="button" className="button primary" onClick={onCompose}>✦ 创作</button><select aria-label="批量移动到资料夹" defaultValue="" onChange={(event) => { if (event.target.value) onBatch({ collection_id: event.target.value }, `已移动 ${selectedIds.size} 条内容`); event.currentTarget.value = ''; }}><option value="" disabled>移动到…</option>{collectionRows.map((collection) => <option key={collection.id} value={collection.id}>{'— '.repeat(collection.depth)}{collection.name}</option>)}</select><button type="button" className="button" onClick={() => onBatch({ is_favorite: true }, `已收藏 ${selectedIds.size} 条内容`)}>收藏</button><button type="button" className="button" onClick={() => onBatch({ is_read: true }, `已标记 ${selectedIds.size} 条为已读`)}>已读</button><button type="button" className="button" onClick={onExport}>导出</button><span className="batch-tag"><input aria-label="批量添加标签" value={batchTag} onChange={(event) => setBatchTag(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && submitBatchTag()} placeholder="＋ 标签"/><button type="button" onClick={submitBatchTag}>添加</button></span>{tags.length > 0 && <select aria-label="批量移除标签" defaultValue="" onChange={(event) => { if (event.target.value) onBatch({ tags_remove: [event.target.value] }, `已移除标签 ${event.target.value}`); event.currentTarget.value = ''; }}><option value="" disabled>移除标签…</option>{tags.map((tag) => <option key={tag.id} value={tag.name}>{tag.name}</option>)}</select>}<button type="button" className={`button ${archiveView ? '' : 'danger'}`} onClick={() => onBatch({ archived: !archiveView }, archiveView ? `已恢复 ${selectedIds.size} 条内容` : `已归档 ${selectedIds.size} 条内容`)}>{archiveView ? '恢复' : '归档'}</button></div>}
+    {selectedIds.size > 0 && <div className="batch-toolbar" aria-label="批量整理"><div className="batch-count"><strong>{selectedIds.size}</strong><span>条已选</span></div><button type="button" className="button primary" aria-label="使用已选内容创作" onClick={onCompose}>✦ 创作</button><select aria-label="批量移动到资料夹" defaultValue="" onChange={(event) => { if (event.target.value) onBatch({ collection_id: event.target.value }, `已移动 ${selectedIds.size} 条内容`); event.currentTarget.value = ''; }}><option value="" disabled>移动到…</option>{collectionRows.map((collection) => <option key={collection.id} value={collection.id}>{'— '.repeat(collection.depth)}{collection.name}</option>)}</select><button type="button" className="button" onClick={() => onBatch({ is_favorite: true }, `已收藏 ${selectedIds.size} 条内容`)}>收藏</button><button type="button" className="button" onClick={() => onBatch({ is_read: true }, `已标记 ${selectedIds.size} 条为已读`)}>已读</button><button type="button" className="button" aria-label="导出已选内容" onClick={onExport}>导出</button><span className="batch-tag"><input aria-label="批量添加标签" value={batchTag} onChange={(event) => setBatchTag(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && submitBatchTag()} placeholder="＋ 标签"/><button type="button" onClick={submitBatchTag}>添加</button></span>{tags.length > 0 && <select aria-label="批量移除标签" defaultValue="" onChange={(event) => { if (event.target.value) onBatch({ tags_remove: [event.target.value] }, `已移除标签 ${event.target.value}`); event.currentTarget.value = ''; }}><option value="" disabled>移除标签…</option>{tags.map((tag) => <option key={tag.id} value={tag.name}>{tag.name}</option>)}</select>}<button type="button" className={`button ${archiveView ? '' : 'danger'}`} onClick={() => onBatch({ archived: !archiveView }, archiveView ? `已恢复 ${selectedIds.size} 条内容` : `已归档 ${selectedIds.size} 条内容`)}>{archiveView ? '恢复' : '归档'}</button></div>}
   </section>;
 }
 
@@ -777,8 +792,8 @@ function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDis
       {!readOnly && <button className={`button ${article.archived ? '' : 'quiet-danger'}`} type="button" onClick={() => void onPatch({ archived: !article.archived })}>{article.archived ? '恢复' : '归档'}</button>}
       <button className="button" type="button" onClick={focusAnnotations}>高亮 <span className="button-count">{highlights.length}</span></button>
       {!readOnly && <><button ref={keyboardSelectionButtonRef} className="button" type="button" aria-pressed={keyboardSelectionMode} onClick={keyboardSelectionMode ? exitKeyboardSelection : startKeyboardSelection}>键盘选取</button>
-        <button className="button" type="button" onClick={onHistory}>历史 <span className="button-count">{article.revision_count || 1}</span></button>
-        <button className="button" type="button" onClick={onEdit}>编辑 <kbd>⌘E</kbd></button>
+        <button className="button" type="button" aria-label="查看版本历史" onClick={onHistory}>历史 <span className="button-count">{article.revision_count || 1}</span></button>
+        <button className="button" type="button" aria-label="编辑文章" onClick={onEdit}>编辑 <kbd>⌘E</kbd></button>
         {onOpenWindow && <button className="button" type="button" onClick={onOpenWindow}>新窗口</button>}
       </>}
       {article.url && <a className="button" href={article.url} target="_blank" rel="noreferrer">原文 ↗</a>}
