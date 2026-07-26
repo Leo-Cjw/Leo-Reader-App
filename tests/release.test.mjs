@@ -15,16 +15,16 @@ const projectRoot = path.resolve(import.meta.dirname, '..');
 const lipo = path.join(projectRoot, 'scripts', 'toolchain', 'lipo');
 
 test('macOS release metadata requires one numeric version and build identity for every bundle', () => {
-  const metadata = releaseBundleMetadata({ version: '0.63.0', build: { buildVersion: '63' } });
-  assert.deepEqual(metadata, { version: '0.63.0', buildVersion: '63' });
+  const metadata = releaseBundleMetadata({ version: '0.64.0', build: { buildVersion: '64' } });
+  assert.deepEqual(metadata, { version: '0.64.0', buildVersion: '64' });
   assert.doesNotThrow(() => assertBundleMetadata({
-    CFBundleShortVersionString: '0.63.0',
-    CFBundleVersion: '63'
+    CFBundleShortVersionString: '0.64.0',
+    CFBundleVersion: '64'
   }, 'Reader Share Extension', metadata));
   assert.throws(() => releaseBundleMetadata({ version: '0.56', build: { buildVersion: '56' } }), /三段数字/);
-  assert.throws(() => releaseBundleMetadata({ version: '0.63.0', build: { buildVersion: '0' } }), /正整数/);
+  assert.throws(() => releaseBundleMetadata({ version: '0.64.0', build: { buildVersion: '0' } }), /正整数/);
   assert.throws(() => assertBundleMetadata({
-    CFBundleShortVersionString: '0.63.0',
+    CFBundleShortVersionString: '0.64.0',
     CFBundleVersion: '58'
   }, 'Reader Spotlight Helper', metadata), /构建号不一致/);
 });
@@ -41,7 +41,7 @@ test('native bundle templates match the canonical package release identity', asy
   }
 });
 
-function fakeReleaseMetadata(version = '0.63.0', buildVersion = '63') {
+function fakeReleaseMetadata(version = '0.64.0', buildVersion = '64') {
   return {
     version,
     build: {
@@ -59,7 +59,7 @@ const cleanSource = {
 
 test('ad-hoc release manifest atomically records and verifies only the DMG identity', async () => {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'reader-release-manifest-'));
-  const dmgName = 'Reader-0.63.0-universal.dmg';
+  const dmgName = 'Reader-0.64.0-universal.dmg';
   await writeFile(path.join(temporary, dmgName), 'reader-dmg-fixture');
 
   const { manifest, manifestPath } = await writeMacReleaseManifest({
@@ -95,7 +95,7 @@ test('ad-hoc release manifest atomically records and verifies only the DMG ident
 
 test('release manifest verification rejects artifact tampering', async () => {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'reader-release-tamper-'));
-  const dmgPath = path.join(temporary, 'Reader-0.63.0-universal.dmg');
+  const dmgPath = path.join(temporary, 'Reader-0.64.0-universal.dmg');
   await writeFile(dmgPath, 'original-reader-dmg');
   const { manifestPath } = await writeMacReleaseManifest({
     projectRoot,
@@ -128,8 +128,8 @@ test('notarized release manifest requires a clean source and both distributable 
   );
 
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'reader-release-notarized-'));
-  await writeFile(path.join(temporary, 'Reader-0.63.0-universal.dmg'), 'notarized-reader-dmg');
-  await writeFile(path.join(temporary, 'Reader-0.63.0-darwin-universal.zip'), 'notarized-reader-update');
+  await writeFile(path.join(temporary, 'Reader-0.64.0-universal.dmg'), 'notarized-reader-dmg');
+  await writeFile(path.join(temporary, 'Reader-0.64.0-darwin-universal.zip'), 'notarized-reader-update');
   const { manifest } = await writeMacReleaseManifest({
     projectRoot,
     releaseRoot: temporary,

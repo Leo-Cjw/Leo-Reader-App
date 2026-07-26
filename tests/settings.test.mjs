@@ -200,6 +200,62 @@ test('AI settings mutations preserve call order across settings and credential s
   assert.equal(aiService.status().remoteConfigured, true);
 });
 
+test('AI settings reads wait for credential and settings changes to commit together', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-ai-settings-read-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const settingsStore = await new SettingsStore(path.join(dir, 'settings.json')).initialize();
+  const credentialStore = new MemoryCredentialStore();
+  const aiService = new AIService({ endpoint: '', apiKey: '' });
+  const manager = await new AISettingsManager({ settingsStore, credentialStore, aiService, environment: {} }).initialize();
+  const previousGateway = await createGateway(t);
+  const nextGateway = await createGateway(t);
+  await manager.update({
+    enabled: true,
+    provider: 'reader-gateway',
+    endpoint: previousGateway.endpoint,
+    model: '',
+    apiKey: 'previous-key'
+  });
+
+  const saveAI = settingsStore.saveAI.bind(settingsStore);
+  let markSaveStarted;
+  const saveStarted = new Promise((resolve) => { markSaveStarted = resolve; });
+  let allowSave;
+  const saveAllowed = new Promise((resolve) => { allowSave = resolve; });
+  settingsStore.saveAI = async (settings) => {
+    markSaveStarted();
+    await saveAllowed;
+    return await saveAI(settings);
+  };
+
+  const updating = manager.update({
+    enabled: true,
+    provider: 'reader-gateway',
+    endpoint: nextGateway.endpoint,
+    model: '',
+    apiKey: 'next-key'
+  });
+  await saveStarted;
+  let settingsReadSettled = false;
+  const settingsRead = manager.publicSettings().then((settings) => {
+    settingsReadSettled = true;
+    return settings;
+  });
+  const connectionTest = manager.test();
+  await new Promise((resolve) => setImmediate(resolve));
+  const settingsSettledDuringWrite = settingsReadSettled;
+  allowSave();
+
+  await updating;
+  const [settings, tested] = await Promise.all([settingsRead, connectionTest]);
+  assert.equal(settingsSettledDuringWrite, false);
+  assert.equal(settings.endpoint, nextGateway.endpoint);
+  assert.equal(tested.ok, true);
+  assert.equal(previousGateway.requests.length, 0);
+  assert.equal(nextGateway.requests.length, 1);
+  assert.equal(nextGateway.requests[0].authorization, 'Bearer next-key');
+});
+
 test('AI settings reset restores credentials after a settings failure and remains usable', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-ai-settings-reset-'));
   t.after(() => rm(dir, { recursive: true, force: true }));

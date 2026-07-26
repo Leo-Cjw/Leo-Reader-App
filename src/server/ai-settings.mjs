@@ -63,10 +63,15 @@ export class AISettingsManager {
       model: this.effective.model, apiKey: this.effective.apiKey,
       source: this.effective.source, credentialBackend: this.credentialStore.describe().backend
     });
-    return this.publicSettings();
+    return this.publicSettingsSnapshot();
   }
 
   async publicSettings() {
+    await this.mutationQueue;
+    return await this.publicSettingsSnapshot();
+  }
+
+  async publicSettingsSnapshot() {
     const current = await this.resolve();
     const credential = this.credentialStore.describe();
     return {
@@ -144,6 +149,7 @@ export class AISettingsManager {
   }
 
   async test(input = {}) {
+    await this.mutationQueue;
     const current = await this.resolve();
     const configuration = normalizeAIConfiguration({
       enabled: true,
@@ -157,6 +163,7 @@ export class AISettingsManager {
   }
 
   async models(input = {}) {
+    await this.mutationQueue;
     const current = await this.resolve();
     const configuration = normalizeAIConfiguration({
       enabled: true,
