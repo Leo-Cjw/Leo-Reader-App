@@ -129,10 +129,17 @@ test('macOS release runs loopback, accessibility, Share and upgrade gates before
   const accessibility = releaseScript.indexOf('verify-packaged-accessibility.mjs');
   const share = releaseScript.indexOf('verify-packaged-share.mjs');
   const upgrade = releaseScript.indexOf('verify-packaged-upgrade.mjs');
+  const formalPreflight = releaseScript.indexOf('readGitSourceState(projectRoot).trackedChanges');
+  const applicationBuild = releaseScript.indexOf("run('npm', ['run', 'build'])");
   const dmg = releaseScript.indexOf('build-mac-dmg.mjs');
+  const update = releaseScript.indexOf('build-mac-update.mjs');
+  const manifest = releaseScript.lastIndexOf('writeMacReleaseManifest({');
   assert.ok(loopback >= 0);
   assert.ok(accessibility > loopback);
   assert.ok(share > accessibility);
   assert.ok(upgrade > share);
+  assert.ok(formalPreflight >= 0 && applicationBuild > formalPreflight);
   assert.ok(dmg > upgrade);
+  assert.ok(update > dmg);
+  assert.ok(manifest > update);
 });

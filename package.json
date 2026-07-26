@@ -1,6 +1,6 @@
 {
   "name": "reader-local-first",
-  "version": "0.56.0",
+  "version": "0.57.0",
   "description": "A private, local-first reading and knowledge workspace for macOS.",
   "author": "Reader",
   "private": true,
@@ -24,6 +24,7 @@
     "desktop:pack:x64": "npm run build && npm run icon:mac && npm run spotlight:mac && npm run share:mac && electron-builder --mac dir --x64",
     "desktop:pack": "node scripts/build-mac-release.mjs",
     "desktop:dmg": "node scripts/build-mac-dmg.mjs",
+    "release:manifest": "node scripts/build-release-manifest.mjs",
     "spotlight:mac": "node scripts/build-spotlight-helper.mjs",
     "share:mac": "node scripts/build-share-extension.mjs"
   },
@@ -55,7 +56,7 @@
     "ws": "8.21.1"
   },
   "build": {
-    "buildVersion": "56",
+    "buildVersion": "57",
     "appId": "com.reader.localfirst",
     "productName": "Reader",
     "asar": true,

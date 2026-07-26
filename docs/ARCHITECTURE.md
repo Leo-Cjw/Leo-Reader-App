@@ -248,6 +248,8 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 签名版本启动一分钟后检查一次，之后每六小时检查；手动检查复用同一串行状态，不会并发重复下载。更新下载完成后必须由用户确认，Reader 会先停止后台协调器、导入/订阅 worker、诊断缓冲与本地 HTTP 服务，再调用系统更新安装。资料库仍位于独立的 Application Support 目录，不进入更新包。
 
+0.57.0 在 DMG/更新 ZIP 完成全部既有验证后生成 format v1 机器可读发行清单与标准 SHA-256 sidecar。清单只使用产物 basename，固定记录单一产品/版本/构建号、schema、appId、平台/Universal 架构、Electron、签名等级、40 位 Git 提交、已跟踪改动状态，以及产物字节数和流式 SHA-256；不记录时间、本机路径、用户、签名 identity、Keychain 或公证 profile。写入先落到同目录临时名，再原子替换最终文件，清单最后写入作为集合提交点；随后重新读取每个产物和 sidecar 自校验。Developer ID 公证模式要求源码没有已跟踪改动且 DMG/更新 ZIP 同时存在，否则在形成清单前 fail closed；ad-hoc 模式只声明 DMG，并拒绝同版本残留更新 ZIP。未跟踪的本机工具目录不进入源码状态，也不会泄露进清单。
+
 0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。0.53 把 `package.json` 的 `version` 与 Electron Builder 实际消费的正整数 `build.buildVersion` 设为 macOS 三个 bundle 的唯一发行身份：Share Extension 和 Spotlight helper 在临时构建副本签名前自动盖印这两个值，不修改源码模板；Universal 合并后再从主 App、Share Extension 与 Spotlight helper 的真实 `Info.plist` 回读并要求 `CFBundleShortVersionString`/`CFBundleVersion` 完全一致，漂移会在签名、DMG 和发布之前 fail closed。源码测试也要求两个原生模板与当前发行身份一致，便于审阅和避免下次版本升级遗漏。
 
 当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：

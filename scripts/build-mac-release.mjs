@@ -7,6 +7,12 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { notarize } from '@electron/notarize';
+import { SCHEMA_VERSION } from '../src/server/schema.mjs';
+import {
+  readGitSourceState,
+  RELEASE_SIGNATURES,
+  writeMacReleaseManifest
+} from './lib/release-manifest.mjs';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const releaseRoot = path.join(projectRoot, 'release');
@@ -17,6 +23,15 @@ const mirror = (process.env.READER_ELECTRON_MIRROR || 'https://npmmirror.com/mir
 const electronMetadata = JSON.parse(await readFile(path.join(projectRoot, 'node_modules', 'electron', 'package.json'), 'utf8'));
 const electronVersion = electronMetadata.version;
 const checksums = JSON.parse(await readFile(path.join(projectRoot, 'node_modules', 'electron', 'checksums.json'), 'utf8'));
+const notaryProfile = process.env.READER_NOTARY_KEYCHAIN_PROFILE?.trim();
+if (notaryProfile) {
+  if (!process.env.READER_MAC_SIGN_IDENTITY?.trim()) {
+    throw new Error('公证要求同时设置 READER_MAC_SIGN_IDENTITY');
+  }
+  if (readGitSourceState(projectRoot).trackedChanges) {
+    throw new Error('Developer ID 公证发行禁止包含未提交的已跟踪改动');
+  }
+}
 
 function run(command, args, options = {}) {
   console.log(`\n> ${path.basename(command)} ${args.join(' ')}`);
@@ -124,12 +139,8 @@ const packageMetadata = JSON.parse(await readFile(path.join(projectRoot, 'packag
 const appPath = path.join(releaseRoot, 'mac-universal', 'Reader.app');
 const dmgPath = path.join(releaseRoot, `Reader-${packageMetadata.version}-universal.dmg`);
 const updatePath = path.join(releaseRoot, `Reader-${packageMetadata.version}-darwin-universal.zip`);
-const notaryProfile = process.env.READER_NOTARY_KEYCHAIN_PROFILE?.trim();
 await rm(updatePath, { force: true });
 if (notaryProfile) {
-  if (!process.env.READER_MAC_SIGN_IDENTITY?.trim()) {
-    throw new Error('公证要求同时设置 READER_MAC_SIGN_IDENTITY');
-  }
   await notarize({
     appPath,
     keychainProfile: notaryProfile,
@@ -152,6 +163,14 @@ if (notaryProfile) {
 } else {
   console.log('\n当前 DMG 未公证；仅用于本机验证，不作为自动更新源。');
 }
+const { manifest, manifestPath } = await writeMacReleaseManifest({
+  projectRoot,
+  releaseRoot,
+  packageMetadata,
+  schemaVersion: SCHEMA_VERSION,
+  electronVersion,
+  signature: notaryProfile ? RELEASE_SIGNATURES.NOTARIZED : RELEASE_SIGNATURES.AD_HOC
+});
 const dmgInfo = await stat(dmgPath);
 console.log('\nReader macOS 通用发行包已完成：');
 console.log(appPath);
@@ -159,4 +178,8 @@ console.log(`${dmgPath} (${dmgInfo.size} bytes)`);
 if (notaryProfile) {
   const updateInfo = await stat(updatePath);
   console.log(`${updatePath} (${updateInfo.size} bytes)`);
+}
+console.log(manifestPath);
+for (const artifact of manifest.artifacts) {
+  console.log(`${artifact.fileName}.sha256`);
 }

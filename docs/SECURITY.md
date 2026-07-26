@@ -214,4 +214,4 @@ npm run qa:share
 npm run qa:upgrade
 ```
 
-0.56.0 的依赖审计、148 项自动测试、词法/多探针向量双性能门禁、确定性语义分离/近邻召回集、最终包版本身份、回环监听/来源/响应策略、AX、Share 和跨版本升级门禁均记录在对应发行说明。新增回归要求 API、恶意 Host 错误、静态 HTML 与附件 Range 响应均携带七项统一安全头，最终候选 App 也直接回读同一契约；0.55 的非回环环境覆盖和 0.54 的 DNS rebinding Host、恶意 Origin、Fetch Metadata、零写入与精确同源请求门禁继续执行。0.53 的 Bundle 发行身份、0.52 的创建时备份验证、0.51 的自动恢复点和全部既有恢复门禁也继续执行。0.56.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。
+0.57.0 的依赖审计、151 项自动测试、词法/多探针向量双性能门禁、确定性语义分离/近邻召回集、最终包版本身份、发行清单与 sidecar 自校验、回环监听/来源/响应策略、AX、Share 和跨版本升级门禁均记录在对应发行说明。新增回归用伪 DMG/ZIP 验证清单字段、无路径泄露、篡改拒绝、正式发行 clean-source 约束和构建顺序；真实 Universal DMG 也通过 sidecar 独立校验。0.56 的七项统一 HTTP 安全头、0.55 的非回环环境覆盖、0.54 的 DNS rebinding Host/恶意 Origin/Fetch Metadata/零写入与精确同源请求，以及 0.53 的 Bundle 发行身份、0.52 的创建时备份验证、0.51 的自动恢复点和全部既有恢复门禁继续执行。0.57.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。
