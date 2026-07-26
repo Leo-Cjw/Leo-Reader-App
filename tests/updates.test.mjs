@@ -214,10 +214,10 @@ test('downloaded update prompts and installation are single-flight across concur
   });
   await harness.controller.start();
 
-  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.62.0');
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.63.0');
   await cleanupStarted;
   const concurrentCheck = harness.controller.check(true);
-  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.62.0');
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.63.0');
   await flushEvents();
   try {
     assert.equal(harness.messages.filter((message) => message.title === 'Reader 更新已就绪').length, 1);
@@ -242,7 +242,7 @@ test('update install launch failure exits after completed cleanup instead of lea
     quitAndInstallError: new Error('simulated updater launch failure')
   });
   await harness.controller.start();
-  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.62.0');
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.63.0');
   await flushEvents();
 
   assert.deepEqual(harness.installOrder, ['cleanup', 'install', 'quit']);
@@ -260,7 +260,7 @@ test('failed pre-install cleanup remains visible and retryable without starting 
     }
   });
   await harness.controller.start();
-  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.62.0');
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.63.0');
   await flushEvents();
 
   assert.equal(harness.installs, 0);

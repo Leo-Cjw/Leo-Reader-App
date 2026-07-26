@@ -159,6 +159,76 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   assert.equal(settingsStore.getNotifications().sourceSyncEnabled, true);
 });
 
+test('AI settings mutations preserve call order across settings and credential storage', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-ai-settings-concurrent-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const settingsStore = await new SettingsStore(path.join(dir, 'settings.json')).initialize();
+  const credentialStore = new MemoryCredentialStore();
+  let markFirstCredentialWriteStarted;
+  const firstCredentialWriteStarted = new Promise((resolve) => { markFirstCredentialWriteStarted = resolve; });
+  credentialStore.set = async function set(value) {
+    if (value === 'first-key') {
+      markFirstCredentialWriteStarted();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    this.value = value;
+  };
+  const aiService = new AIService({ endpoint: '', apiKey: '' });
+  const manager = await new AISettingsManager({ settingsStore, credentialStore, aiService, environment: {} }).initialize();
+
+  const first = manager.update({
+    enabled: true,
+    provider: 'reader-gateway',
+    endpoint: 'https://first.example/respond',
+    model: '',
+    apiKey: 'first-key'
+  });
+  await firstCredentialWriteStarted;
+  const second = manager.update({
+    enabled: true,
+    provider: 'reader-gateway',
+    endpoint: 'https://second.example/respond',
+    model: '',
+    apiKey: 'second-key'
+  });
+  await Promise.all([first, second]);
+
+  const saved = await manager.publicSettings();
+  assert.equal(saved.endpoint, 'https://second.example/respond');
+  assert.equal(settingsStore.getAI().endpoint, 'https://second.example/respond');
+  assert.equal(credentialStore.value, 'second-key');
+  assert.equal(aiService.status().remoteConfigured, true);
+});
+
+test('AI settings reset restores credentials after a settings failure and remains usable', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-ai-settings-reset-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const settingsStore = await new SettingsStore(path.join(dir, 'settings.json')).initialize();
+  const credentialStore = new MemoryCredentialStore();
+  const aiService = new AIService({ endpoint: '', apiKey: '' });
+  const manager = await new AISettingsManager({ settingsStore, credentialStore, aiService, environment: {} }).initialize();
+  await manager.update({
+    enabled: true,
+    provider: 'reader-gateway',
+    endpoint: 'https://reader.example/respond',
+    model: '',
+    apiKey: 'preserved-key'
+  });
+
+  const resetAI = settingsStore.resetAI.bind(settingsStore);
+  settingsStore.resetAI = async () => { throw new Error('simulated settings reset failure'); };
+  await assert.rejects(() => manager.reset(), /simulated settings reset failure/);
+  assert.equal(credentialStore.value, 'preserved-key');
+  assert.equal(settingsStore.getAI().configured, true);
+  assert.equal(aiService.status().remoteConfigured, true);
+
+  settingsStore.resetAI = resetAI;
+  const reset = await manager.reset();
+  assert.equal(reset.configured, false);
+  assert.equal(credentialStore.value, null);
+  assert.equal(aiService.status().remoteConfigured, false);
+});
+
 test('settings saves serialize concurrent updates and continue after one write fails', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-settings-concurrent-'));
   t.after(() => rm(dir, { recursive: true, force: true }));

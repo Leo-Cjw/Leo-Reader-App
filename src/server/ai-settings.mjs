@@ -18,6 +18,7 @@ export class AISettingsManager {
     this.aiService = aiService;
     this.environment = environment || {};
     this.effective = { enabled: false, provider: 'reader-gateway', endpoint: '', model: '', apiKey: '', source: 'local' };
+    this.mutationQueue = Promise.resolve();
   }
 
   async initialize() {
@@ -85,7 +86,17 @@ export class AISettingsManager {
     };
   }
 
-  async update(input = {}) {
+  enqueueMutation(mutation) {
+    const operation = this.mutationQueue.then(mutation);
+    this.mutationQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  update(input = {}) {
+    return this.enqueueMutation(() => this.performUpdate(input));
+  }
+
+  async performUpdate(input = {}) {
     const configuration = normalizeAIConfiguration(input);
     const previous = await this.resolve();
     const wantsNewKey = typeof input.apiKey === 'string' && input.apiKey.length > 0;
@@ -113,10 +124,22 @@ export class AISettingsManager {
     return await this.apply();
   }
 
-  async reset() {
-    const stored = this.settingsStore.getAI();
-    if (stored.hasApiKey) await this.credentialStore.delete();
-    await this.settingsStore.resetAI();
+  reset() {
+    return this.enqueueMutation(() => this.performReset());
+  }
+
+  async performReset() {
+    const previous = await this.resolve();
+    let credentialDeleted = false;
+    try {
+      if (previous.stored.hasApiKey) credentialDeleted = await this.credentialStore.delete();
+      await this.settingsStore.resetAI();
+    } catch (error) {
+      if (credentialDeleted && previous.apiKey) {
+        await this.credentialStore.set(previous.apiKey).catch(() => {});
+      }
+      throw error;
+    }
     return await this.apply();
   }
 

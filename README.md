@@ -1,4 +1,4 @@
-# Reader for Mac 0.62.0
+# Reader for Mac 0.63.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.62.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.63.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -239,4 +239,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.62.0 变更见 [docs/RELEASE_NOTES_0.62.0.md](docs/RELEASE_NOTES_0.62.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.63.0 变更见 [docs/RELEASE_NOTES_0.63.0.md](docs/RELEASE_NOTES_0.63.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
