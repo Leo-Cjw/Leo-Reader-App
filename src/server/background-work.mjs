@@ -27,11 +27,12 @@ function semanticPauseReasons(state) {
   return reasons;
 }
 
-export function createBackgroundWorkPolicy(importWorker, sourceScheduler, semanticSearch = null) {
+export function createBackgroundWorkPolicy(importWorker, sourceScheduler, semanticSearch = null, automaticBackups = null) {
   let state = { ...initialState };
   let importsPaused = false;
   let sourceSyncPaused = false;
   let semanticSearchPaused = false;
+  let automaticBackupsPaused = false;
   let updateQueue = Promise.resolve();
 
   function snapshot() {
@@ -48,9 +49,11 @@ export function createBackgroundWorkPolicy(importWorker, sourceScheduler, semant
       importsPaused,
       sourceSyncPaused,
       semanticSearchPaused,
+      automaticBackupsPaused,
       importPauseReasons,
       sourceSyncPauseReasons,
-      semanticSearchPauseReasons
+      semanticSearchPauseReasons,
+      automaticBackupPauseReasons: semanticSearchPauseReasons
     };
   }
 
@@ -58,7 +61,12 @@ export function createBackgroundWorkPolicy(importWorker, sourceScheduler, semant
     const shouldPauseImports = pauseReasons(state).length > 0;
     const shouldPauseSourceSync = pauseReasons(state, true).length > 0;
     const shouldPauseSemanticSearch = semanticPauseReasons(state).length > 0;
+    const shouldPauseAutomaticBackups = semanticPauseReasons(state).length > 0;
 
+    if (shouldPauseAutomaticBackups && !automaticBackupsPaused) {
+      await automaticBackups?.pause?.();
+      automaticBackupsPaused = true;
+    }
     if (shouldPauseSemanticSearch && !semanticSearchPaused) {
       await semanticSearch?.pause?.();
       semanticSearchPaused = true;
@@ -82,6 +90,10 @@ export function createBackgroundWorkPolicy(importWorker, sourceScheduler, semant
     if (!shouldPauseSemanticSearch && semanticSearchPaused) {
       semanticSearch?.resume?.();
       semanticSearchPaused = false;
+    }
+    if (!shouldPauseAutomaticBackups && automaticBackupsPaused) {
+      automaticBackups?.resume?.();
+      automaticBackupsPaused = false;
     }
     return snapshot();
   }

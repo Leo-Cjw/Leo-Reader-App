@@ -181,7 +181,9 @@ export async function createBackup({ database, rootDir, appVersion = '0.12.0', r
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
     const id = randomUUID();
     const encrypted = Boolean(passphrase);
-    const fileName = `reader-backup-${timestampSlug()}-${id}.readerbackup.${encrypted ? 'enc' : 'zip'}`;
+    const automatic = reason === 'automatic';
+    if (automatic && encrypted) throw Object.assign(new Error('自动恢复点不能保存口令或创建加密备份'), { status: 400 });
+    const fileName = `${automatic ? 'reader-auto-backup' : 'reader-backup'}-${timestampSlug()}-${id}.readerbackup.${encrypted ? 'enc' : 'zip'}`;
     const archivePath = path.join(backupsDir, fileName);
     if (encrypted) {
       const plainArchive = path.join(staging, 'payload.readerbackup.zip');
@@ -190,7 +192,7 @@ export async function createBackup({ database, rootDir, appVersion = '0.12.0', r
       await unlink(plainArchive);
     } else await writeZip({ snapshot, manifestPath, stagedFiles, archivePath });
     const info = await stat(archivePath);
-    return { id, file_name: fileName, byte_size: info.size, sha256: await hashFile(archivePath), created_at: manifest.createdAt, reason, encrypted, manifest };
+    return { id, file_name: fileName, byte_size: info.size, sha256: await hashFile(archivePath), created_at: manifest.createdAt, reason, encrypted, automatic, manifest };
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
@@ -201,12 +203,23 @@ export async function listBackups(rootDir) {
   if (!(await exists(backupsDir))) return [];
   const rows = [];
   for (const entry of await readdir(backupsDir, { withFileTypes: true })) {
-    const match = entry.isFile() && entry.name.match(/^reader-backup-(.+)-([0-9a-f-]{36})\.readerbackup\.(zip|enc)$/i);
+    const match = entry.isFile() && entry.name.match(/^reader-(auto-)?backup-(.+)-([0-9a-f-]{36})\.readerbackup\.(zip|enc)$/i);
     if (!match) continue;
     const info = await stat(path.join(backupsDir, entry.name));
-    rows.push({ id: match[2], file_name: entry.name, byte_size: info.size, created_at: info.birthtime.toISOString(), encrypted: match[3].toLowerCase() === 'enc' });
+    rows.push({ id: match[3], file_name: entry.name, byte_size: info.size, created_at: info.birthtime.toISOString(), encrypted: match[4].toLowerCase() === 'enc', automatic: Boolean(match[1]) });
   }
   return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export async function pruneAutomaticBackups(rootDir, retain = 3) {
+  const safeRetain = Math.min(Math.max(Number(retain) || 3, 1), 20);
+  const automatic = (await listBackups(rootDir)).filter((backup) => backup.automatic);
+  const removed = [];
+  for (const backup of automatic.slice(safeRetain)) {
+    await unlink(path.join(rootDir, 'data', 'backups', backup.file_name));
+    removed.push(backup.id);
+  }
+  return removed;
 }
 
 export async function resolveBackup(rootDir, id) {

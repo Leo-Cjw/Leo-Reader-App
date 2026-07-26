@@ -26,6 +26,7 @@ import { SCHEMA_VERSION } from './schema.mjs';
 import { createBackgroundWorkPolicy } from './background-work.mjs';
 import { createSpotlightService } from './spotlight.mjs';
 import { createSemanticSearchService } from './semantic-search.mjs';
+import { createAutomaticBackupService } from './automatic-backups.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -254,8 +255,12 @@ export async function createReaderServer({
     }
   });
   sourceScheduler.start();
-  const backgroundWork = createBackgroundWorkPolicy(importWorker, sourceScheduler, runtimeSemanticSearch);
+  const automaticBackups = createAutomaticBackupService({
+    database, rootDir, settingsStore: runtimeSettingsStore, diagnostics, appVersion: APP_VERSION
+  });
+  const backgroundWork = createBackgroundWorkPolicy(importWorker, sourceScheduler, runtimeSemanticSearch, automaticBackups);
   if (importQueueSettings.paused) await backgroundWork.update({ importUserPaused: true });
+  automaticBackups.start();
   let dataRepairPromise = null;
   let restoreWriteLocked = false;
   let diagnosticsStopped = false;
@@ -923,7 +928,14 @@ export async function createReaderServer({
       }
 
       if (pathname === '/api/backups' && method === 'GET') {
-        return sendJSON(response, 200, { backups: await listBackups(rootDir), pendingRestore: publicPendingRestore(await getPendingRestore(rootDir)) });
+        const backups = await listBackups(rootDir);
+        return sendJSON(response, 200, { backups, automaticBackup: await automaticBackups.status(backups), pendingRestore: publicPendingRestore(await getPendingRestore(rootDir)) });
+      }
+
+      if (pathname === '/api/settings/automatic-backups' && method === 'PUT') {
+        const body = await readJSON(request);
+        if (typeof body.enabled !== 'boolean') throw new HTTPError(400, '自动恢复点开关必须是布尔值');
+        return sendJSON(response, 200, { automaticBackup: await automaticBackups.updateEnabled(body.enabled) });
       }
 
       if (pathname === '/api/backups' && method === 'POST') {
@@ -1175,7 +1187,7 @@ export async function createReaderServer({
     getBackgroundWorkState() { return backgroundWork.snapshot(); },
     async listen() { await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); }); return server.address(); },
     async close() {
-      await Promise.all([importWorker.stop(), sourceScheduler.stop(), runtimeSpotlight.stop(), runtimeSemanticSearch.stop()]);
+      await Promise.all([importWorker.stop(), sourceScheduler.stop(), runtimeSpotlight.stop(), runtimeSemanticSearch.stop(), automaticBackups.stop()]);
       if (!diagnosticsStopped) {
         diagnosticsStopped = true;
         await diagnostics.record('app_stopped');

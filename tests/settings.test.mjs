@@ -97,11 +97,13 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   const filePath = path.join(dir, 'data', 'settings.json');
   const settingsStore = await new SettingsStore(filePath).initialize();
   assert.deepEqual(settingsStore.getNotifications(), { enabled: false, sourceSyncEnabled: false, updatedAt: null });
+  assert.deepEqual(settingsStore.getAutomaticBackups(), { enabled: false, updatedAt: null });
   assert.deepEqual(settingsStore.getSpotlight(), { enabled: false, updatedAt: null });
   assert.deepEqual(settingsStore.getSemanticSearch(), { enabled: false, model: 'embeddinggemma', updatedAt: null });
   await settingsStore.saveImportQueue(true);
   await settingsStore.saveNotifications(true);
   await settingsStore.saveNotifications({ sourceSyncEnabled: true });
+  await settingsStore.saveAutomaticBackups(true);
   const credentialStore = new MemoryCredentialStore();
   const aiService = new AIService({ endpoint: '', apiKey: '' });
   const manager = await new AISettingsManager({ settingsStore, credentialStore, aiService, environment: {} }).initialize();
@@ -118,6 +120,7 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   assert.equal(settingsStore.getImportQueue().paused, true);
   assert.equal(settingsStore.getNotifications().enabled, true);
   assert.equal(settingsStore.getNotifications().sourceSyncEnabled, true);
+  assert.equal(settingsStore.getAutomaticBackups().enabled, true);
   assert.equal(settingsStore.getSpotlight().enabled, false);
   const disk = await readFile(filePath, 'utf8');
   assert.doesNotMatch(disk, /keychain-only-secret/);
@@ -249,6 +252,7 @@ test('legacy settings remain compatible and malformed values cannot opt into not
   const legacy = await new SettingsStore(filePath).initialize();
   assert.equal(legacy.getImportQueue().paused, true);
   assert.deepEqual(legacy.getNotifications(), { enabled: false, sourceSyncEnabled: false, updatedAt: null });
+  assert.deepEqual(legacy.getAutomaticBackups(), { enabled: false, updatedAt: null });
   assert.deepEqual(legacy.getSpotlight(), { enabled: false, updatedAt: null });
   assert.deepEqual(legacy.getSemanticSearch(), { enabled: false, model: 'embeddinggemma', updatedAt: null });
 
@@ -261,6 +265,7 @@ test('legacy settings remain compatible and malformed values cannot opt into not
   }));
   const malformed = await new SettingsStore(filePath).initialize();
   assert.deepEqual(malformed.getNotifications(), { enabled: false, sourceSyncEnabled: false, updatedAt: null });
+  assert.deepEqual(malformed.getAutomaticBackups(), { enabled: false, updatedAt: null });
   assert.deepEqual(malformed.getSpotlight(), { enabled: false, updatedAt: null });
   assert.deepEqual(malformed.getSemanticSearch(), { enabled: false, model: 'embeddinggemma', updatedAt: null });
 });

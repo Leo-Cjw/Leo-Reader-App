@@ -1,14 +1,14 @@
-# Reader for Mac 0.50.0
+# Reader for Mac 0.51.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
-当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、可从系统分享菜单接收网页、短文本摘录或单个受支持文件的沙箱化 Share Extension、默认关闭且可彻底删除的 macOS Spotlight 本机索引、安全的 `reader-local://` 外部保存入口、按文章去重的专注阅读窗口、渲染界面崩溃恢复、可选的隐私安全导入与订阅通知、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引、可选 Ollama 向量混排和段落级引用的 AI 工作台。
+当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、可从系统分享菜单接收网页、短文本摘录或单个受支持文件的沙箱化 Share Extension、默认关闭且可彻底删除的 macOS Spotlight 本机索引、安全的 `reader-local://` 外部保存入口、按文章去重的专注阅读窗口、渲染界面崩溃恢复、可选的隐私安全导入与订阅通知、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、默认关闭的每日本机自动恢复点、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引、可选 Ollama 向量混排和段落级引用的 AI 工作台。
 
 ## 快速开始
 
 ### Mac App
 
-打开 `Reader-0.50.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.51.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -92,6 +92,7 @@ npm run desktop:pack
 - 安全：阻止 localhost、私网 IP 与云元数据地址；限制跳转、超时和 4 MB 正文响应体；单张图片 12 MB、单篇本地化预算 48 MB。
 - 媒体读取：同源私有文件端点，支持 HTTP Range，可流畅拖动本地视频。
 - 数据安全：一键生成包含 SQLite、附件和 SHA-256 清单的完整备份；默认可使用口令创建 `.readerbackup.enc` 认证加密文件，也兼容明文 `.readerbackup.zip`。恢复前完成解密、哈希与 SQLite 完整性校验，并在下次启动时原子替换。
+- 自动恢复点：默认关闭；明确开启后每 24 小时最多创建一份本机明文完整备份，并只轮转 Reader 严格标记的最近 3 份自动恢复点。手动、加密、修复前和恢复前备份永不被这项轮转删除；任务服从导入占用、睡眠、低电量、系统资源限制和资料恢复锁。
 - 资料库体检：在数据安全中心检查 SQLite 页结构、外键、迁移审计、本机文件权限、附件可用性和本地检索索引；结果只返回汇总，不包含正文、附件名、记录 ID 或磁盘路径。
 - 受控修复：只有在核心完整性、关联、迁移与附件检查均通过时，才能收紧本地权限或从正文重建全文/RAG 索引。索引写入前自动创建完整备份；正文、状态和附件不会被修复流程改写。
 - 本地运行日志：从数据安全中心查看启动、备份、恢复、受控修复、渲染界面退出原因和意外本地服务错误；只保存字段白名单内的事件代码与状态，不保存正文、标题、URL、文件名、路径、记录 ID、错误原文或凭据。日志可导出、可彻底清除、最多保留约 1.5 MB，且不会自动上传。
@@ -110,7 +111,7 @@ npm run desktop:pack
 - 可再生缩略图：`data/thumbnails/`
 - 待恢复暂存：`data/restore/`
 - 本地运行日志：`data/logs/`（目录 `0700`、文件 `0600`；有限轮转，不进入备份或导出）
-- 非敏感运行时设置：`data/settings.json`（权限 `0600`；保存 AI 提供商、端点、模型、本地语义检索模型与 opt-in，以及导入队列暂停、通知与 Spotlight opt-in；不保存 API 密钥，也不进入备份或导出）
+- 非敏感运行时设置：`data/settings.json`（权限 `0600`；保存 AI 提供商、端点、模型、本地语义检索模型与 opt-in，以及导入队列暂停、通知、Spotlight 与自动恢复点 opt-in；不保存 API 密钥或备份口令，也不进入备份或导出）
 - 敏感凭据：AI API Key 与 X Bearer Token 分别写入 macOS Keychain；微博 OAuth 令牌由官方 CLI 自行写入系统 Keychain，Reader 不读取令牌。
 - 数据库采用 WAL 模式，运行时可能出现 `-wal` 和 `-shm` 文件。
 - Reader 启动时把默认数据目录权限收紧为 `0700`，数据库及现有 WAL/SHM 文件收紧为 `0600`，避免其他本机用户读取资料库。
@@ -216,6 +217,7 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/settings/connectors/weibo/test`：检查微博官方 CLI 登录态。
 - `DELETE /api/settings/connectors/weibo`：调用官方 CLI 撤销本机登录。
 - `GET/POST /api/backups`：列出或创建完整备份。
+- `PUT /api/settings/automatic-backups`：明确开启或关闭每日本机自动恢复点。
 - `GET /api/backups/:id/download`：下载本地备份包。
 - `GET /api/migration-snapshots`：列出 schema 升级前自动创建的数据库快照，不返回磁盘路径。
 - `GET /api/migration-snapshots/:id/download`：导出指定升级快照。
@@ -230,4 +232,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.50.0 变更见 [docs/RELEASE_NOTES_0.50.0.md](docs/RELEASE_NOTES_0.50.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.51.0 变更见 [docs/RELEASE_NOTES_0.51.0.md](docs/RELEASE_NOTES_0.51.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

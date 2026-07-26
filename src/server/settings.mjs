@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   ai: { configured: false, enabled: false, provider: 'reader-gateway', endpoint: '', model: '', hasApiKey: false, updatedAt: null },
   imports: { paused: false, updatedAt: null },
   notifications: { enabled: false, sourceSyncEnabled: false, updatedAt: null },
+  automaticBackups: { enabled: false, updatedAt: null },
   spotlight: { enabled: false, updatedAt: null },
   semanticSearch: { enabled: false, model: SEMANTIC_SEARCH_DEFAULT_MODEL, updatedAt: null }
 });
@@ -42,6 +43,7 @@ export class SettingsStore {
       });
       const imports = parsed?.imports && typeof parsed.imports === 'object' ? parsed.imports : {};
       const notifications = parsed?.notifications && typeof parsed.notifications === 'object' ? parsed.notifications : {};
+      const automaticBackups = parsed?.automaticBackups && typeof parsed.automaticBackups === 'object' ? parsed.automaticBackups : {};
       const spotlight = parsed?.spotlight && typeof parsed.spotlight === 'object' ? parsed.spotlight : {};
       const semanticSearch = parsed?.semanticSearch && typeof parsed.semanticSearch === 'object' ? parsed.semanticSearch : {};
       let semanticModel = SEMANTIC_SEARCH_DEFAULT_MODEL;
@@ -64,6 +66,10 @@ export class SettingsStore {
           sourceSyncEnabled: notifications.sourceSyncEnabled === true,
           updatedAt: typeof notifications.updatedAt === 'string' ? notifications.updatedAt : null
         },
+        automaticBackups: {
+          enabled: automaticBackups.enabled === true,
+          updatedAt: typeof automaticBackups.updatedAt === 'string' ? automaticBackups.updatedAt : null
+        },
         spotlight: {
           enabled: spotlight.enabled === true,
           updatedAt: typeof spotlight.updatedAt === 'string' ? spotlight.updatedAt : null
@@ -84,6 +90,7 @@ export class SettingsStore {
   getAI() { return clone(this.value.ai); }
   getImportQueue() { return clone(this.value.imports); }
   getNotifications() { return clone(this.value.notifications); }
+  getAutomaticBackups() { return clone(this.value.automaticBackups); }
   getSpotlight() { return clone(this.value.spotlight); }
   getSemanticSearch() { return clone(this.value.semanticSearch); }
 
@@ -136,6 +143,17 @@ export class SettingsStore {
     this.value = next;
     this.loadError = null;
     return this.getNotifications();
+  }
+
+  async saveAutomaticBackups(enabled) {
+    const next = {
+      ...clone(this.value),
+      automaticBackups: { enabled: enabled === true, updatedAt: new Date().toISOString() }
+    };
+    await this.persist(next);
+    this.value = next;
+    this.loadError = null;
+    return this.getAutomaticBackups();
   }
 
   async saveSpotlight(enabled) {

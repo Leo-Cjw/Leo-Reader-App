@@ -53,7 +53,8 @@ function sanitizeDetails(event, source = {}) {
   };
   if (event === 'backup_created') return {
     encrypted: Boolean(input.encrypted),
-    byteSize: boundedInteger(input.byteSize, 0)
+    byteSize: boundedInteger(input.byteSize, 0),
+    automatic: Boolean(input.automatic)
   };
   if (event === 'restore_scheduled') return {
     source: input.source === 'migration_snapshot' ? 'migration_snapshot' : 'backup',

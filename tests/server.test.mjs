@@ -62,20 +62,24 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
     importsPaused: false,
     sourceSyncPaused: false,
     semanticSearchPaused: false,
+    automaticBackupsPaused: false,
     importPauseReasons: [],
     sourceSyncPauseReasons: [],
-    semanticSearchPauseReasons: []
+    semanticSearchPauseReasons: [],
+    automaticBackupPauseReasons: []
   });
   await app.setBackgroundWorkState({ online: false, lowBattery: true });
   const constrainedHealth = await json(`${base}/api/health`);
   assert.equal(constrainedHealth.body.background.importsPaused, false);
   assert.equal(constrainedHealth.body.background.sourceSyncPaused, true);
   assert.equal(constrainedHealth.body.background.semanticSearchPaused, true);
+  assert.equal(constrainedHealth.body.background.automaticBackupsPaused, true);
   assert.deepEqual(constrainedHealth.body.background.sourceSyncPauseReasons, ['offline', 'low-battery']);
   assert.deepEqual(constrainedHealth.body.background.semanticSearchPauseReasons, ['low-battery']);
+  assert.deepEqual(constrainedHealth.body.background.automaticBackupPauseReasons, ['low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.50.0');
+  assert.equal(APP_VERSION, '0.51.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -250,6 +254,21 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(sourceDelete.body.deleted, true);
   assert.equal((await json(`${base}/api/sources`)).body.sources.length, 0);
   await app.setBackgroundWorkState({ online: true });
+
+  const initialBackups = await json(`${base}/api/backups`);
+  assert.equal(initialBackups.body.automaticBackup.enabled, false);
+  assert.equal(initialBackups.body.automaticBackup.retention, 3);
+  const invalidAutomatic = await json(`${base}/api/settings/automatic-backups`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: 'true' }) });
+  assert.equal(invalidAutomatic.response.status, 400);
+  const enabledAutomatic = await json(`${base}/api/settings/automatic-backups`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
+  assert.equal(enabledAutomatic.response.status, 200);
+  assert.equal(enabledAutomatic.body.automaticBackup.enabled, true);
+  assert.ok(enabledAutomatic.body.automaticBackup.last_backup_at);
+  const automaticList = await json(`${base}/api/backups`);
+  assert.equal(automaticList.body.backups.filter((item) => item.automatic).length, 1);
+  const disabledAutomatic = await json(`${base}/api/settings/automatic-backups`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }) });
+  assert.equal(disabledAutomatic.body.automaticBackup.enabled, false);
+  assert.equal((await json(`${base}/api/backups`)).body.backups.filter((item) => item.automatic).length, 1);
 
   const backup = await json(`${base}/api/backups`, { method: 'POST' });
   assert.equal(backup.response.status, 201);

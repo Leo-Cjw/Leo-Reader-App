@@ -290,6 +290,19 @@ export interface Backup {
   sha256?: string;
   reason?: string;
   encrypted: boolean;
+  automatic: boolean;
+}
+
+export interface AutomaticBackupStatus {
+  enabled: boolean;
+  paused: boolean;
+  running: boolean;
+  interval_hours: number;
+  retention: number;
+  retained_count: number;
+  last_backup_at: string | null;
+  next_backup_at: string | null;
+  last_error_at: string | null;
 }
 
 export interface MigrationSnapshot {
@@ -477,9 +490,11 @@ export interface BackgroundWorkState {
   importsPaused: boolean;
   sourceSyncPaused: boolean;
   semanticSearchPaused: boolean;
+  automaticBackupsPaused: boolean;
   importPauseReasons: string[];
   sourceSyncPauseReasons: string[];
   semanticSearchPauseReasons: string[];
+  automaticBackupPauseReasons: string[];
 }
 
 export interface ConnectorStatus {

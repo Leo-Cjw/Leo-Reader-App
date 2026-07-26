@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AIModel, AIProviderPreset, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SemanticSearchQuality, SemanticSearchStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AIModel, AIProviderPreset, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, AutomaticBackupStatus, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SemanticSearchQuality, SemanticSearchStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -290,7 +290,10 @@ export const api = {
     return payload as { imported: number; duplicates: number; failed: number; errors: Array<{ title: string; error: string }>; sources: Source[] };
   },
   async listBackups() {
-    return await request<{ backups: Backup[]; pendingRestore: PendingRestore | null }>('/api/backups');
+    return await request<{ backups: Backup[]; automaticBackup: AutomaticBackupStatus; pendingRestore: PendingRestore | null }>('/api/backups');
+  },
+  async updateAutomaticBackups(enabled: boolean) {
+    return (await request<{ automaticBackup: AutomaticBackupStatus }>('/api/settings/automatic-backups', { method: 'PUT', body: JSON.stringify({ enabled }) })).automaticBackup;
   },
   async listMigrationSnapshots() {
     return (await request<{ snapshots: MigrationSnapshot[] }>('/api/migration-snapshots')).snapshots;

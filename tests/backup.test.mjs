@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { listMigrationSnapshots, ReaderDatabase, resolveMigrationSnapshot } from '../src/server/db.mjs';
 import { schemaSQL } from '../src/server/schema.mjs';
-import { applyPendingRestore, createBackup, getPendingRestore, listBackups, resolveBackup, scheduleMigrationSnapshotRestore, scheduleRestore, validateBackupEntryPath, validateBackupPassphrase } from '../src/server/backup.mjs';
+import { applyPendingRestore, createBackup, getPendingRestore, listBackups, pruneAutomaticBackups, resolveBackup, scheduleMigrationSnapshotRestore, scheduleRestore, validateBackupEntryPath, validateBackupPassphrase } from '../src/server/backup.mjs';
 
 test('backup entry paths reject traversal, absolute paths and unknown files', () => {
   assert.equal(validateBackupEntryPath('files/image.png'), 'files/image.png');
@@ -18,6 +18,30 @@ test('backup entry paths reject traversal, absolute paths and unknown files', ()
 test('backup passphrases require a durable minimum length', () => {
   assert.throws(() => validateBackupPassphrase('short'), /至少需要 12 个字符/);
   assert.equal(validateBackupPassphrase('correct horse battery staple'), 'correct horse battery staple');
+});
+
+test('automatic recovery point names are explicit and rotation never removes other backup classes', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'reader-auto-backup-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const db = await new ReaderDatabase(path.join(root, 'data', 'reader.sqlite3')).initialize();
+  const manual = await createBackup({ database: db, rootDir: root, appVersion: '0.51.0' });
+  const automatic = [];
+  for (let index = 0; index < 4; index += 1) {
+    automatic.push(await createBackup({ database: db, rootDir: root, appVersion: '0.51.0', reason: 'automatic' }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(manual.automatic, false);
+  assert.match(automatic[0].file_name, /^reader-auto-backup-/);
+  assert.equal((await listBackups(root)).filter((backup) => backup.automatic).length, 4);
+  const removed = await pruneAutomaticBackups(root, 3);
+  const remaining = await listBackups(root);
+  assert.equal(removed.length, 1);
+  assert.equal(remaining.filter((backup) => backup.automatic).length, 3);
+  assert.ok(remaining.some((backup) => backup.id === manual.id));
+  await assert.rejects(
+    createBackup({ database: db, rootDir: root, appVersion: '0.51.0', reason: 'automatic', passphrase: 'correct horse battery staple' }),
+    /不能保存口令/
+  );
 });
 
 test('complete backup is validated and restored on the next startup', async (t) => {
