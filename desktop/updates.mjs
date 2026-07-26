@@ -14,8 +14,15 @@ export function isDeveloperIDSignature(output) {
 
 export function inspectDeveloperIDSignature(appPath, execFileImpl = execFile) {
   return new Promise((resolve) => {
-    execFileImpl('/usr/bin/codesign', ['--display', '--verbose=4', appPath], { timeout: 10_000, maxBuffer: 256 * 1024 }, (error, stdout, stderr) => {
-      resolve(!error && isDeveloperIDSignature(`${stdout || ''}\n${stderr || ''}`));
+    const options = { timeout: 10_000, maxBuffer: 256 * 1024 };
+    execFileImpl('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=4', appPath], options, (verifyError) => {
+      if (verifyError) {
+        resolve(false);
+        return;
+      }
+      execFileImpl('/usr/bin/codesign', ['--display', '--verbose=4', appPath], options, (error, stdout, stderr) => {
+        resolve(!error && isDeveloperIDSignature(`${stdout || ''}\n${stderr || ''}`));
+      });
     });
   });
 }

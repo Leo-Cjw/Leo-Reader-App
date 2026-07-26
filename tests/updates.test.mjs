@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import {
   createUpdateController,
+  inspectDeveloperIDSignature,
   isDeveloperIDSignature,
   macAppPath,
   readerUpdateFeed
@@ -91,6 +92,35 @@ TeamIdentifier=A1B2C3D4E5
   `), true);
   assert.equal(isDeveloperIDSignature('Signature=adhoc\nTeamIdentifier=not set'), false);
   assert.equal(isDeveloperIDSignature('Authority=Apple Development: Example\nTeamIdentifier=A1B2C3D4E5'), false);
+});
+
+test('automatic update eligibility verifies the complete app before reading its Developer ID metadata', async () => {
+  const calls = [];
+  const execFileImpl = (file, args, options, callback) => {
+    calls.push({ file, args, options });
+    if (args[0] === '--verify') callback(null, '', '/Applications/Reader.app: valid on disk');
+    else callback(null, '', 'Authority=Developer ID Application: Reader Team (A1B2C3D4E5)\nTeamIdentifier=A1B2C3D4E5');
+  };
+
+  assert.equal(await inspectDeveloperIDSignature('/Applications/Reader.app', execFileImpl), true);
+  assert.deepEqual(calls.map(({ file, args }) => [file, args]), [
+    ['/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=4', '/Applications/Reader.app']],
+    ['/usr/bin/codesign', ['--display', '--verbose=4', '/Applications/Reader.app']]
+  ]);
+  assert.equal(calls.every(({ options }) => options.timeout === 10_000 && options.maxBuffer === 256 * 1024), true);
+});
+
+test('an invalid app signature fails update eligibility before metadata inspection', async () => {
+  const calls = [];
+  const execFileImpl = (file, args, options, callback) => {
+    calls.push({ file, args, options });
+    callback(new Error('code object is not signed at all'), '', '');
+  };
+
+  assert.equal(await inspectDeveloperIDSignature('/Applications/Reader.app', execFileImpl), false);
+  assert.deepEqual(calls.map(({ args }) => args), [
+    ['--verify', '--deep', '--strict', '--verbose=4', '/Applications/Reader.app']
+  ]);
 });
 
 test('update feed and app path use the public universal mac release contract', () => {
@@ -184,10 +214,10 @@ test('downloaded update prompts and installation are single-flight across concur
   });
   await harness.controller.start();
 
-  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.59.0');
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.60.0');
   await cleanupStarted;
   const concurrentCheck = harness.controller.check(true);
-  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.59.0');
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.60.0');
   await flushEvents();
   try {
     assert.equal(harness.messages.filter((message) => message.title === 'Reader 更新已就绪').length, 1);
@@ -212,7 +242,7 @@ test('update install launch failure exits after completed cleanup instead of lea
     quitAndInstallError: new Error('simulated updater launch failure')
   });
   await harness.controller.start();
-  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.59.0');
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.60.0');
   await flushEvents();
 
   assert.deepEqual(harness.installOrder, ['cleanup', 'install', 'quit']);
@@ -230,7 +260,7 @@ test('failed pre-install cleanup remains visible and retryable without starting 
     }
   });
   await harness.controller.start();
-  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.59.0');
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.60.0');
   await flushEvents();
 
   assert.equal(harness.installs, 0);
