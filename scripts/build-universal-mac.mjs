@@ -12,6 +12,7 @@ const shareEntitlements = path.join(projectRoot, 'native', 'share-extension', 'e
 const x64AppPath = path.resolve(process.env.READER_X64_APP || path.join(projectRoot, 'release', 'mac', 'Reader.app'));
 const arm64AppPath = path.resolve(process.env.READER_ARM64_APP || path.join(projectRoot, 'release', 'mac-arm64', 'Reader.app'));
 const outAppPath = path.resolve(process.env.READER_UNIVERSAL_APP || path.join(projectRoot, 'release', 'mac-universal', 'Reader.app'));
+const spotlightHelperApp = path.join(outAppPath, 'Contents', 'Resources', 'Reader Spotlight Helper.app');
 
 function signedEntitlements(codePath) {
   const xml = execFileSync('/usr/bin/codesign', ['-d', '--entitlements', ':-', codePath], {
@@ -43,6 +44,10 @@ await makeUniversalApp({
 const developerIdentity = process.env.READER_MAC_SIGN_IDENTITY?.trim();
 let signature = 'unsigned';
 if (developerIdentity) {
+  execFileSync('/usr/bin/codesign', [
+    '--force', '--sign', developerIdentity, '--options', 'runtime', '--timestamp',
+    '--entitlements', emptyEntitlements, spotlightHelperApp
+  ], { stdio: 'inherit' });
   await signAsync({
     app: outAppPath,
     identity: developerIdentity,
@@ -64,6 +69,9 @@ if (developerIdentity) {
   });
   signature = 'Developer ID';
 } else if (process.env.READER_SKIP_ADHOC_SIGN !== '1') {
+  execFileSync('/usr/bin/codesign', [
+    '--force', '--sign', '-', '--entitlements', emptyEntitlements, spotlightHelperApp
+  ], { stdio: 'inherit' });
   execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', outAppPath], { stdio: 'inherit' });
   execFileSync('/usr/bin/codesign', [
     '--force', '--sign', '-', '--entitlements', shareEntitlements,
@@ -76,6 +84,7 @@ if (developerIdentity) {
 }
 if (signature !== 'unsigned') {
   execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=1', outAppPath], { stdio: 'inherit' });
+  execFileSync('/usr/bin/codesign', ['--verify', '--strict', '--verbose=1', spotlightHelperApp], { stdio: 'inherit' });
 }
 
 const executable = path.join(outAppPath, 'Contents', 'MacOS', 'Reader');
@@ -96,10 +105,7 @@ for (const [binary, expectedArchitecture] of canvasBinaries) {
 }
 
 const spotlightHelper = path.join(
-  outAppPath,
-  'Contents',
-  'Resources',
-  'Reader Spotlight Helper.app',
+  spotlightHelperApp,
   'Contents',
   'MacOS',
   'Reader Spotlight Helper'

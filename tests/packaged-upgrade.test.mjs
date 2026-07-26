@@ -99,12 +99,14 @@ test('frozen 0.43 packaged database remains self-consistent and auditable', asyn
   assert.doesNotMatch(JSON.stringify(settings), /"apiKey"\s*:|"bearer_token"\s*:|"password"\s*:|"secret"\s*:/i);
 });
 
-test('macOS release runs accessibility and upgrade gates before producing the DMG', async () => {
+test('macOS release runs accessibility, Share and upgrade gates before producing the DMG', async () => {
   const releaseScript = await readFile(path.join(projectRoot, 'scripts', 'build-mac-release.mjs'), 'utf8');
   const accessibility = releaseScript.indexOf('verify-packaged-accessibility.mjs');
+  const share = releaseScript.indexOf('verify-packaged-share.mjs');
   const upgrade = releaseScript.indexOf('verify-packaged-upgrade.mjs');
   const dmg = releaseScript.indexOf('build-mac-dmg.mjs');
   assert.ok(accessibility >= 0);
-  assert.ok(upgrade > accessibility);
+  assert.ok(share > accessibility);
+  assert.ok(upgrade > share);
   assert.ok(dmg > upgrade);
 });

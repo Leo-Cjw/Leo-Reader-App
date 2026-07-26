@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { app, autoUpdater, BrowserWindow, dialog, ipcMain, Menu, net, Notification, powerMonitor, session, shell } from 'electron';
 import { createReaderServer } from '../src/server/server.mjs';
-import { DESKTOP_COMMANDS, extractReaderDeepLink, extractReaderOpenDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderDeepLink, parseReaderOpenDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
+import { DESKTOP_COMMANDS, extractReaderAddDeepLink, extractReaderOpenDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderAddDeepLink, parseReaderOpenDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from './security.mjs';
 import { createDesktopBackgroundCoordinator } from './background-state.mjs';
 import { createRendererRecoveryController } from './renderer-recovery.mjs';
 import { createImportNotificationController, createSourceSyncNotificationController } from './notifications.mjs';
@@ -20,7 +20,7 @@ let updateController = null;
 let appOrigin = '';
 let shutdownStarted = false;
 let rendererReady = false;
-const pendingAddURLs = [];
+const pendingAddRequests = [];
 const pendingArticleIDs = [];
 const articleWindows = new Map();
 const rendererRecoveryController = createRendererRecoveryController({
@@ -75,14 +75,17 @@ async function openSources() {
   sendCommand('sources');
 }
 
-function flushPendingAddURLs() {
+function flushPendingAddRequests() {
   if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) return;
-  for (const url of pendingAddURLs.splice(0)) mainWindow.webContents.send('reader:add-url', url);
+  for (const request of pendingAddRequests.splice(0)) mainWindow.webContents.send('reader:add-request', request);
 }
 
-function queueAddURL(url) {
-  if (!pendingAddURLs.includes(url) && pendingAddURLs.length < 20) pendingAddURLs.push(url);
-  flushPendingAddURLs();
+function queueAddRequest(request) {
+  if (!request || pendingAddRequests.length >= 20) return;
+  const duplicate = pendingAddRequests.some((item) => item.kind === request.kind
+    && (item.kind === 'url' ? item.url === request.url : item.text === request.text));
+  if (!duplicate) pendingAddRequests.push(request);
+  flushPendingAddRequests();
 }
 
 async function flushPendingArticleIDs() {
@@ -107,9 +110,9 @@ function handleDeepLink(candidate) {
     queueArticleOpen(articleID);
     return true;
   }
-  const url = parseReaderDeepLink(candidate);
-  if (!url) return false;
-  queueAddURL(url);
+  const request = parseReaderAddDeepLink(candidate);
+  if (!request) return false;
+  queueAddRequest(request);
   focusMainWindow();
   return true;
 }
@@ -283,7 +286,7 @@ async function createWindow() {
     initialLoadCompleted = true;
     if (mainWindow !== window || window.isDestroyed()) return;
     rendererReady = true;
-    flushPendingAddURLs();
+    flushPendingAddRequests();
   });
   window.webContents.on('render-process-gone', (_event, details) => {
     if (!initialLoadCompleted || mainWindow !== window) return;
@@ -345,8 +348,8 @@ async function startReader() {
 }
 
 if (lockAcquired) {
-  const initialAddURL = extractReaderDeepLink(process.argv);
-  if (initialAddURL) queueAddURL(initialAddURL);
+  const initialAddRequest = extractReaderAddDeepLink(process.argv);
+  if (initialAddRequest) queueAddRequest(initialAddRequest);
   const initialArticleID = extractReaderOpenDeepLink(process.argv);
   if (initialArticleID) queueArticleOpen(initialArticleID);
 
@@ -358,8 +361,8 @@ if (lockAcquired) {
   app.on('second-instance', (_event, commandLine) => {
     const articleID = extractReaderOpenDeepLink(commandLine);
     if (articleID) queueArticleOpen(articleID);
-    const addURL = extractReaderDeepLink(commandLine);
-    if (addURL) queueAddURL(addURL);
+    const addRequest = extractReaderAddDeepLink(commandLine);
+    if (addRequest) queueAddRequest(addRequest);
     if (!mainWindow) {
       if (appOrigin) void createWindow();
       return;

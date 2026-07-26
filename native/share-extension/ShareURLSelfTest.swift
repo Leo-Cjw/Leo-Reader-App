@@ -42,6 +42,28 @@ struct ReaderShareURLSelfTest {
             components.queryItems == [URLQueryItem(name: "url", value: source.absoluteString)],
             "深链必须只携带一个 URL 参数"
         )
+
+        let sharedText = "Reader 选中文本\n只在用户确认后保存。"
+        expect(ReaderShareURL.normalizeText(sharedText) == sharedText, "应保留安全文本")
+        expect(ReaderShareURL.normalizeText(NSAttributedString(string: sharedText)) == sharedText, "应接受富文本字符串")
+        expect(ReaderShareURL.normalizeText(Data(sharedText.utf8)) == sharedText, "应接受 UTF-8 文本数据")
+        for candidate in [
+            "",
+            " \n\t ",
+            "Reader\u{0000}secret",
+            String(repeating: "中", count: 1_366) + "x"
+        ] {
+            expect(ReaderShareURL.normalizeText(candidate) == nil, "应拒绝空白、控制字符或超限文本")
+        }
+        expect(ReaderShareURL.normalizeText(String(repeating: "a", count: 4_096)) != nil, "应接受 4 KiB UTF-8 文本")
+
+        let textDeepLink = require(ReaderShareURL.deepLink(forText: sharedText), "应创建文本深链")
+        let textComponents = require(URLComponents(url: textDeepLink, resolvingAgainstBaseURL: false), "文本深链应可解析")
+        let encodedText = require(textComponents.queryItems?.first(where: { $0.name == "text" })?.value, "文本深链必须携带 text")
+        var base64 = encodedText.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        expect(Data(base64Encoded: base64).flatMap { String(data: $0, encoding: .utf8) } == sharedText, "文本深链必须无损")
+        expect(textComponents.queryItems?.count == 1, "文本深链不能携带额外参数")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

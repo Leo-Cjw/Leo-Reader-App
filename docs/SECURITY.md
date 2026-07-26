@@ -73,11 +73,12 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 - 备份口令至少 12 个字符，只在当前创建或恢复请求的内存中使用，不写入数据库、manifest、日志或待恢复标记。遗忘口令后无法恢复。
 - 解密结果仅写入权限为 `0600` 的随机恢复暂存目录；认证或后续完整性校验失败时整个目录被清理。
 
-## 外部 URL 入口
+## 外部添加入口
 
-- `reader-local` 是传递意图的自定义 scheme，不是可信来源或网络协议。任何本机应用和网页都可能尝试唤起它，因此 Reader 只接受固定 `add` 动作、唯一 `url` 参数和无凭据的 HTTP(S) 目标；其他输入不会传给渲染器。
-- 单次目标最长 2,048 字符，外层深链最长 8,192 字符；主进程与 preload 分别将待处理数量限制为 20。目标不会写入诊断日志，preload 只公开单向订阅回调，不公开通用 IPC。
-- 合格深链只聚焦 Reader 并预填“添加内容”窗口。用户取消时不创建任务、不发起 DNS 或 HTTP 请求、不写入 SQLite；只有点击“加入导入队列”后才进入既有本地 API。
+- `reader-local` 是传递意图的自定义 scheme，不是可信来源或网络协议。任何本机应用和网页都可能尝试唤起它，因此 Reader 只接受固定 `add` 动作，以及互斥且唯一的 `url` 或 `text` 参数；混合、重复、额外参数和其他输入不会传给渲染器。
+- URL 最长 2,048 字符，必须是无凭据的 HTTP(S) 目标。文本使用无 padding 的规范 Base64URL，解码后必须是非空、最多 4,096 UTF-8 bytes 且不含禁止控制字符的有效 UTF-8；换行、回车和 Tab 保留。外层深链最长 8,192 字符。
+- 主进程与 preload 分别重新校验并把待处理数量限制为 20。内容不会写入诊断日志，preload 只公开冻结请求对象的单向订阅回调，不公开通用 IPC。
+- 合格深链只聚焦 Reader 并预填“添加内容”窗口。用户取消时不创建任务或文章、不发起 DNS 或 HTTP 请求、不写入 SQLite；只有点击 URL 页的“加入导入队列”或 Markdown 页的保存按钮后才进入既有本地 API。
 - 服务端仍重新执行 URL 语法、用户名/密码、DNS 全量解析、私网/元数据地址、重定向和响应体限制。深链预检不代替、缓存或削弱该权威校验。
 
 ## 本地诊断日志
@@ -113,11 +114,12 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 
 ## macOS Share Extension
 
-- `.appex` 只声明严格匹配的单个网页 URL，不激活文本、文件、图片、视频或任意附件。输入经 `NSItemProvider` 取得后重新限制协议、host、长度、控制字符和凭据；异常值会取消扩展请求，不打开 Reader。
-- 扩展签名只包含 App Sandbox entitlement，不申请网络、用户文件、App Group、Keychain 或硬件能力，也不读取 Reader 数据目录。它唯一的跨进程输出是由 `URLComponents` 生成的 `reader-local://add?url=...`，继续受 Electron 主进程第二次语法校验。
-- 用户先在系统分享菜单明确选择“存入 Reader”；扩展只打开既有添加窗口并预填 URL，不调用本机 API、不做 DNS 或 HTTP 请求、不创建导入任务。只有用户在 Reader 内选择资料夹并点击“加入导入队列”后，服务端才执行权威 SSRF 校验并写入持久化队列。
+- `.appex` 只声明严格匹配的单个网页 URL 或单段文本，不激活文件、图片、视频或任意附件。输入经异步 `NSItemProvider` 取得后，URL 重新限制协议、host、长度、控制字符和凭据；文本限制为非空、有效 UTF-8、最多 4,096 bytes，并拒绝除换行、回车和 Tab 外的控制字符。异常值会取消扩展请求，不打开 Reader。
+- 扩展签名只包含 App Sandbox entitlement，不申请网络、用户文件、App Group、Keychain 或硬件能力，也不读取 Reader 数据目录。它唯一的跨进程输出是 `reader-local://add` 深链：URL 由 `URLComponents` 编码，文本使用无 padding 的规范 Base64URL；两者继续受 Electron 主进程与 preload 的独立校验。
+- 用户先在系统分享菜单明确选择“存入 Reader”；扩展只打开既有添加窗口并预填 URL 或 Markdown 文本，不调用本机 API、不做 DNS 或 HTTP 请求、不创建导入任务或文章。只有用户在 Reader 内选择资料夹并点击对应确认按钮后，服务端才执行权威校验并写入资料库。
 - Share Extension 不保存来源内容、失败载荷或共享历史，不写诊断日志。系统若没有启用该扩展，用户需从分享菜单的“编辑扩展”手动启用；Reader 不调用 `pluginkit` 修改用户的扩展偏好。
 - 正式签名流水线关闭 entitlement 自动补全，为主程序使用仅含 V8 JIT 的显式权限；产物回读要求主程序、Share Extension 与 Spotlight helper 分别精确等于 `allow-jit`、App Sandbox 和空集合，拒绝额外 App Group 或硬件能力。扩展在父 App 重签后再次验证，避免深度签名静默剥离。
+- 文件分享未借用文本深链或临时路径实现。未来必须单独处理安全作用域访问、共享容器生命周期、大小与文件签名限制，并在威胁模型和最终包门禁完成后开放。
 
 ## 应用更新
 
@@ -187,7 +189,8 @@ npm run audit:dependencies
 npm test
 npm run build
 npm run qa:accessibility
+npm run qa:share
 npm run qa:upgrade
 ```
 
-0.44.0 的依赖审计、125 项自动测试、最终包 AX 门禁，以及从冻结 0.43 资料库读取、写入、重启、SQLite/外键与附件哈希复检均记录在对应发行说明。冻结基准只含合成内容和无凭据设置，每个文件由 SHA-256 锁定；候选只操作临时副本。0.43.0 的八个核心模态框焦点闭环，0.42.0 的 Share Extension 门禁，以及 0.41.0 的 Spotlight 门禁继续有效。解析进程测试覆盖独立 PID、Node 权限、最小环境、V8 heap、并发/排队、随机响应边界、超时、崩溃、输入输出超限及故障后的继续工作；既有测试继续覆盖屏幕阅读器、文件选择器、键盘选区、更新签名、后台状态、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.44.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读。
+0.45.0 的依赖审计、125 项自动测试、最终包 AX、Share 和跨版本升级门禁均记录在对应发行说明。Share 门禁由打包 App 的真实第二实例路径驱动，验证文本逐字预填、确认前零写入、确认后精确落库和 URL 回归；升级门禁继续从冻结 0.43 资料库读取、写入、重启并复检 SQLite、外键与附件哈希。冻结基准只含合成内容和无凭据设置，每个文件由 SHA-256 锁定；候选只操作临时副本。解析进程测试覆盖独立 PID、Node 权限、最小环境、V8 heap、并发/排队、随机响应边界、超时、崩溃、输入输出超限及故障后的继续工作；既有测试继续覆盖屏幕阅读器、文件选择器、键盘选区、更新签名、后台状态、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.45.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读。

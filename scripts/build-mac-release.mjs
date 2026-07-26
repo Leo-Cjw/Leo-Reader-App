@@ -116,6 +116,7 @@ run(path.join(projectRoot, 'node_modules', '.bin', 'electron-builder'), [
 ]);
 run(process.execPath, [path.join(projectRoot, 'scripts', 'build-universal-mac.mjs')]);
 run(process.execPath, [path.join(projectRoot, 'scripts', 'verify-packaged-accessibility.mjs')]);
+run(process.execPath, [path.join(projectRoot, 'scripts', 'verify-packaged-share.mjs')]);
 run(process.execPath, [path.join(projectRoot, 'scripts', 'verify-packaged-upgrade.mjs')]);
 
 const packageMetadata = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));

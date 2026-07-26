@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api';
@@ -13,6 +13,7 @@ const viewLabels: Record<View, string> = { inbox: '收件箱', unread: '未读',
 type ContentFilter = 'all' | 'articles' | 'feeds' | 'attachments' | 'notes' | 'media';
 type LibraryLayout = 'list' | 'gallery';
 type DesktopCommand = 'new' | 'search' | 'edit' | 'settings' | 'import-queue' | 'sources' | 'data-safety' | 'toggle-ai';
+type ExternalAddRequest = { kind: 'url'; url: string } | { kind: 'text'; text: string };
 const smartTypeOptions = [
   ['article', '网页'], ['rss', 'RSS'], ['youtube', 'YouTube'], ['x', 'X'], ['weibo', '微博'],
   ['markdown', '笔记'], ['pdf', 'PDF'], ['image', '图片'], ['video', '视频'], ['attachment', '附件']
@@ -23,7 +24,7 @@ declare global {
     readerDesktop?: {
       platform: string;
       onCommand(callback: (command: DesktopCommand) => void): () => void;
-      onAddURL(callback: (url: string) => void): () => void;
+      onAddRequest(callback: (request: ExternalAddRequest) => void): () => void;
       openArticleWindow(articleId: string): Promise<boolean>;
       focusLibrary(): Promise<boolean>;
     };
@@ -255,7 +256,7 @@ const dialogFocusableSelector = [
 ].join(',');
 
 function DialogAccessibilityManager() {
-  useEffect(() => {
+  useLayoutEffect(() => {
     let activeDialog: HTMLElement | null = null;
     let opener: HTMLElement | null = null;
     let reconcileFrame = 0;
@@ -1131,15 +1132,21 @@ function EditorModal({ article, onClose, onSave, onUploadImage, notify }: { arti
   </section></div>;
 }
 
-function AddModal({ collections, initialURL = '', onClose, onCreated, onQueued, onImported, notify, onSourceCreated, onOpenConnectors }: { collections: Collection[]; initialURL?: string; onClose: () => void; onCreated: (article: Article) => void; onQueued: (job: ImportJob) => void; onImported: () => Promise<void>; notify: (message: string, tone?: Toast['tone']) => void; onSourceCreated: (source: Source) => void; onOpenConnectors: () => void }) {
-  const [tab, setTab] = useState<'url' | 'attachment' | 'markdown' | 'feed' | 'package'>('url');
-  const [url, setURL] = useState(initialURL); const [title, setTitle] = useState(''); const [content, setContent] = useState(''); const [file, setFile] = useState<File | null>(null); const [packageFile, setPackageFile] = useState<File | null>(null); const [packagePreview, setPackagePreview] = useState<PortableImportPreview | null>(null); const [packageSelection, setPackageSelection] = useState<Set<string>>(new Set()); const [collection, setCollection] = useState('inbox'); const [busy, setBusy] = useState(false);
+function AddModal({ collections, initialRequest, onClose, onCreated, onQueued, onImported, notify, onSourceCreated, onOpenConnectors }: { collections: Collection[]; initialRequest?: ExternalAddRequest; onClose: () => void; onCreated: (article: Article) => void; onQueued: (job: ImportJob) => void; onImported: () => Promise<void>; notify: (message: string, tone?: Toast['tone']) => void; onSourceCreated: (source: Source) => void; onOpenConnectors: () => void }) {
+  const [tab, setTab] = useState<'url' | 'attachment' | 'markdown' | 'feed' | 'package'>(initialRequest?.kind === 'text' ? 'markdown' : 'url');
+  const [url, setURL] = useState(initialRequest?.kind === 'url' ? initialRequest.url : ''); const [title, setTitle] = useState(initialRequest?.kind === 'text' ? '分享的文本摘录' : ''); const [content, setContent] = useState(initialRequest?.kind === 'text' ? initialRequest.text : ''); const [file, setFile] = useState<File | null>(null); const [packageFile, setPackageFile] = useState<File | null>(null); const [packagePreview, setPackagePreview] = useState<PortableImportPreview | null>(null); const [packageSelection, setPackageSelection] = useState<Set<string>>(new Set()); const [collection, setCollection] = useState('inbox'); const [busy, setBusy] = useState(false);
   const [sourceKind, setSourceKind] = useState<Source['kind']>('rss'); const [sourceInterval, setSourceInterval] = useState(60);
   useEffect(() => {
-    if (!initialURL) return;
-    setTab('url');
-    setURL(initialURL);
-  }, [initialURL]);
+    if (!initialRequest) return;
+    if (initialRequest.kind === 'url') {
+      setTab('url');
+      setURL(initialRequest.url);
+      return;
+    }
+    setTab('markdown');
+    setTitle('分享的文本摘录');
+    setContent(initialRequest.text);
+  }, [initialRequest]);
   const isWeChatURL = /^https?:\/\/mp\.weixin\.qq\.com\//i.test(url.trim());
   const close = async () => {
     if (packagePreview) await api.cancelMarkdownImport(packagePreview.id).catch(() => {});
@@ -1611,7 +1618,7 @@ function ReaderWorkspace() {
   const [loading, setLoading] = useState(true); const [aiOpen, setAIOpen] = useState(true); const [addOpen, setAddOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [historyOpen, setHistoryOpen] = useState(false); const [sourcesOpen, setSourcesOpen] = useState(false); const [collectionsOpen, setCollectionsOpen] = useState(false); const [smartCollectionsOpen, setSmartCollectionsOpen] = useState(false); const [queueOpen, setQueueOpen] = useState(false); const [safetyOpen, setSafetyOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [connectorSettingsOpen, setConnectorSettingsOpen] = useState(false); const [exportOpen, setExportOpen] = useState(false); const [composeOpen, setComposeOpen] = useState(false); const [duplicatesOpen, setDuplicatesOpen] = useState(false); const [focusedCitation, setFocusedCitation] = useState<RAGCitation | null>(null); const [busySource, setBusySource] = useState<string | null>(null); const [busyCollection, setBusyCollection] = useState(false); const [busySmartCollection, setBusySmartCollection] = useState(false); const [busyHistory, setBusyHistory] = useState(false); const [busySafety, setBusySafety] = useState(false); const [busyImportQueue, setBusyImportQueue] = useState(false); const [busyExport, setBusyExport] = useState(false); const [busyCompose, setBusyCompose] = useState(false); const [busyDuplicates, setBusyDuplicates] = useState(false); const [aiConfigurationVersion, setAIConfigurationVersion] = useState(0);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false); const [busyDiagnostics, setBusyDiagnostics] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('reader-theme') || 'light'); const [libraryLayout, setLibraryLayout] = useState<LibraryLayout>(() => localStorage.getItem('reader-library-layout') === 'gallery' ? 'gallery' : 'list'); const [toast, setToast] = useState<Toast | null>(null);
-  const [externalAddURLs, setExternalAddURLs] = useState<string[]>([]);
+  const [externalAddRequests, setExternalAddRequests] = useState<ExternalAddRequest[]>([]);
   const jobStates = useRef(new Map<string, ImportJob['status']>());
   const articleRequestId = useRef(0);
   const articleDetailRequestId = useRef(0);
@@ -1619,12 +1626,15 @@ function ReaderWorkspace() {
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), 2600); return () => window.clearTimeout(timer); }, [toast]);
   useEffect(() => { localStorage.setItem('reader-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('reader-library-layout', libraryLayout); }, [libraryLayout]);
-  useEffect(() => window.readerDesktop?.onAddURL((url) => {
-    setExternalAddURLs((current) => current.includes(url) || current.length >= 20 ? current : [...current, url]);
+  useEffect(() => window.readerDesktop?.onAddRequest((request) => {
+    setExternalAddRequests((current) => current.some((item) => (item.kind === 'url' && request.kind === 'url' && item.url === request.url)
+      || (item.kind === 'text' && request.kind === 'text' && item.text === request.text)) || current.length >= 20
+      ? current
+      : [...current, request]);
   }), []);
   useEffect(() => {
-    if (externalAddURLs.length) setAddOpen(true);
-  }, [externalAddURLs]);
+    if (externalAddRequests.length) setAddOpen(true);
+  }, [externalAddRequests]);
 
   const articleFilters = useMemo(() => ({
     types: contentFilter === 'articles' ? ['article'] : contentFilter === 'feeds' ? ['rss', 'youtube', 'x', 'weibo'] : contentFilter === 'attachments' ? ['pdf', 'image', 'video', 'attachment'] : contentFilter === 'notes' ? ['markdown'] : undefined,
@@ -1899,7 +1909,7 @@ function ReaderWorkspace() {
   const activeJobCount = jobs.filter((job) => job.status === 'pending' || job.status === 'running').length;
   const closeAddModal = () => {
     setAddOpen(false);
-    setExternalAddURLs((current) => current.length ? current.slice(1) : current);
+    setExternalAddRequests((current) => current.length ? current.slice(1) : current);
   };
   useEffect(() => {
     return window.readerDesktop?.onCommand((command) => {
@@ -1929,7 +1939,7 @@ function ReaderWorkspace() {
         {aiOpen && <AIPanel article={currentArticle} onClose={() => setAIOpen(false)} onArticleUpdated={updateArticleInState} onDerivedCreated={showDerivedArticle} onOpenCitation={(citation) => void openCitation(citation)} configurationVersion={aiConfigurationVersion} notify={notify}/>}
       </div>
     </div>
-    {addOpen && <AddModal collections={collections} initialURL={externalAddURLs[0]} onClose={closeAddModal} onCreated={created} onQueued={queued} onImported={async () => { await Promise.all([refreshArticles(), refreshChrome()]); }} notify={notify} onSourceCreated={(source) => { setSources((current) => [...current, source]); void refreshChrome(); }} onOpenConnectors={() => { closeAddModal(); setConnectorSettingsOpen(true); }}/>}
+    {addOpen && <AddModal collections={collections} initialRequest={externalAddRequests[0]} onClose={closeAddModal} onCreated={created} onQueued={queued} onImported={async () => { await Promise.all([refreshArticles(), refreshChrome()]); }} notify={notify} onSourceCreated={(source) => { setSources((current) => [...current, source]); void refreshChrome(); }} onOpenConnectors={() => { closeAddModal(); setConnectorSettingsOpen(true); }}/>}
     {editOpen && selected && <EditorModal article={selected} onClose={() => setEditOpen(false)} onSave={saveEditor} onUploadImage={uploadEditorImage} notify={notify}/>}
     {historyOpen && selected && <VersionHistoryModal article={selected} revisions={revisions} preview={revisionPreview} busy={busyHistory} onClose={() => setHistoryOpen(false)} onSelect={(version) => void selectRevision(version)} onRestore={(version) => void restoreRevision(version)}/>}
     {sourcesOpen && <SourcesModal sources={sources} background={backgroundWork} onClose={() => setSourcesOpen(false)} onSync={(source) => void syncSource(source)} onUpdate={(source, patch) => void updateSource(source, patch)} onDelete={(source) => void deleteSource(source)} onImport={(file) => void importOPML(file)} onConnections={() => { setSourcesOpen(false); setConnectorSettingsOpen(true); }} busySource={busySource}/>}

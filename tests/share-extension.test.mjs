@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const nativeRoot = path.join(projectRoot, 'native', 'share-extension');
 
-test('Share Extension URL validation and handoff use one strict credential-free web URL', {
+test('Share Extension validation and handoff accept one bounded web URL or selected text', {
   skip: process.platform !== 'darwin'
 }, async (t) => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'reader-share-url-'));
@@ -28,22 +28,28 @@ test('Share Extension URL validation and handoff use one strict credential-free 
   const source = await readFile(path.join(nativeRoot, 'ShareViewController.swift'), 'utf8');
   assert.match(source, /hasItemConformingToTypeIdentifier\(UTType\.url\.identifier\)/);
   assert.match(source, /loadItem\(forTypeIdentifier: UTType\.url\.identifier/);
+  assert.match(source, /hasItemConformingToTypeIdentifier\(UTType\.plainText\.identifier\)/);
+  assert.match(source, /loadDataRepresentation\(forTypeIdentifier: UTType\.plainText\.identifier\)/);
+  assert.match(source, /deepLink\(forText: data\)/);
   assert.match(source, /NSWorkspace\.shared\.open\(deepLink\)/);
   assert.match(source, /completeRequest\(returningItems: nil\)/);
   assert.match(source, /cancelRequest\(withError: error\)/);
   assert.doesNotMatch(source, /URLSession|FileManager|UserDefaults|containerURL|reader\.sqlite/);
 });
 
-test('Share Extension declares a single strict web URL and a sandbox-only entitlement', async () => {
+test('Share Extension declares strict single URL or selected text activation and sandbox-only entitlement', async () => {
   const plist = JSON.parse(execFileSync('/usr/bin/plutil', [
     '-convert', 'json', '-o', '-', path.join(nativeRoot, 'Info.plist')
   ], { encoding: 'utf8' }));
   assert.equal(plist.CFBundleIdentifier, 'com.reader.localfirst.share-extension');
   assert.equal(plist.CFBundlePackageType, 'XPC!');
+  assert.equal(plist.CFBundleShortVersionString, '0.45.0');
+  assert.equal(plist.CFBundleVersion, '45');
   assert.equal(plist.LSMinimumSystemVersion, '12.0');
   assert.equal(plist.NSExtension.NSExtensionPointIdentifier, 'com.apple.share-services');
   assert.equal(plist.NSExtension.NSExtensionPrincipalClass, 'ReaderShareViewController');
   assert.deepEqual(plist.NSExtension.NSExtensionAttributes.NSExtensionActivationRule, {
+    NSExtensionActivationSupportsText: true,
     NSExtensionActivationSupportsWebURLWithMaxCount: 1
   });
   assert.equal(plist.NSExtension.NSExtensionAttributes.NSExtensionActivationUsesStrictMatching, true);
@@ -64,7 +70,7 @@ test('mac packaging embeds, signs and verifies a Universal Share Extension witho
     '-convert', 'json', '-o', '-', path.join(projectRoot, 'native', 'entitlements.mac.plist')
   ], { encoding: 'utf8' }));
 
-  assert.equal(packageJSON.version, '0.44.0');
+  assert.equal(packageJSON.version, '0.45.0');
   assert.equal(packageJSON.scripts['share:mac'], 'node scripts/build-share-extension.mjs');
   assert.match(packageJSON.scripts['desktop:pack:x64'], /share:mac/);
   assert.deepEqual(appEntitlements, { 'com.apple.security.cs.allow-jit': true });
@@ -82,6 +88,8 @@ test('mac packaging embeds, signs and verifies a Universal Share Extension witho
   assert.match(universal, /Share Extension 签名 entitlement 不是精确的 App Sandbox/);
   assert.match(universal, /Reader 主程序签名 entitlement 不是精确的 allow-jit/);
   assert.match(universal, /Spotlight helper 不应包含 entitlement/);
+  assert.match(universal, /'--entitlements', emptyEntitlements, spotlightHelperApp/);
+  assert.match(universal, /'--verify', '--strict', '--verbose=1', spotlightHelperApp/);
   for (const capability of ['audio-input', 'bluetooth', 'camera', 'location', 'print', 'usb']) {
     assert.equal(JSON.stringify(appEntitlements).includes(capability), false);
   }

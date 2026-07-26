@@ -7,10 +7,10 @@ final class ReaderShareViewController: NSViewController {
 
     override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 96))
-        let status = NSTextField(labelWithString: "正在把链接交给 Reader…")
+        let status = NSTextField(labelWithString: "正在把内容交给 Reader…")
         status.frame = NSRect(x: 20, y: 36, width: 280, height: 24)
         status.alignment = .center
-        status.setAccessibilityLabel("正在把链接交给 Reader")
+        status.setAccessibilityLabel("正在把内容交给 Reader")
         container.addSubview(status)
         view = container
         preferredContentSize = container.frame.size
@@ -20,33 +20,42 @@ final class ReaderShareViewController: NSViewController {
         super.viewDidAppear()
         guard !started else { return }
         started = true
-        loadSharedURL()
+        loadSharedContent()
     }
 
-    private func loadSharedURL() {
+    private func loadSharedContent() {
         let providers = (extensionContext?.inputItems as? [NSExtensionItem] ?? [])
             .flatMap { $0.attachments ?? [] }
-        guard let provider = providers.first(where: {
+        if let provider = providers.first(where: {
             $0.hasItemConformingToTypeIdentifier(UTType.url.identifier)
-        }) else {
-            finish(nil)
+        }) {
+            provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, _ in
+                DispatchQueue.main.async {
+                    self?.finish(ReaderShareURL.normalize(item).flatMap(ReaderShareURL.deepLink))
+                }
+            }
             return
         }
-        provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, _ in
-            DispatchQueue.main.async {
-                self?.finish(ReaderShareURL.normalize(item))
+        if let provider = providers.first(where: {
+            $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier)
+        }) {
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.plainText.identifier) { [weak self] data, _ in
+                DispatchQueue.main.async {
+                    self?.finish(ReaderShareURL.deepLink(forText: data))
+                }
             }
+            return
         }
+        finish(nil)
     }
 
-    private func finish(_ url: URL?) {
-        guard let url,
-              let deepLink = ReaderShareURL.deepLink(for: url),
+    private func finish(_ deepLink: URL?) {
+        guard let deepLink,
               NSWorkspace.shared.open(deepLink) else {
             let error = NSError(
                 domain: "com.reader.localfirst.share-extension",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "无法把链接交给 Reader。请确认 Reader 已安装后重试。"]
+                userInfo: [NSLocalizedDescriptionKey: "无法把内容交给 Reader。请确认 Reader 已安装，且选中文本不超过 4 KiB。"]
             )
             extensionContext?.cancelRequest(withError: error)
             return

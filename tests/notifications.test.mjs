@@ -51,6 +51,15 @@ async function waitForJob(base, id) {
   assert.fail(`import job ${id} did not finish`);
 }
 
+async function waitFor(condition, message, timeout = 5_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+  assert.fail(message);
+}
+
 test('desktop notifications aggregate counts, omit content and open the import queue on click', () => {
   FakeNotification.instances = [];
   FakeNotification.supported = true;
@@ -261,7 +270,8 @@ test('source notifications require their own opt-in and exclude manual syncs', a
   t.after(() => app.close());
   const base = `http://127.0.0.1:${address.port}`;
 
-  await new Promise((resolve) => setTimeout(resolve, 2_200));
+  await waitFor(async () => (await app.database.getSource(source.id))?.last_status === 'ok', 'default-off source sync did not finish');
+  await app.setBackgroundWorkState({ suspended: true });
   assert.equal(fetchCount, 1);
   assert.deepEqual(events, []);
 
@@ -287,13 +297,15 @@ test('source notifications require their own opt-in and exclude manual syncs', a
   const optedInAddress = await optedInApp.listen();
   t.after(() => optedInApp.close());
   const optedInBase = `http://127.0.0.1:${optedInAddress.port}`;
-  await new Promise((resolve) => setTimeout(resolve, 2_200));
+  await waitFor(() => fetchCount >= 2 && events.length >= 1, 'opted-in source notification did not arrive');
+  await optedInApp.setBackgroundWorkState({ suspended: true });
   assert.equal(fetchCount, 2);
   assert.deepEqual(events, [{ imported: 1, failed: 0 }]);
 
+  const beforeManualFetchCount = fetchCount;
   const manual = await json(`${optedInBase}/api/sources/${source.id}/sync`, { method: 'POST' });
   assert.equal(manual.response.status, 200);
   assert.equal(manual.body.imported, 1);
-  assert.equal(fetchCount, 3);
+  assert.equal(fetchCount, beforeManualFetchCount + 1);
   assert.deepEqual(events, [{ imported: 1, failed: 0 }]);
 });

@@ -153,6 +153,8 @@ export async function launchPackagedReader({
   return {
     appPath,
     client,
+    chromiumRoot,
+    executable,
     readerRoot: resolvedReaderRoot,
     async close() {
       if (closed) return;

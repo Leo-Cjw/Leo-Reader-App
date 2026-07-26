@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createReaderServer } from '../src/server/server.mjs';
-import { extractReaderDeepLink, extractReaderOpenDeepLink, isAllowedAppURL, isSafeExternalURL, normalizeArticleWindowId, parseReaderDeepLink, parseReaderOpenDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from '../desktop/security.mjs';
+import { extractReaderAddDeepLink, extractReaderDeepLink, extractReaderOpenDeepLink, isAllowedAppURL, isSafeExternalURL, MAX_READER_SHARED_TEXT_BYTES, normalizeArticleWindowId, parseReaderAddDeepLink, parseReaderDeepLink, parseReaderOpenDeepLink, READER_PROTOCOL_SCHEME, resolveDesktopDataRoot } from '../desktop/security.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -39,7 +39,7 @@ test('focused reader window ids stay bounded without narrowing valid local artic
   }
 });
 
-test('desktop deep links only prefill one credential-free web URL', () => {
+test('desktop add deep links accept one bounded URL or base64url text payload', () => {
   assert.equal(READER_PROTOCOL_SCHEME, 'reader-local');
   assert.equal(
     parseReaderDeepLink('reader-local://add?url=https%3A%2F%2Fexample.com%2Farticle%3Fpage%3D2%23notes'),
@@ -47,6 +47,12 @@ test('desktop deep links only prefill one credential-free web URL', () => {
   );
   assert.equal(parseReaderDeepLink('reader-local://add/?url=http%3A%2F%2Fexample.com'), 'http://example.com/');
   assert.equal(extractReaderDeepLink(['Reader', '--flag', 'reader-local://add?url=https%3A%2F%2Fexample.com%2Ffrom-argv']), 'https://example.com/from-argv');
+  const sharedText = 'Reader 选中文本\n只在用户确认后保存。';
+  const encodedText = Buffer.from(sharedText).toString('base64url');
+  assert.deepEqual(parseReaderAddDeepLink(`reader-local://add?text=${encodedText}`), { kind: 'text', text: sharedText });
+  assert.deepEqual(extractReaderAddDeepLink(['Reader', `reader-local://add?text=${encodedText}`]), { kind: 'text', text: sharedText });
+  assert.equal(parseReaderDeepLink(`reader-local://add?text=${encodedText}`), null);
+  assert.equal(MAX_READER_SHARED_TEXT_BYTES, 4096);
 
   for (const candidate of [
     'reader-local://add',
@@ -54,13 +60,18 @@ test('desktop deep links only prefill one credential-free web URL', () => {
     'reader-local://add?url=file%3A%2F%2F%2Ftmp%2Fprivate',
     'reader-local://add?url=https%3A%2F%2Fuser%3Asecret%40example.com',
     'reader-local://add?url=https%3A%2F%2Fexample.com&url=https%3A%2F%2Fother.example',
+    `reader-local://add?url=https%3A%2F%2Fexample.com&text=${encodedText}`,
+    `reader-local://add?text=${encodedText}&text=${encodedText}`,
+    'reader-local://add?text=not+base64url',
+    `reader-local://add?text=${Buffer.from('Reader\u0000secret').toString('base64url')}`,
+    `reader-local://add?text=${Buffer.from('中'.repeat(1366) + 'x').toString('base64url')}`,
     'reader-local://add?url=https%3A%2F%2Fexample.com&action=import',
     'reader-local://settings?url=https%3A%2F%2Fexample.com',
     'reader-local://user@add?url=https%3A%2F%2Fexample.com',
     'reader-local://add/path?url=https%3A%2F%2Fexample.com',
     'reader-local://add?url=https%3A%2F%2Fexample.com#fragment',
     'reader://add?url=https%3A%2F%2Fexample.com'
-  ]) assert.equal(parseReaderDeepLink(candidate), null, candidate);
+  ]) assert.equal(parseReaderAddDeepLink(candidate), null, candidate);
   assert.equal(parseReaderDeepLink(`reader-local://add?url=${encodeURIComponent(`https://example.com/${'a'.repeat(2049)}`)}`), null);
   assert.equal(extractReaderDeepLink(['Reader', '--flag']), null);
 });
@@ -81,22 +92,26 @@ test('Spotlight deep links open exactly one bounded local article id', () => {
   ]) assert.equal(parseReaderOpenDeepLink(candidate), null, candidate);
 });
 
-test('desktop URL handoff waits for the renderer and still requires add-dialog confirmation', async () => {
+test('desktop URL and text handoff wait for the renderer and still require add-dialog confirmation', async () => {
   const main = await readFile(path.join(projectRoot, 'desktop', 'main.mjs'), 'utf8');
   const preload = await readFile(path.join(projectRoot, 'desktop', 'preload.cjs'), 'utf8');
   const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
 
-  assert.match(main, /const pendingAddURLs = \[\]/);
+  assert.match(main, /const pendingAddRequests = \[\]/);
   assert.match(main, /if \(!rendererReady .* return/);
-  assert.match(main, /mainWindow\.webContents\.send\('reader:add-url', url\)/);
-  assert.match(main, /rendererReady = true;\s+flushPendingAddURLs\(\)/);
-  assert.match(preload, /if \(!addURLListeners\.size\)/);
-  assert.match(preload, /for \(const url of pendingAddURLs\.splice\(0\)\) callback\(url\)/);
-  assert.match(app, /const \[externalAddURLs, setExternalAddURLs\] = useState<string\[\]>\(\[\]\)/);
-  assert.match(app, /window\.readerDesktop\?\.onAddURL/);
-  assert.match(app, /initialURL=\{externalAddURLs\[0\]\}/);
-  assert.match(app, /const \[url, setURL\] = useState\(initialURL\)/);
+  assert.match(main, /mainWindow\.webContents\.send\('reader:add-request', request\)/);
+  assert.match(main, /rendererReady = true;\s+flushPendingAddRequests\(\)/);
+  assert.match(preload, /if \(!addRequestListeners\.size\)/);
+  assert.match(preload, /for \(const request of pendingAddRequests\.splice\(0\)\) callback\(request\)/);
+  assert.match(preload, /Buffer\.byteLength\(value\.text, 'utf8'\) <= 4096/);
+  assert.match(app, /const \[externalAddRequests, setExternalAddRequests\] = useState<ExternalAddRequest\[\]>\(\[\]\)/);
+  assert.match(app, /window\.readerDesktop\?\.onAddRequest/);
+  assert.match(app, /initialRequest=\{externalAddRequests\[0\]\}/);
+  assert.match(app, /initialRequest\?\.kind === 'text' \? 'markdown' : 'url'/);
+  assert.match(app, /initialRequest\?\.kind === 'text' \? '分享的文本摘录' : ''/);
+  assert.match(app, /initialRequest\?\.kind === 'text' \? initialRequest\.text : ''/);
   assert.match(app, /if \(tab === 'url'\) \{ const job = await api\.createURLImport\(url, collection\)/);
+  assert.match(app, /if \(tab === 'markdown'\) onCreated\(await api\.createMarkdown\(title, content, collection\)\)/);
   assert.doesNotMatch(main, /createURLImport|api\/import-jobs/);
 });
 
@@ -148,7 +163,7 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /window\.webContents\.on\('did-finish-load'/);
   assert.match(main, /检查更新…/);
   assert.match(main, /app\.on\('open-url'/);
-  assert.match(main, /extractReaderDeepLink\(commandLine\)/);
+  assert.match(main, /extractReaderAddDeepLink\(commandLine\)/);
   assert.match(main, /app\.setAsDefaultProtocolClient\(READER_PROTOCOL_SCHEME\)/);
   assert.match(main, /process\.env\.READER_RELEASE_QA !== '1'/);
   assert.match(main, /if \(!window\.isDestroyed\(\)\) \{/);
@@ -283,6 +298,7 @@ test('named panes announce asynchronous reading state and honor reduced motion',
 test('modal dialogs isolate background and lower dialog layers while preserving keyboard focus', async () => {
   const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
 
+  assert.match(app, /function DialogAccessibilityManager\(\) \{\s+useLayoutEffect\(\(\) => \{/);
   assert.match(app, /const dialogs = \[\.\.\.document\.querySelectorAll<HTMLElement>\('\[role="dialog"\]\[aria-modal="true"\]'\)\]/);
   assert.match(app, /appWindow\?\.toggleAttribute\('inert', Boolean\(dialog\)\)/);
   assert.match(app, /candidate\.toggleAttribute\('inert', candidate !== dialog\)/);
@@ -339,8 +355,8 @@ test('file imports use visible keyboard buttons without exposing desktop paths',
   assert.match(styles, /\.source-import:focus-visible/);
   assert.match(styles, /\.restore-file:focus-visible/);
   assert.doesNotMatch(preload, /showOpenDialog|readFile|filePath/);
-  assert.match(preload, /onAddURL\(callback\)/);
-  assert.match(preload, /ipcRenderer\.on\('reader:add-url'/);
+  assert.match(preload, /onAddRequest\(callback\)/);
+  assert.match(preload, /ipcRenderer\.on\('reader:add-request'/);
   assert.match(preload, /'import-queue'/);
   assert.match(app, /api\.updateNotificationSettings/);
   assert.match(app, /默认关闭；只显示成功\/失败数量/);
