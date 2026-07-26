@@ -1,4 +1,4 @@
-# Reader for Mac 0.49.0
+# Reader for Mac 0.50.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.49.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.50.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -88,7 +88,7 @@ npm run desktop:pack
 - 重复治理：按规范化原链接、完整正文或标题摘要检测重复组；用户明确选择保留版本后合并标签、收藏、摘要与阅读进度，副本仅归档且可恢复。
 - 检索：拉丁文字使用 SQLite FTS5 词法索引；三个及以上字符的中文词组使用 FTS5 trigram 子串索引，短词保留兼容路径。
 - 阅读器：三栏桌面布局、明暗主题、文章助手和键盘入口；Mac App 可把当前文章放入按 ID 去重的独立专注窗口，窗口复用正文、附件和高亮定位，但不写收藏、整理、阅读进度或批注，返回资料库后再继续编辑。
-- AI：默认完全本地的提取式摘要、多资料结构化整理与 RAG 问答；可在当前文章或整个资料库中检索，回答附带可点击的原文片段。文章新增、编辑、导入完成和版本恢复会在同一事务中重建分块索引。用户还可明确启用固定回环 Ollama `/api/embed` 的本地语义索引，使用 LSH 向量候选与全文结果混排；索引失败会退回词法检索，关闭后删除全部派生向量。远程生成可选择既有 Reader Gateway、OpenAI、回环 Ollama 或其他 OpenAI-compatible 服务，从服务读取受限模型目录或手填模型 ID；只有用户主动执行任务时才发送既有边界内的内容，密钥存入 macOS Keychain。
+- AI：默认完全本地的提取式摘要、多资料结构化整理与 RAG 问答；可在当前文章或整个资料库中检索，回答附带可点击的原文片段。文章新增、编辑、导入完成和版本恢复会在同一事务中重建分块索引。用户还可明确启用固定回环 Ollama `/api/embed` 的本地语义索引；模型测试使用 9 句内置中英/跨语言探针报告语义分离度，查询以每 band 三个低置信位候选桶扩大近邻召回，再用精确余弦和全文结果混排。索引失败会退回词法检索，关闭后删除全部派生向量。远程生成可选择既有 Reader Gateway、OpenAI、回环 Ollama 或其他 OpenAI-compatible 服务，从服务读取受限模型目录或手填模型 ID；只有用户主动执行任务时才发送既有边界内的内容，密钥存入 macOS Keychain。
 - 安全：阻止 localhost、私网 IP 与云元数据地址；限制跳转、超时和 4 MB 正文响应体；单张图片 12 MB、单篇本地化预算 48 MB。
 - 媒体读取：同源私有文件端点，支持 HTTP Range，可流畅拖动本地视频。
 - 数据安全：一键生成包含 SQLite、附件和 SHA-256 清单的完整备份；默认可使用口令创建 `.readerbackup.enc` 认证加密文件，也兼容明文 `.readerbackup.zip`。恢复前完成解密、哈希与 SQLite 完整性校验，并在下次启动时原子替换。
@@ -135,9 +135,9 @@ OpenAI-compatible 预设从 `<base>/models` 读取当前服务实际返回的模
 
 ### 可选本地语义检索
 
-设置中的“本地语义检索”与远程生成服务彼此独立，默认关闭。启用前需在本机 Ollama 安装嵌入模型，例如 `embeddinggemma`、`qwen3-embedding` 或 `all-minilm`。Reader 只访问固定的 `http://127.0.0.1:11434/api/embed`，不复用远程 AI 地址或 Keychain 密钥；模型测试只发送内置英文，点击启用后才分批发送本地片段给本机 Ollama。
+设置中的“本地语义检索”与远程生成服务彼此独立，默认关闭。启用前需在本机 Ollama 安装嵌入模型，例如 `embeddinggemma`、`qwen3-embedding` 或 `all-minilm`。Reader 只访问固定的 `http://127.0.0.1:11434/api/embed`，不复用远程 AI 地址或 Keychain 密钥；模型测试只发送 9 句 Reader 内置的中文、英文和跨语言短句，显示三组语义正负样本的分离结果，不读取资料库。探针结果是选择模型的本机提示，不伪装成完整基准，也不会阻止用户使用特定模型。点击启用后才分批发送本地片段给本机 Ollama。
 
-Schema v12 将单位化 Float32 向量和 16 组 LSH 桶作为可重建派生数据保存在 SQLite。正文编辑、版本恢复或删除会自动淘汰旧向量；模型 ID 或维度变化会触发重建。查询时使用相同模型生成问题向量，与既有全文结果做 reciprocal-rank 混排；Ollama 超时、失败或索引未完成时仍返回词法结果。关闭功能会删除全部 `chunk_embeddings` 和 `chunk_embedding_buckets`，不影响文章、分块或 AI 生成设置。
+Schema v12 将单位化 Float32 向量和 16 组 LSH 桶作为可重建派生数据保存在 SQLite。正文编辑、版本恢复或删除会自动淘汰旧向量；模型 ID 或维度变化会触发重建。查询时使用相同模型生成问题向量，每个 band 查询精确桶和两个最低置信投影位的相邻桶，候选总数仍限制为 1,500，再以精确余弦与既有全文结果做 reciprocal-rank 混排；Ollama 超时、失败或索引未完成时仍返回词法结果。关闭功能会删除全部 `chunk_embeddings` 和 `chunk_embedding_buckets`，不影响文章、分块或 AI 生成设置。
 
 也可在启动前用环境变量提供默认值；一旦保存 Reader 设置，运行时设置优先：
 
@@ -196,7 +196,7 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/settings/ai/test`：使用内置测试文本验证候选网关，不发送资料库内容。
 - `POST /api/settings/ai/models`：显式读取候选 OpenAI-compatible 服务的受限模型目录；不发送资料库内容或返回密钥。
 - `GET/PUT /api/settings/semantic-search`：读取状态，或显式启用、切换模型、关闭并删除本地语义索引。
-- `POST /api/settings/semantic-search/test`：只向固定回环 Ollama 发送内置英文，验证嵌入模型与向量维度。
+- `POST /api/settings/semantic-search/test`：只向固定回环 Ollama 发送 9 句内置中英/跨语言探针，验证嵌入模型、向量维度并返回三组聚合分离结果。
 - `POST /api/ai/translate`：翻译一篇文章，并保存带来源记录的本地 Markdown 草稿。
 - `POST /api/ai/compose`：基于最多 20 篇来源生成可编辑、可回链的创作草稿。
 - `GET/POST /api/import-jobs`：查看队列或创建 URL 导入任务。
@@ -230,4 +230,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.49.0 变更见 [docs/RELEASE_NOTES_0.49.0.md](docs/RELEASE_NOTES_0.49.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.50.0 变更见 [docs/RELEASE_NOTES_0.50.0.md](docs/RELEASE_NOTES_0.50.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

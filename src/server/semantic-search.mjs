@@ -10,7 +10,29 @@ const MAX_DIMENSIONS = 4_096;
 const HASH_BANDS = 16;
 const HASH_BITS = 8;
 const HASH_SAMPLES = 8;
+const BUCKET_PROBES_PER_BAND = 3;
 const POLL_INTERVAL_MS = 2_000;
+const QUALITY_MARGIN = 0.05;
+const QUALITY_PROBES = Object.freeze([
+  Object.freeze({
+    locale: 'zh',
+    anchor: '小猫喜欢在温暖的窗边晒太阳和睡觉。',
+    positive: '猫咪常常蜷缩在有阳光的窗台上打盹。',
+    negative: '数据库备份需要校验文件完整性。'
+  }),
+  Object.freeze({
+    locale: 'en',
+    anchor: 'Healthy plants need sunlight and regular watering.',
+    positive: 'Flowers grow well with enough light and water.',
+    negative: 'A database backup should verify file integrity.'
+  }),
+  Object.freeze({
+    locale: 'cross-language',
+    anchor: 'Local-first software keeps the primary copy on the user device.',
+    positive: '本地优先软件把主要数据副本保存在用户设备上。',
+    negative: '酸面包需要经过长时间发酵。'
+  })
+]);
 
 function semanticError(message, status = 503) {
   return Object.assign(new Error(message), { status, expected: true });
@@ -65,11 +87,12 @@ export function embeddingVectorFromHex(value, dimensions) {
   return vector;
 }
 
-export function embeddingBuckets(value) {
+function embeddingBucketAnalysis(value) {
   const vector = normalizeEmbeddingVector(value);
-  const buckets = [];
+  const bands = [];
   for (let band = 0; band < HASH_BANDS; band += 1) {
     let bucket = 0;
+    const margins = [];
     for (let bit = 0; bit < HASH_BITS; bit += 1) {
       let projection = 0;
       for (let sample = 0; sample < HASH_SAMPLES; sample += 1) {
@@ -78,10 +101,27 @@ export function embeddingBuckets(value) {
         projection += vector[index] * (seed & 0x80000000 ? 1 : -1);
       }
       if (projection >= 0) bucket |= 1 << bit;
+      margins.push({ bit, magnitude: Math.abs(projection) });
     }
-    buckets.push({ band, bucket });
+    bands.push({ band, bucket, margins });
   }
-  return buckets;
+  return bands;
+}
+
+export function embeddingBuckets(value) {
+  return embeddingBucketAnalysis(value).map(({ band, bucket }) => ({ band, bucket }));
+}
+
+export function embeddingBucketProbes(value) {
+  return embeddingBucketAnalysis(value).flatMap(({ band, bucket, margins }) => {
+    const weakestBits = [...margins]
+      .sort((left, right) => left.magnitude - right.magnitude || left.bit - right.bit)
+      .slice(0, BUCKET_PROBES_PER_BAND - 1);
+    return [
+      { band, bucket, exact: true },
+      ...weakestBits.map(({ bit }) => ({ band, bucket: bucket ^ (1 << bit), exact: false }))
+    ];
+  });
 }
 
 export function cosineSimilarity(leftValue, rightValue) {
@@ -91,6 +131,32 @@ export function cosineSimilarity(leftValue, rightValue) {
   let score = 0;
   for (let index = 0; index < left.length; index += 1) score += left[index] * right[index];
   return Math.max(-1, Math.min(1, score));
+}
+
+export function evaluateEmbeddingQuality(vectors) {
+  if (!Array.isArray(vectors) || vectors.length !== QUALITY_PROBES.length * 3) {
+    throw semanticError('本地嵌入质量探针返回不完整');
+  }
+  const probes = QUALITY_PROBES.map((probe, index) => {
+    const offset = index * 3;
+    const positiveSimilarity = cosineSimilarity(vectors[offset], vectors[offset + 1]);
+    const negativeSimilarity = cosineSimilarity(vectors[offset], vectors[offset + 2]);
+    const margin = positiveSimilarity - negativeSimilarity;
+    return {
+      locale: probe.locale,
+      passed: margin >= QUALITY_MARGIN,
+      margin: Number(margin.toFixed(4))
+    };
+  });
+  const passed = probes.filter((probe) => probe.passed).length;
+  const averageMargin = probes.reduce((sum, probe) => sum + probe.margin, 0) / probes.length;
+  return {
+    version: 1,
+    passed,
+    total: probes.length,
+    averageMargin: Number(averageMargin.toFixed(4)),
+    assessment: passed === probes.length ? 'strong' : passed >= 2 ? 'partial' : 'poor'
+  };
 }
 
 async function boundedResponseJSON(response) {
@@ -205,12 +271,21 @@ export function createSemanticSearchService({
   let state = settingsStore.getSemanticSearch().enabled ? 'starting' : 'disabled';
   let warning = null;
   let indexedAt = null;
+  let quality = null;
+  let qualityModel = null;
 
   async function status() {
     const settings = settingsStore.getSemanticSearch();
     const index = await database.getEmbeddingIndexStatus(settings.model);
     if (settings.enabled && !paused && !active && index.pendingChunks === 0 && state !== 'error') state = 'ready';
-    return { ...settings, ...index, state: settings.enabled ? (paused ? 'paused' : state) : 'disabled', indexedAt, warning };
+    return {
+      ...settings,
+      ...index,
+      state: settings.enabled ? (paused ? 'paused' : state) : 'disabled',
+      indexedAt,
+      warning,
+      quality: qualityModel === settings.model ? quality : null
+    };
   }
 
   async function drain() {
@@ -251,8 +326,13 @@ export function createSemanticSearchService({
   }
 
   async function test(model) {
-    const result = await client.embed(['Reader local semantic search connection test.'], normalizeEmbeddingModel(model));
-    return { ok: true, model: result.model, dimensions: result.dimensions };
+    const result = await client.embed(
+      QUALITY_PROBES.flatMap((probe) => [probe.anchor, probe.positive, probe.negative]),
+      normalizeEmbeddingModel(model)
+    );
+    quality = evaluateEmbeddingQuality(result.vectors);
+    qualityModel = result.model;
+    return { ok: true, model: result.model, dimensions: result.dimensions, quality };
   }
 
   async function update({ enabled, model }) {
@@ -265,6 +345,8 @@ export function createSemanticSearchService({
       state = 'disabled';
       warning = null;
       indexedAt = null;
+      quality = null;
+      qualityModel = null;
       paused = false;
       return await status();
     }
@@ -337,3 +419,4 @@ export function createSemanticSearchService({
 export const SEMANTIC_SEARCH_DEFAULT_MODEL = 'embeddinggemma';
 export const SEMANTIC_SEARCH_ENDPOINT = OLLAMA_EMBED_ENDPOINT;
 export const SEMANTIC_SEARCH_HASH_BANDS = HASH_BANDS;
+export const SEMANTIC_SEARCH_BUCKET_PROBES_PER_BAND = BUCKET_PROBES_PER_BAND;

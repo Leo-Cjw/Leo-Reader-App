@@ -103,6 +103,15 @@ export interface SemanticSearchStatus {
   dimensions: number | null;
   indexedAt: string | null;
   warning: string | null;
+  quality: SemanticSearchQuality | null;
+}
+
+export interface SemanticSearchQuality {
+  version: 1;
+  passed: number;
+  total: number;
+  averageMargin: number;
+  assessment: 'strong' | 'partial' | 'poor';
 }
 
 export interface RAGCitation {

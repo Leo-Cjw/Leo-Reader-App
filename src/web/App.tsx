@@ -1013,7 +1013,11 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
     setBusy('semantic-test'); setSemanticResult(null);
     try {
       const result = await api.testSemanticSearch(semanticModel.trim());
-      setSemanticResult({ ok: true, message: `本地嵌入模型可用 · ${result.dimensions} 维` });
+      const qualityLabel = result.quality.assessment === 'strong' ? '分离良好' : result.quality.assessment === 'partial' ? '部分通过' : '质量有限';
+      setSemanticResult({
+        ok: result.quality.assessment !== 'poor',
+        message: `本地嵌入模型可用 · ${result.dimensions} 维 · 中英探针 ${result.quality.passed}/${result.quality.total}（${qualityLabel}）`
+      });
     } catch (error) { setSemanticResult({ ok: false, message: error instanceof Error ? error.message : '本地嵌入模型测试失败' }); }
     finally { setBusy(null); }
   };
@@ -1105,15 +1109,16 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
               <label>
                 <span>本地嵌入模型</span>
                 <input aria-label="本地嵌入模型" value={semanticModel} onChange={(event) => { setSemanticModel(event.target.value); setSemanticResult(null); }} placeholder="embeddinggemma"/>
-                <small>推荐 `embeddinggemma`、`qwen3-embedding` 或 `all-minilm`；必须先在 Ollama 中安装。</small>
+                <small>推荐 `embeddinggemma`、`qwen3-embedding` 或 `all-minilm`；必须先在 Ollama 中安装。测试只发送 9 句 Reader 内置中英文探针，不读取资料库。</small>
               </label>
               <div className="semantic-search-actions">
                 <button type="button" onClick={() => void testSemanticSearch()} disabled={Boolean(busy) || !semanticModel.trim()}>{busy === 'semantic-test' ? '测试中…' : '测试本地模型'}</button>
                 <button type="button" className="button primary" onClick={() => void enableSemanticSearch()} disabled={Boolean(busy) || !semanticModel.trim()}>{busy === 'semantic-enable' ? '正在启用…' : semanticSearch?.enabled && semanticSearch.model !== semanticModel.trim() ? '切换模型并重建' : semanticSearch?.enabled ? '继续建立索引' : '启用语义检索'}</button>
                 {semanticSearch?.enabled && <button type="button" className="quiet-danger" onClick={() => void disableSemanticSearch()} disabled={Boolean(busy)}>{busy === 'semantic-disable' ? '正在删除…' : '关闭并删除索引'}</button>}
               </div>
-              <small className="semantic-search-status">{semanticSearch?.enabled ? `${semanticSearch.embeddedChunks} / ${semanticSearch.totalChunks} 个片段${semanticSearch.dimensions ? ` · ${semanticSearch.dimensions} 维` : ''}${semanticSearch.state === 'paused' ? ' · 因系统资源限制暂停' : ''}` : '默认关闭；关闭后只使用现有本地全文检索。'}</small>
+              <small className="semantic-search-status">{semanticSearch?.enabled ? `${semanticSearch.embeddedChunks} / ${semanticSearch.totalChunks} 个片段${semanticSearch.dimensions ? ` · ${semanticSearch.dimensions} 维` : ''}${semanticSearch.quality ? ` · 中英探针 ${semanticSearch.quality.passed}/${semanticSearch.quality.total}` : ''}${semanticSearch.state === 'paused' ? ' · 因系统资源限制暂停' : ''}` : '默认关闭；关闭后只使用现有本地全文检索。'}</small>
               {semanticSearch?.warning && <p className="settings-warning">{semanticSearch.warning}</p>}
+              {semanticSearch?.quality?.assessment === 'poor' && <p className="settings-warning">该模型能生成向量，但内置中英语义分离探针表现有限；可更换推荐嵌入模型，Reader 仍会保留全文检索回退。</p>}
               {semanticResult && <span className={semanticResult.ok ? 'success' : 'error'}><i></i>{semanticResult.message}</span>}
             </section>
             <div className="settings-contract"><span className="eyebrow">连接测试</span><p>测试只发送 Reader 自带的一句英文，不会读取或发送你的资料库内容。</p>{testResult && <span className={testResult.ok ? 'success' : 'error'}><i></i>{testResult.message}</span>}</div>

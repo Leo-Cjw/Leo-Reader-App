@@ -7,6 +7,7 @@ import { applyPendingMigrations } from './migrations.mjs';
 import { chunkArticleMarkdown, ragQueryTerms, scoreRagChunk } from './chunks.mjs';
 import {
   cosineSimilarity,
+  embeddingBucketProbes,
   embeddingBuckets,
   embeddingVectorFromHex,
   embeddingVectorHex,
@@ -539,28 +540,32 @@ export class ReaderDatabase {
   async searchChunkEmbeddings(model, queryVector, { articleId = null, limit = 36 } = {}) {
     const normalizedModel = normalizeEmbeddingModel(model);
     const vector = normalizeEmbeddingVector(queryVector);
-    const buckets = embeddingBuckets(vector);
+    const probes = embeddingBucketProbes(vector);
+    const exactProbes = probes.filter((probe) => probe.exact);
     const safeLimit = Math.min(Math.max(Number(limit) || 36, 1), 48);
-    const bucketWhere = buckets.map(({ band, bucket }) => `(b.band=${band} AND b.bucket=${bucket})`).join(' OR ');
+    const bucketWhere = probes.map(({ band, bucket }) => `(b.band=${band} AND b.bucket=${bucket})`).join(' OR ');
+    const exactBucketWhere = exactProbes.map(({ band, bucket }) => `(b.band=${band} AND b.bucket=${bucket})`).join(' OR ');
     const articleFilter = articleId ? ` AND a.id=${sqlValue(articleId)}` : '';
     const candidates = await this.query(`WITH candidate_chunks AS (
-        SELECT b.chunk_id,count(*) AS band_matches
+        SELECT b.chunk_id,
+          sum(CASE WHEN ${exactBucketWhere} THEN 1 ELSE 0 END) AS exact_band_matches,
+          count(*) AS probe_matches
         FROM chunk_embedding_buckets b
         JOIN article_chunks c ON c.id=b.chunk_id
         JOIN articles a ON a.id=c.article_id
         WHERE b.model=${sqlValue(normalizedModel)} AND a.archived=0${articleFilter} AND (${bucketWhere})
         GROUP BY b.chunk_id
-        ORDER BY band_matches DESC,b.chunk_id
+        ORDER BY exact_band_matches DESC,probe_matches DESC,b.chunk_id
         LIMIT 1500
       )
       SELECT c.id,c.article_id,c.chunk_index,c.heading,c.content,c.start_offset,c.end_offset,c.content_sha256,
         a.title AS article_title,a.excerpt AS article_excerpt,a.source AS article_source,a.url AS article_url,a.language AS article_language,
-        e.dimensions,hex(e.vector) AS vector_hex,k.band_matches
+        e.dimensions,hex(e.vector) AS vector_hex,k.exact_band_matches,k.probe_matches
       FROM candidate_chunks k
       JOIN chunk_embeddings e ON e.chunk_id=k.chunk_id AND e.model=${sqlValue(normalizedModel)}
       JOIN article_chunks c ON c.id=e.chunk_id
       JOIN articles a ON a.id=c.article_id
-      ORDER BY k.band_matches DESC,c.chunk_index;`);
+      ORDER BY k.exact_band_matches DESC,k.probe_matches DESC,c.chunk_index;`);
     const ranked = candidates
       .map((chunk) => ({
         ...chunk,
@@ -568,7 +573,8 @@ export class ReaderDatabase {
       }))
       .filter((chunk) => chunk.semanticScore >= 0.1)
       .sort((left, right) => right.semanticScore - left.semanticScore
-        || Number(right.band_matches) - Number(left.band_matches)
+        || Number(right.exact_band_matches) - Number(left.exact_band_matches)
+        || Number(right.probe_matches) - Number(left.probe_matches)
         || Number(left.chunk_index) - Number(right.chunk_index));
     const seen = new Set();
     const results = [];

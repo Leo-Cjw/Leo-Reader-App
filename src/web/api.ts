@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AIModel, AIProviderPreset, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SemanticSearchStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AIModel, AIProviderPreset, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SemanticSearchQuality, SemanticSearchStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -227,7 +227,7 @@ export const api = {
     return (await request<{ settings: SemanticSearchStatus }>('/api/settings/semantic-search')).settings;
   },
   async testSemanticSearch(model: string) {
-    return (await request<{ result: { ok: true; model: string; dimensions: number } }>('/api/settings/semantic-search/test', { method: 'POST', body: JSON.stringify({ model }) })).result;
+    return (await request<{ result: { ok: true; model: string; dimensions: number; quality: SemanticSearchQuality } }>('/api/settings/semantic-search/test', { method: 'POST', body: JSON.stringify({ model }) })).result;
   },
   async updateSemanticSearch(enabled: boolean, model: string) {
     return (await request<{ settings: SemanticSearchStatus }>('/api/settings/semantic-search', { method: 'PUT', body: JSON.stringify({ enabled, model }) })).settings;

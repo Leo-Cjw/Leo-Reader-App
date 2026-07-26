@@ -8,12 +8,15 @@ import { ReaderDatabase } from '../src/server/db.mjs';
 import {
   cosineSimilarity,
   createSemanticSearchService,
+  embeddingBucketProbes,
   embeddingBuckets,
   embeddingVectorFromHex,
   embeddingVectorHex,
+  evaluateEmbeddingQuality,
   fuseHybridResults,
   normalizeEmbeddingVector,
   OllamaEmbeddingClient,
+  SEMANTIC_SEARCH_BUCKET_PROBES_PER_BAND,
   SEMANTIC_SEARCH_ENDPOINT,
   SEMANTIC_SEARCH_HASH_BANDS
 } from '../src/server/semantic-search.mjs';
@@ -37,7 +40,15 @@ class SemanticFixtureClient {
     const vectors = inputs.map((input) => {
       const text = String(input);
       const vector = Array.from({ length: this.dimensions }, () => 0);
-      vector[/窗台|felines|nap/i.test(text) ? 0 : /壁炉|warm resting/i.test(text) ? 2 : 1] = 1;
+      vector[
+        /猫|猫咪|窗台|felines|nap/i.test(text) ? 0
+          : /壁炉|warm resting/i.test(text) ? 2
+            : /plants?|flowers?|sunlight|watering/i.test(text) ? 3
+              : /本地优先|local-first/i.test(text) ? 4
+                : /备份|backup|database/i.test(text) ? 5
+                  : /酸面包|sourdough/i.test(text) ? 6
+                    : 1
+      ] = 1;
       return normalizeEmbeddingVector(vector);
     });
     return { model, dimensions: this.dimensions, vectors };
@@ -75,6 +86,48 @@ test('embedding vectors are normalized, binary-safe and deterministically bucket
   assert.ok(fused.some((item) => item.id === 'semantic-only'));
   assert.throws(() => normalizeEmbeddingVector([1, 2]), /维度/);
   assert.throws(() => normalizeEmbeddingVector([1, 0, 0, 0, 0, 0, 0, Number.NaN]), /无效向量/);
+});
+
+test('bilingual quality probes measure separation and low-confidence bucket probes widen recall', () => {
+  const quality = evaluateEmbeddingQuality([
+    axis(0), axis(0), axis(1),
+    axis(2), axis(2), axis(3),
+    axis(4), axis(4), axis(5)
+  ]);
+  assert.deepEqual(quality, { version: 1, passed: 3, total: 3, averageMargin: 1, assessment: 'strong' });
+  const poor = evaluateEmbeddingQuality(Array.from({ length: 9 }, () => axis(0)));
+  assert.deepEqual(poor, { version: 1, passed: 0, total: 3, averageMargin: 0, assessment: 'poor' });
+
+  const vector = normalizeEmbeddingVector([0.51, 0.49, 0.4, -0.35, 0.2, -0.15, 0.1, -0.05]);
+  const exact = embeddingBuckets(vector);
+  const probes = embeddingBucketProbes(vector);
+  assert.equal(probes.length, exact.length * SEMANTIC_SEARCH_BUCKET_PROBES_PER_BAND);
+  for (const bucket of exact) {
+    const bandProbes = probes.filter((probe) => probe.band === bucket.band);
+    assert.deepEqual(bandProbes[0], { ...bucket, exact: true });
+    assert.equal(new Set(bandProbes.map((probe) => probe.bucket)).size, SEMANTIC_SEARCH_BUCKET_PROBES_PER_BAND);
+    assert.ok(bandProbes.slice(1).every((probe) => ((probe.bucket ^ bucket.bucket) & ((probe.bucket ^ bucket.bucket) - 1)) === 0));
+  }
+
+  let seed = 0x12345678;
+  const random = () => {
+    seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+    return (seed / 0x1_0000_0000) * 2 - 1;
+  };
+  const sharesBucket = (left, right) => left.some((candidate) => right.some((query) => (
+    candidate.band === query.band && candidate.bucket === query.bucket
+  )));
+  let exactHits = 0;
+  let probeHits = 0;
+  for (let queryIndex = 0; queryIndex < 200; queryIndex += 1) {
+    const candidate = Array.from({ length: 64 }, random);
+    const nearbyQuery = candidate.map((value) => value + 0.75 * random());
+    const candidateBuckets = embeddingBuckets(candidate);
+    if (sharesBucket(candidateBuckets, embeddingBuckets(nearbyQuery))) exactHits += 1;
+    if (sharesBucket(candidateBuckets, embeddingBucketProbes(nearbyQuery))) probeHits += 1;
+  }
+  assert.ok(exactHits < probeHits);
+  assert.equal(probeHits, 200);
 });
 
 test('Ollama embedding requests stay on the fixed loopback endpoint and reject redirects', async (t) => {
@@ -153,6 +206,10 @@ test('optional semantic index follows chunk edits, mixes vector retrieval and de
 
   const enabled = await service.update({ enabled: true, model: 'embeddinggemma' });
   assert.equal(enabled.enabled, true);
+  assert.deepEqual(enabled.quality, { version: 1, passed: 3, total: 3, averageMargin: 1, assessment: 'strong' });
+  assert.equal(client.requests[0].inputs.length, 9);
+  assert.ok(client.requests[0].inputs.some((input) => /本地优先/.test(input)));
+  assert.ok(client.requests[0].inputs.some((input) => /Local-first/.test(input)));
   const ready = await drainAll(service);
   assert.equal(ready.pendingChunks, 0);
   assert.equal(ready.dimensions, 8);
@@ -223,7 +280,12 @@ test('semantic settings API is opt-in, validates models and never needs an API k
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ model: 'embeddinggemma' })
   });
-  assert.deepEqual(tested.body.result, { ok: true, model: 'embeddinggemma', dimensions: 8 });
+  assert.deepEqual(tested.body.result, {
+    ok: true,
+    model: 'embeddinggemma',
+    dimensions: 8,
+    quality: { version: 1, passed: 3, total: 3, averageMargin: 1, assessment: 'strong' }
+  });
   const invalid = await json(`${base}/api/settings/semantic-search`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
