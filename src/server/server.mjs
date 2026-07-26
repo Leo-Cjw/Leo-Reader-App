@@ -280,6 +280,7 @@ export async function createReaderServer({
   let dataRepairPromise = null;
   let restoreWriteLocked = false;
   let diagnosticsStopped = false;
+  let closePromise = null;
   const ragIndexStatus = async () => {
     const lexical = await database.getChunkIndexStatus();
     const semantic = await runtimeSemanticSearch.status();
@@ -1210,15 +1211,24 @@ export async function createReaderServer({
     setBackgroundWorkState(state) { return backgroundWork.update(state); },
     getBackgroundWorkState() { return backgroundWork.snapshot(); },
     async listen() { await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); }); return server.address(); },
-    async close() {
-      await Promise.all([importWorker.stop(), sourceScheduler.stop(), runtimeSpotlight.stop(), runtimeSemanticSearch.stop(), automaticBackups.stop()]);
-      if (!diagnosticsStopped) {
-        diagnosticsStopped = true;
-        await diagnostics.record('app_stopped');
-        await diagnostics.flush();
-      }
-      if (!server.listening) return;
-      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    close() {
+      if (closePromise) return closePromise;
+      const httpClosed = server.listening
+        ? new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+        : Promise.resolve();
+      closePromise = (async () => {
+        try {
+          await Promise.all([importWorker.stop(), sourceScheduler.stop(), runtimeSpotlight.stop(), runtimeSemanticSearch.stop(), automaticBackups.stop()]);
+          if (!diagnosticsStopped) {
+            diagnosticsStopped = true;
+            await diagnostics.record('app_stopped');
+            await diagnostics.flush();
+          }
+        } finally {
+          await httpClosed;
+        }
+      })();
+      return closePromise;
     }
   };
 }

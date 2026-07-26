@@ -109,7 +109,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.automaticBackupPauseReasons, ['low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.57.0');
+  assert.equal(APP_VERSION, '0.58.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -328,6 +328,51 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.equal(cancelledRestore.body.cancelled, true);
   const invalidRestore = await json(`${base}/api/backups/restore`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: Buffer.from('not a Reader backup') });
   assert.equal(invalidRestore.response.status, 400);
+});
+
+test('server close quiesces the listener before draining work and is single-flight', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-server-close-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const releaseStops = [];
+  let markStopStarted;
+  const stopStarted = new Promise((resolve) => { markStopStarted = resolve; });
+  let stopCalls = 0;
+  const spotlightService = {
+    async start() {},
+    async stop() {
+      stopCalls += 1;
+      markStopStarted();
+      await new Promise((resolve) => { releaseStops.push(resolve); });
+    }
+  };
+  const diagnosticEvents = [];
+  const diagnosticsStore = {
+    async record(event) { diagnosticEvents.push(event); },
+    async flush() {}
+  };
+  const app = await createReaderServer({
+    rootDir: dir,
+    dbPath: path.join(dir, 'reader.sqlite3'),
+    port: 0,
+    spotlightService,
+    diagnosticsStore
+  });
+  await app.listen();
+
+  const firstClose = app.close();
+  const secondClose = app.close();
+  try {
+    assert.equal(firstClose, secondClose);
+    await stopStarted;
+    assert.equal(app.server.listening, false);
+    assert.equal(stopCalls, 1);
+    assert.equal(diagnosticEvents.filter((event) => event === 'app_stopped').length, 0);
+  } finally {
+    for (const release of releaseStops) release();
+    await Promise.allSettled([firstClose, secondClose]);
+  }
+  assert.equal(stopCalls, 1);
+  assert.equal(diagnosticEvents.filter((event) => event === 'app_stopped').length, 1);
 });
 
 test('loopback API rejects DNS rebinding and cross-site browser requests before any write', async (t) => {
