@@ -34,3 +34,8 @@ test('the project declares the Node version used by CI', async () => {
   const packageJSON = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
   assert.equal(packageJSON.engines.node, '>=24 <25');
 });
+
+test('the SQLite shell enables trusted schema for Reader-managed FTS triggers', async () => {
+  const database = await readFile(path.join(projectRoot, 'src', 'server', 'db.mjs'), 'utf8');
+  assert.match(database, /PRAGMA foreign_keys = ON;\\nPRAGMA trusted_schema = ON;/);
+});
