@@ -38,6 +38,8 @@ flowchart LR
 
 0.55.0 移除上述可绕过监听边界：服务构造只接受精确 `127.0.0.1`，包括 `0.0.0.0`、主机名与 IPv6 在内的其他值都会在创建数据目录、打开 SQLite、启动后台服务或创建监听 socket 之前失败。桌面主进程继续显式使用随机 IPv4 回环端口，源码服务入口即使收到非回环 `READER_HOST` 也不能把无账号 API 暴露到局域网或公网。最终包门禁会主动注入 `READER_HOST=0.0.0.0`，并要求候选 App 的实际 origin 仍为 `127.0.0.1`。
 
+0.56.0 在同一 HTTP 入口为成功、错误、静态文件与流式响应统一设置浏览器安全头。CSP `frame-ancestors 'self'` 与 X-Frame-Options `SAMEORIGIN` 拒绝跨源嵌入但保留阅读器用同源 `<object>` 显示 PDF；CORP 与 COOP 固定为 `same-origin`，Permissions Policy 禁止相机、地理位置和麦克风，Referrer Policy 为 `no-referrer`，并对所有 MIME 使用 `nosniff`。这些头在 Host/Origin/Fetch Metadata 校验之前写入，因此拒绝响应也保持相同边界；HTML 内现有完整 CSP 继续约束脚本、样式、图片、媒体、连接、frame、base 与表单。
+
 0.35.0 在打包元数据中注册唯一的 `reader-local` URL scheme，作为浏览器、快捷指令和 Share Extension 的外部保存边界。主进程在 `ready` 前监听 macOS `open-url`，并同时从冷启动/第二实例 argv 中提取候选。URL 路径只接受 `reader-local://add`、唯一 `url` 参数、最长 2,048 字符且不含用户名或密码的 HTTP(S) 目标。未知动作、重复/额外参数、外层 fragment、其他目标协议和畸形输入直接忽略。
 
 0.45.0 在同一动作下增加与 URL 互斥的唯一 `text` 参数。扩展把最多 4,096 UTF-8 bytes、非空且不含禁止控制字符的文本编码为无 padding 的规范 Base64URL；Electron 主进程严格解码、执行 fatal UTF-8 与重新编码一致性检查，preload 再次验证请求形状、字节数和控制字符。混合、重复、额外、非规范或超限参数均被拒绝。

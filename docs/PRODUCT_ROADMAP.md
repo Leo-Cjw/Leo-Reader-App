@@ -1,8 +1,8 @@
 # 成熟产品路线图
 
-## 当前基线：Reader for Mac 0.55.0
+## 当前基线：Reader for Mac 0.56.0
 
-已完成可运行的 local-first 主链路：本地 SQLite、数据迁移、正文高亮与批注、文章/目录/标签、收藏与阅读状态、URL/RSS/YouTube/X/微博/Markdown 采集、全文搜索、阅读器、明暗主题和 AI 工作台。0.55.0 在 0.54 的精确 Host、Origin 与 Fetch Metadata 边界上进一步固定服务只监听 `127.0.0.1`，非回环配置在任何持久化或后台初始化前失败，避免无账号 API 被环境变量暴露到网络；0.53 的统一 Bundle 发行身份、0.52 的创建时备份完整验证与 0.51 的默认关闭自动恢复点保持不变。Schema 继续保持 v12。全部 14 个顶层模态 AX、Share 文件与 0.43 冻结资料库升级门禁继续执行。148 项自动测试覆盖冻结升级样本、回环监听与 API 来源、发行身份、AI/嵌入适配与凭据边界、语义分离和近邻召回、创建时备份验证、自动恢复点、Share Extension、Spotlight、通知、专注窗口、导入、恢复、模态与 AX、解析进程、更新门禁、搜索、迁移与全部产品主链路。
+已完成可运行的 local-first 主链路：本地 SQLite、数据迁移、正文高亮与批注、文章/目录/标签、收藏与阅读状态、URL/RSS/YouTube/X/微博/Markdown 采集、全文搜索、阅读器、明暗主题和 AI 工作台。0.56.0 为全部本地 HTTP 响应加入统一的同源嵌入、跨源资源、窗口隔离、设备权限、Referrer 与 MIME 策略；0.55 的固定 IPv4 回环监听、0.54 的精确 Host/Origin/Fetch Metadata、0.53 的统一 Bundle 发行身份、0.52 的创建时备份完整验证与 0.51 的默认关闭自动恢复点保持不变。Schema 继续保持 v12。全部 14 个顶层模态 AX、Share 文件与 0.43 冻结资料库升级门禁继续执行。148 项自动测试覆盖冻结升级样本、回环监听/来源与响应策略、发行身份、AI/嵌入适配与凭据边界、语义分离和近邻召回、创建时备份验证、自动恢复点、Share Extension、Spotlight、通知、专注窗口、导入、恢复、模态与 AX、解析进程、更新门禁、搜索、迁移与全部产品主链路。
 
 ## M2：完整内容采集（进行中）
 
@@ -31,6 +31,7 @@
 - [已完成] `package.json` 单一营销版本/递增构建号驱动主 App、Share Extension 与 Spotlight helper；原生副本签名前自动盖印，Universal 合并后回读三个 `Info.plist` 并在身份漂移时中止发行。
 - [已完成] 默认随机回环 API 的精确 Host/Origin/Fetch Metadata 校验，在路由和请求体读取前拒绝 DNS rebinding 与浏览器跨站请求，并保留同机内部调用兼容。
 - [已完成] 无账号 HTTP 服务固定只接受 `127.0.0.1` 监听地址；非回环环境覆盖在触碰用户数据前失败，最终候选包也在恶意 `READER_HOST` 下回读实际随机回环 origin。
+- [已完成] 本地服务对静态、JSON、错误与流式响应统一声明同源 frame/object、CORP/COOP、设备权限、Referrer 与 MIME 策略；最终候选 App 直接回读阻断。
 - [部分完成] 应用快捷键、菜单命令、分别默认关闭且仅显示聚合计数的后台导入/订阅通知、按文章去重的独立专注阅读窗口，以及默认关闭、受保护并可删除的 Spotlight 本机索引已完成。系统通知与 Spotlight 结果点击仍需随 Developer ID 签名/公证包验收。
 - [已完成] 睡眠/唤醒、离线恢复、电池电量不高于 20% 与系统严重热/降频状态下的后台调度策略；待恢复锁和系统条件不会互相绕过。
 
@@ -76,4 +77,4 @@
 
 ## 优先顺序
 
-下一迭代建议取得 Apple Developer ID，运行已接入的 App/DMG 公证流水线，发布首个携带 universal 更新 ZIP 的正式 GitHub Release，并在 Intel 与 Apple Silicon 真机完成 Gatekeeper、0.43→0.55 `autoUpdater` 安装、系统通知、Spotlight 结果点击，以及 Safari/Finder/照片来源的 Share Extension 和资料库不丢失验收。代码内继续完成启用 VoiceOver 的人工听读；在装有推荐 Ollama 模型的机器上扩充并记录真实中英文检索基准，当前 9 句探针只作为选型提示，不替代代表性资料集。随后推进国际化与可选端到端加密多设备同步。
+下一迭代建议取得 Apple Developer ID，运行已接入的 App/DMG 公证流水线，发布首个携带 universal 更新 ZIP 的正式 GitHub Release，并在 Intel 与 Apple Silicon 真机完成 Gatekeeper、0.43→0.56 `autoUpdater` 安装、系统通知、Spotlight 结果点击，以及 Safari/Finder/照片来源的 Share Extension 和资料库不丢失验收。代码内继续完成启用 VoiceOver 的人工听读；在装有推荐 Ollama 模型的机器上扩充并记录真实中英文检索基准，当前 9 句探针只作为选型提示，不替代代表性资料集。随后推进国际化与可选端到端加密多设备同步。

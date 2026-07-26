@@ -1,6 +1,6 @@
 {
   "name": "reader-local-first",
-  "version": "0.55.0",
+  "version": "0.56.0",
   "description": "A private, local-first reading and knowledge workspace for macOS.",
   "author": "Reader",
   "private": true,
@@ -55,7 +55,7 @@
     "ws": "8.21.1"
   },
   "build": {
-    "buildVersion": "55",
+    "buildVersion": "56",
     "appId": "com.reader.localfirst",
     "productName": "Reader",
     "asar": true,

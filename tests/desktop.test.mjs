@@ -151,6 +151,13 @@ test('server can serve packaged web assets while writing only to the user data r
 
   const response = await fetch(`http://127.0.0.1:${address.port}/`);
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-security-policy'), "frame-ancestors 'self'");
+  assert.equal(response.headers.get('cross-origin-opener-policy'), 'same-origin');
+  assert.equal(response.headers.get('cross-origin-resource-policy'), 'same-origin');
+  assert.equal(response.headers.get('permissions-policy'), 'camera=(), geolocation=(), microphone=()');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(response.headers.get('x-frame-options'), 'SAMEORIGIN');
   assert.match(await response.text(), /Packaged Reader/);
   await access(dbPath);
   await assert.rejects(access(path.join(webRoot, 'reader.sqlite3')));

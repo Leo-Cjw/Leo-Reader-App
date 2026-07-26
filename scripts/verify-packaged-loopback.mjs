@@ -13,7 +13,7 @@ async function requestJSON(url, { method = 'GET', headers = {}, body = '' } = {}
       response.on('error', reject);
       response.on('end', () => {
         try {
-          resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+          resolve({ status: response.statusCode, headers: response.headers, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
         } catch (error) { reject(error); }
       });
     });
@@ -29,7 +29,15 @@ try {
   const localURL = new URL(origin);
   assert.equal(localURL.hostname, '127.0.0.1');
   const authority = localURL.host;
-  const before = (await requestJSON(`${origin}/api/stats`)).body.stats.total;
+  const initialStats = await requestJSON(`${origin}/api/stats`);
+  assert.equal(initialStats.headers['content-security-policy'], "frame-ancestors 'self'");
+  assert.equal(initialStats.headers['cross-origin-opener-policy'], 'same-origin');
+  assert.equal(initialStats.headers['cross-origin-resource-policy'], 'same-origin');
+  assert.equal(initialStats.headers['permissions-policy'], 'camera=(), geolocation=(), microphone=()');
+  assert.equal(initialStats.headers['referrer-policy'], 'no-referrer');
+  assert.equal(initialStats.headers['x-content-type-options'], 'nosniff');
+  assert.equal(initialStats.headers['x-frame-options'], 'SAMEORIGIN');
+  const before = initialStats.body.stats.total;
   const payload = JSON.stringify({ mode: 'markdown', title: 'Blocked cross-site write', content: 'Must not persist.' });
 
   assert.equal((await requestJSON(`${origin}/api/health`, {
@@ -55,6 +63,7 @@ try {
 
   console.log('Reader 最终包回环来源门禁通过');
   console.log('non-loopback listener override=blocked');
+  console.log('response security headers=passed');
   console.log('dns rebinding host=blocked');
   console.log('cross-origin write=blocked');
   console.log('cross-site read=blocked');

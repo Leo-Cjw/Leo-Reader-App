@@ -17,6 +17,17 @@ async function json(url, init) {
   return { response, body };
 }
 
+function assertResponseSecurityHeaders(headers) {
+  const value = (name) => typeof headers.get === 'function' ? headers.get(name) : headers[name];
+  assert.equal(value('content-security-policy'), "frame-ancestors 'self'");
+  assert.equal(value('cross-origin-opener-policy'), 'same-origin');
+  assert.equal(value('cross-origin-resource-policy'), 'same-origin');
+  assert.equal(value('permissions-policy'), 'camera=(), geolocation=(), microphone=()');
+  assert.equal(value('referrer-policy'), 'no-referrer');
+  assert.equal(value('x-content-type-options'), 'nosniff');
+  assert.equal(value('x-frame-options'), 'SAMEORIGIN');
+}
+
 async function rawJSON(url, { method = 'GET', headers = {}, body = '' } = {}) {
   return await new Promise((resolve, reject) => {
     const request = http.request(url, { method, headers }, (response) => {
@@ -25,7 +36,7 @@ async function rawJSON(url, { method = 'GET', headers = {}, body = '' } = {}) {
       response.on('error', reject);
       response.on('end', () => {
         try {
-          resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+          resolve({ status: response.statusCode, headers: response.headers, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
         } catch (error) { reject(error); }
       });
     });
@@ -67,6 +78,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
 
   const health = await json(`${base}/api/health`);
   assert.equal(health.response.status, 200);
+  assertResponseSecurityHeaders(health.response.headers);
   assert.equal(health.body.storage, 'sqlite');
   assert.equal(health.body.version, APP_VERSION);
   assert.equal(health.body.schemaVersion, SCHEMA_VERSION);
@@ -97,7 +109,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.automaticBackupPauseReasons, ['low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.55.0');
+  assert.equal(APP_VERSION, '0.56.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -334,6 +346,7 @@ test('loopback API rejects DNS rebinding and cross-site browser requests before 
   });
   assert.equal(rebinding.status, 403);
   assert.match(rebinding.body.error, /本机来源/);
+  assertResponseSecurityHeaders(rebinding.headers);
 
   const crossOrigin = await rawJSON(`${base}/api/articles`, {
     method: 'POST',
@@ -464,6 +477,7 @@ test('attachment upload runs through the durable queue and supports byte ranges'
 
   const rangeResponse = await fetch(`${base}${article.attachments[0].url}`, { headers: { range: 'bytes=0-8' } });
   assert.equal(rangeResponse.status, 206);
+  assertResponseSecurityHeaders(rangeResponse.headers);
   assert.equal(rangeResponse.headers.get('accept-ranges'), 'bytes');
   assert.equal(Buffer.from(await rangeResponse.arrayBuffer()).toString(), '# Offline');
 

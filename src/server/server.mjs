@@ -291,6 +291,13 @@ export async function createReaderServer({
   };
 
   const server = http.createServer(async (request, response) => {
+    response.setHeader('content-security-policy', "frame-ancestors 'self'");
+    response.setHeader('cross-origin-opener-policy', 'same-origin');
+    response.setHeader('cross-origin-resource-policy', 'same-origin');
+    response.setHeader('permissions-policy', 'camera=(), geolocation=(), microphone=()');
+    response.setHeader('referrer-policy', 'no-referrer');
+    response.setHeader('x-content-type-options', 'nosniff');
+    response.setHeader('x-frame-options', 'SAMEORIGIN');
     let requestPath = '/';
     const requestMethod = request.method || 'GET';
     try {
