@@ -187,6 +187,7 @@ npm run audit:dependencies
 npm test
 npm run build
 npm run qa:accessibility
+npm run qa:upgrade
 ```
 
-0.43.0 的依赖审计、123 项自动测试、最终包完整 AX 树、八个核心模态框焦点闭环与隔离临时资料 QA 记录在对应发行说明；0.42.0 的 Share Extension Swift URL 自测、激活规则/最小 entitlement/Universal 打包门禁、真实系统分享闭环，以及 0.41.0 的 Spotlight 门禁继续有效。解析进程测试覆盖独立 PID、Node 权限、最小环境、V8 heap、并发/排队、随机响应边界、超时、崩溃、输入输出超限及故障后的继续工作；既有测试继续覆盖屏幕阅读器、文件选择器、键盘选区、更新签名、后台状态、摘要/详情边界、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.17 的 x64 Mac 真机升级与交互验收仍有效；0.43.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon Gatekeeper、跨版本自动升级、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读。
+0.44.0 的依赖审计、125 项自动测试、最终包 AX 门禁，以及从冻结 0.43 资料库读取、写入、重启、SQLite/外键与附件哈希复检均记录在对应发行说明。冻结基准只含合成内容和无凭据设置，每个文件由 SHA-256 锁定；候选只操作临时副本。0.43.0 的八个核心模态框焦点闭环，0.42.0 的 Share Extension 门禁，以及 0.41.0 的 Spotlight 门禁继续有效。解析进程测试覆盖独立 PID、Node 权限、最小环境、V8 heap、并发/排队、随机响应边界、超时、崩溃、输入输出超限及故障后的继续工作；既有测试继续覆盖屏幕阅读器、文件选择器、键盘选区、更新签名、后台状态、稳定游标、中文 trigram、迁移快照、固定地址传输、日志隐私、v3 往返、迁移审计、沙箱、CSP、Keychain、智能规则、批注、备份恢复、连接器及通用 Mach-O 合并。0.44.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读。

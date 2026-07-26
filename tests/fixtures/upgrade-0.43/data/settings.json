@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "ai": {
+    "configured": false,
+    "enabled": false,
+    "endpoint": "",
+    "hasApiKey": false,
+    "updatedAt": null
+  },
+  "imports": {
+    "paused": true,
+    "updatedAt": "2026-07-25T23:47:40.511Z"
+  },
+  "notifications": {
+    "enabled": true,
+    "sourceSyncEnabled": true,
+    "updatedAt": "2026-07-25T23:47:40.507Z"
+  },
+  "spotlight": {
+    "enabled": false,
+    "updatedAt": null
+  }
+}

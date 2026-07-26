@@ -172,10 +172,11 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(release, /verify-packaged-accessibility\.mjs/);
 
   const accessibilityGate = await readFile(path.join(projectRoot, 'scripts', 'verify-packaged-accessibility.mjs'), 'utf8');
-  assert.match(accessibilityGate, /--remote-debugging-address=127\.0\.0\.1/);
-  assert.match(accessibilityGate, /--remote-debugging-port=0/);
-  assert.match(accessibilityGate, /READER_RELEASE_QA: '1'/);
-  assert.match(accessibilityGate, /Accessibility\.getFullAXTree/);
+  const packagedQA = await readFile(path.join(projectRoot, 'scripts', 'lib', 'packaged-reader-qa.mjs'), 'utf8');
+  assert.match(packagedQA, /--remote-debugging-address=127\.0\.0\.1/);
+  assert.match(packagedQA, /--remote-debugging-port=0/);
+  assert.match(packagedQA, /READER_RELEASE_QA: '1'/);
+  assert.match(packagedQA, /Accessibility\.getFullAXTree/);
   assert.match(accessibilityGate, /assertNamedControls\(workspaceTree, '主工作区'\)/);
   assert.match(accessibilityGate, /temporary data isolated=true/);
 

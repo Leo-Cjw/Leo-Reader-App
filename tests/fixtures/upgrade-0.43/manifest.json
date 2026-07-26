@@ -1,0 +1,112 @@
+{
+  "format": "reader-packaged-upgrade-fixture",
+  "formatVersion": 1,
+  "createdBy": {
+    "appVersion": "0.43.0",
+    "schemaVersion": 11,
+    "sourceCommit": "c829243c41aec2910dcd1f01809ed65db1ef9ec0"
+  },
+  "expected": {
+    "article": {
+      "id": "b60662b1-b971-4751-b3db-183109be8280",
+      "title": "Reader 0.43 升级兼容基准（已编辑）",
+      "excerpt": "0.43 候选包创建、后续正式包必须无损保留。",
+      "content": "# 跨版本升级基准\n\nReader 必须原样保留这段关键结论，以及全部本地关系与附件。\n\n这是由 0.43 最终候选包写入的第二版正文。",
+      "collectionId": "2ce785ba-1733-4068-ae9a-95de8c82b1ed",
+      "tags": [
+        "local-first",
+        "升级验证"
+      ],
+      "isFavorite": true,
+      "isRead": true,
+      "readingProgress": 0.625
+    },
+    "collections": {
+      "parent": {
+        "id": "2d0e8078-e2a2-45e3-9790-345bd2eed5fa",
+        "name": "升级验证资料"
+      },
+      "child": {
+        "id": "2ce785ba-1733-4068-ae9a-95de8c82b1ed",
+        "name": "0.43 原始资料",
+        "parentId": "2d0e8078-e2a2-45e3-9790-345bd2eed5fa"
+      }
+    },
+    "highlight": {
+      "id": "8d361ea5-4844-4e67-8ca9-9d11c60d4c69",
+      "quote": "Reader 必须原样保留这段关键结论",
+      "note": "跨版本后必须保留的批注",
+      "color": "green",
+      "startOffset": 11,
+      "endOffset": 30
+    },
+    "attachment": {
+      "id": "e4a35c58-ea5d-43da-b95f-e0c63e81f540",
+      "fileName": "0.43-upgrade-evidence.png",
+      "storageName": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460.png",
+      "mimeType": "image/png",
+      "byteSize": 68,
+      "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+    },
+    "revisions": [
+      {
+        "version": 2,
+        "title": "Reader 0.43 升级兼容基准（已编辑）",
+        "content": "# 跨版本升级基准\n\nReader 必须原样保留这段关键结论，以及全部本地关系与附件。\n\n这是由 0.43 最终候选包写入的第二版正文。"
+      },
+      {
+        "version": 1,
+        "title": "Reader 0.43 升级兼容基准",
+        "content": "# 跨版本升级基准\n\nReader 必须原样保留这段关键结论，以及全部本地关系与附件。"
+      }
+    ],
+    "smartCollection": {
+      "id": "1d98980d-7940-419e-8631-4c9df7e11691",
+      "name": "完整升级证据",
+      "rule": {
+        "match": "all",
+        "query": "",
+        "types": [],
+        "tags": [
+          "升级验证"
+        ],
+        "tag_match": "any",
+        "source": "",
+        "collection_id": null,
+        "unread": null,
+        "favorite": true,
+        "has_highlights": true,
+        "has_attachments": true,
+        "created_within_days": null
+      },
+      "articleCount": 1
+    },
+    "importQueue": {
+      "paused": true,
+      "jobId": "d787264c-e396-4806-8a58-f6baa92caf46",
+      "jobStatus": "pending",
+      "url": "https://1.1.1.1/reader-upgrade-fixture"
+    },
+    "notifications": {
+      "enabled": true,
+      "sourceSyncEnabled": true
+    }
+  },
+  "fixtureFiles": [
+    {
+      "path": "data/files/431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460.png",
+      "byteSize": 68,
+      "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+    },
+    {
+      "path": "data/reader.sqlite3",
+      "byteSize": 303104,
+      "sha256": "339a2f68d077d8edc31e9da4bf960bd45252dfc9b7660a1cbf48dedcd5062fa5"
+    },
+    {
+      "path": "data/settings.json",
+      "byteSize": 419,
+      "sha256": "79b33cc9ce9a8c7475b59e53f7a055dcc5dd03ea92a8aa8ada3d91c5765544da"
+    }
+  ]
+}

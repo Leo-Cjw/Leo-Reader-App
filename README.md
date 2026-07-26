@@ -1,4 +1,4 @@
-# Reader for Mac 0.43.0
+# Reader for Mac 0.44.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.43.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.44.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -44,7 +44,7 @@ Vite 开发界面位于 `http://127.0.0.1:4311`，并把 `/api` 代理到 4312 �
 npm run desktop:pack
 ```
 
-该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块、嵌套 Spotlight helper 与 Share Extension 架构和 entitlement，执行签名验证，再从隔离临时资料库启动最终 App，核对完整 Chromium AX 树、命名控件和八个核心模态框焦点闭环，最后生成并校验 DMG。输出位于 `release/mac-universal/Reader.app` 与 `release/Reader-<version>-universal.dmg`。未提供正式发行凭据时保留 ad-hoc 模式，并主动删除同版本残留的更新 ZIP。
+该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块、嵌套 Spotlight helper 与 Share Extension 架构和 entitlement，并执行签名验证。最终 App 必须先通过完整 Chromium AX 树、命名控件和八个核心模态框焦点闭环，再打开由 0.43 最终包创建的冻结资料库，证明文章关系、暂停任务、设置和附件无损保留，且升级后写入可跨重启持久化、SQLite 与附件哈希仍完整，才会生成并校验 DMG。输出位于 `release/mac-universal/Reader.app` 与 `release/Reader-<version>-universal.dmg`。未提供正式发行凭据时保留 ad-hoc 模式，并主动删除同版本残留的更新 ZIP。
 
 流水线已预留正式发行入口。先用 `xcrun notarytool store-credentials` 把公证凭据写入 Keychain，再提供证书名称和凭据配置名：
 
@@ -210,4 +210,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.43.0 变更见 [docs/RELEASE_NOTES_0.43.0.md](docs/RELEASE_NOTES_0.43.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.44.0 变更见 [docs/RELEASE_NOTES_0.44.0.md](docs/RELEASE_NOTES_0.44.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

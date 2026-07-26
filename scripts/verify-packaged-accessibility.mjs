@@ -1,92 +1,11 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import WebSocket from 'ws';
+import { launchPackagedReader, packagedReaderApp, waitFor } from './lib/packaged-reader-qa.mjs';
 
-const projectRoot = path.resolve(import.meta.dirname, '..');
-const appPath = path.resolve(process.argv[2] || path.join(projectRoot, 'release', 'mac-universal', 'Reader.app'));
-const executable = path.join(appPath, 'Contents', 'MacOS', 'Reader');
+const appPath = packagedReaderApp(process.argv[2]);
 const interactiveRoles = new Set([
   'button', 'checkbox', 'combobox', 'link', 'listbox', 'menuitem', 'radio',
   'searchbox', 'slider', 'spinbutton', 'switch', 'tab', 'textbox', 'treeitem'
 ]);
-
-function delay(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-async function waitFor(label, operation, timeout = 20_000) {
-  const deadline = Date.now() + timeout;
-  let lastError;
-  let lastResult;
-  while (Date.now() < deadline) {
-    try {
-      const result = await operation();
-      lastResult = result;
-      if (result) return result;
-    } catch (error) {
-      lastError = error;
-    }
-    await delay(100);
-  }
-  throw new Error(`${label}超时${lastError ? `：${lastError.message}` : lastResult !== undefined ? `；最终状态 ${JSON.stringify(lastResult)}` : ''}`);
-}
-
-class CDPClient {
-  constructor(socket) {
-    this.socket = socket;
-    this.nextID = 0;
-    this.pending = new Map();
-    socket.on('message', (raw) => {
-      const message = JSON.parse(String(raw));
-      const request = this.pending.get(message.id);
-      if (!request) return;
-      this.pending.delete(message.id);
-      if (message.error) request.reject(new Error(message.error.message));
-      else request.resolve(message.result);
-    });
-  }
-
-  static async connect(url) {
-    const socket = new WebSocket(url);
-    await new Promise((resolve, reject) => {
-      socket.once('open', resolve);
-      socket.once('error', reject);
-    });
-    return new CDPClient(socket);
-  }
-
-  call(method, params = {}) {
-    return new Promise((resolve, reject) => {
-      const id = ++this.nextID;
-      this.pending.set(id, { resolve, reject });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  async value(expression) {
-    const result = await this.call('Runtime.evaluate', {
-      expression,
-      awaitPromise: true,
-      returnByValue: true
-    });
-    if (result.exceptionDetails) {
-      throw new Error(result.exceptionDetails.exception?.description || '页面脚本执行失败');
-    }
-    return result.result.value;
-  }
-
-  async tree() {
-    const result = await this.call('Accessibility.getFullAXTree', { depth: -1 });
-    return result.nodes.filter((node) => !node.ignored);
-  }
-
-  close() {
-    this.socket.close();
-  }
-}
 
 function nodeName(node) {
   return String(node.name?.value || '').trim();
@@ -189,58 +108,15 @@ async function verifyDialog(client, specification) {
   );
 }
 
-if (process.platform !== 'darwin') throw new Error('打包可访问性门禁仅支持 macOS');
-await access(executable);
-
-const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'reader-accessibility-'));
-const chromiumRoot = path.join(temporaryRoot, 'chromium');
-const readerRoot = path.join(temporaryRoot, 'reader-data');
-await mkdir(chromiumRoot, { recursive: true });
-
-let stderr = '';
-let client;
-let spawnError;
-const child = spawn(executable, [
-  `--user-data-dir=${chromiumRoot}`,
-  '--remote-debugging-address=127.0.0.1',
-  '--remote-debugging-port=0',
-  '--force-renderer-accessibility'
-], {
-  env: {
-    ...process.env,
-    READER_DESKTOP_DATA_ROOT: readerRoot,
-    READER_RELEASE_QA: '1'
-  },
-  stdio: ['ignore', 'ignore', 'pipe']
+const session = await launchPackagedReader({
+  appPath,
+  prefix: 'reader-accessibility-',
+  forceRendererAccessibility: true
 });
-child.stderr.on('data', (chunk) => {
-  stderr = `${stderr}${chunk}`.slice(-16_384);
-});
-child.once('error', (error) => {
-  spawnError = error;
-});
+const { client } = session;
 
 try {
-  const activePortPath = path.join(chromiumRoot, 'DevToolsActivePort');
-  const port = await waitFor('DevTools 端口', async () => {
-    if (spawnError) throw spawnError;
-    if (child.exitCode !== null) throw new Error(`Reader 提前退出（${child.exitCode}）\n${stderr}`);
-    const value = Number(String(await readFile(activePortPath, 'utf8')).split(/\r?\n/, 1)[0]);
-    return Number.isInteger(value) && value > 0 ? value : null;
-  });
-  const target = await waitFor('Reader 页面', async () => {
-    const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1_000) });
-    if (!response.ok) return null;
-    const targets = await response.json();
-    return targets.find((item) => item.type === 'page' && /^http:\/\/127\.0\.0\.1:\d+\//.test(item.url));
-  });
-  client = await CDPClient.connect(target.webSocketDebuggerUrl);
   await client.call('Accessibility.enable');
-  await waitFor('Reader 工作区', async () => client.value(
-    "document.readyState === 'complete' && document.querySelector('.app-window') !== null && document.querySelector('[aria-busy=\"true\"]') === null"
-  ));
-  await client.value("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))");
-
   const health = await client.value("fetch('/api/health').then((response) => response.json())");
   assert.equal(health.ok, true);
   assert.equal(health.schemaVersion, 11);
@@ -320,15 +196,5 @@ try {
   console.log('unnamed interactive controls=0');
   console.log('temporary data isolated=true');
 } finally {
-  client?.close();
-  if (child.exitCode === null) {
-    const exited = new Promise((resolve) => child.once('exit', resolve));
-    child.kill('SIGTERM');
-    const graceful = await Promise.race([exited.then(() => true), delay(5_000).then(() => false)]);
-    if (!graceful && child.exitCode === null) {
-      child.kill('SIGKILL');
-      await Promise.race([exited, delay(2_000)]);
-    }
-  }
-  await rm(temporaryRoot, { recursive: true, force: true });
+  await session.close();
 }

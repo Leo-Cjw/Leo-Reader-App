@@ -1,5 +1,7 @@
 node_modules/
 data/
+!tests/fixtures/upgrade-0.43/data/
+!tests/fixtures/upgrade-0.43/data/**
 dist/
 release/
 build/
