@@ -36,12 +36,13 @@ test('untrusted HTML is parsed in a bounded child process without changing artic
   assert.match(article.content, /独立解析进程/);
 });
 
-test('parser child has a separate PID, a 256 MB V8 heap cap and a clean launch environment', async () => {
+test('parser child has a 256 MB old-space cap, bounded heap and clean launch environment', async () => {
   process.env.READER_PARSER_SECRET = 'must-not-cross-parser-boundary';
   try {
     const result = await runParserTask({ task: 'echo' }, { workerPath: fixtureWorker });
     assert.notEqual(result.pid, process.pid);
-    assert.ok(result.heapLimit <= 320 * 1024 * 1024, `unexpected heap limit ${result.heapLimit}`);
+    assert.equal(result.execArgv.includes('--max-old-space-size=256'), true);
+    assert.ok(result.heapLimit <= 512 * 1024 * 1024, `unexpected heap limit ${result.heapLimit}`);
     assert.equal(result.electronRunAsNode, '1');
     assert.equal(result.nodeOptions, '');
     assert.equal(result.parserWorker, '1');

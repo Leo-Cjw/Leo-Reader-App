@@ -54,6 +54,8 @@ flowchart LR
 
 0.64.0 把同一队列扩展为 AI 配置对外读取的线性化屏障。设置 GET、连接测试和模型目录会先等待调用时已经进入队列的变更完成，再同时解析非密钥设置和 Keychain；因此在“凭据已替换、设置文件尚未提交”的窗口内，不会组合旧端点与新密钥。运行中 `AIService` 仍持有变更前的完整内存快照，提交成功后才整体配置为新状态。`apply()` 使用内部 `publicSettingsSnapshot()` 返回当前事务结果，不反向等待包含自身的队列；外部 `publicSettings()` 才等待队列，避免自等待死锁。
 
+1.0.0 候选新增一个与应用运行时分离的最小 macOS 源码门禁。`.github/workflows/ci.yml` 只在 `main` 推送及面向 `main` 的 pull request 中运行，使用 Node.js 24 依次执行确定性安装、生产依赖审计、Node 测试和 TypeScript/Vite 构建。它不持有写入权限、签名身份、公证凭据、发布令牌或用户数据，也不承担打包和发行职责；因此 CI 故障不会改变本机资料库或发行物。
+
 0.35.0 在打包元数据中注册唯一的 `reader-local` URL scheme，作为浏览器、快捷指令和 Share Extension 的外部保存边界。主进程在 `ready` 前监听 macOS `open-url`，并同时从冷启动/第二实例 argv 中提取候选。URL 路径只接受 `reader-local://add`、唯一 `url` 参数、最长 2,048 字符且不含用户名或密码的 HTTP(S) 目标。未知动作、重复/额外参数、外层 fragment、其他目标协议和畸形输入直接忽略。
 
 0.45.0 在同一动作下增加与 URL 互斥的唯一 `text` 参数。扩展把最多 4,096 UTF-8 bytes、非空且不含禁止控制字符的文本编码为无 padding 的规范 Base64URL；Electron 主进程严格解码、执行 fatal UTF-8 与重新编码一致性检查，preload 再次验证请求形状、字节数和控制字符。混合、重复、额外、非规范或超限参数均被拒绝。

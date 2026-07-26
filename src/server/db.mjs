@@ -351,7 +351,7 @@ export class ReaderDatabase {
         try { resolve(JSON.parse(stdout)); }
         catch (error) { reject(new Error(`Invalid sqlite JSON output: ${error.message}`)); }
       });
-      child.stdin.end(`.bail on\n.timeout 5000\nPRAGMA foreign_keys = ON;\n${sql}\n`);
+      child.stdin.end(`.bail on\n.timeout 5000\nPRAGMA foreign_keys = ON;\nPRAGMA trusted_schema = ON;\n${sql}\n`);
     });
   }
 

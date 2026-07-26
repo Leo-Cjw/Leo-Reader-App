@@ -18,6 +18,7 @@ if (request.task === 'hang') {
     ? { value: 'x'.repeat(16_000) }
     : {
         pid: process.pid,
+        execArgv: process.execArgv,
         heapLimit: v8.getHeapStatistics().heap_size_limit,
         electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE,
         nodeOptions: process.env.NODE_OPTIONS,
