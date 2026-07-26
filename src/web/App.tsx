@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api';
-import type { AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, ArticleSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
+import type { AIModel, AIProviderPreset, AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, ArticleSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
 
 type Toast = { id: number; message: string; tone?: 'error' | 'normal' };
 type ChatMessage = { role: 'user' | 'assistant'; text: string; citations?: RAGCitation[]; retrieval?: { matchedChunks: number; citedChunks: number } };
@@ -919,10 +919,13 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
   const [spotlightSettings, setSpotlightSettings] = useState<SpotlightSettings | null>(null);
   const [enabled, setEnabled] = useState(false);
+  const [provider, setProvider] = useState<AIProviderPreset['id']>('reader-gateway');
   const [endpoint, setEndpoint] = useState('');
+  const [model, setModel] = useState('');
+  const [models, setModels] = useState<AIModel[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [clearApiKey, setClearApiKey] = useState(false);
-  const [busy, setBusy] = useState<'load' | 'save' | 'test' | 'reset' | 'notifications' | 'spotlight' | null>('load');
+  const [busy, setBusy] = useState<'load' | 'save' | 'test' | 'models' | 'reset' | 'notifications' | 'spotlight' | null>('load');
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   useEffect(() => {
     void Promise.all([
@@ -930,9 +933,14 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
       notificationsAvailable ? api.getNotificationSettings() : Promise.resolve(null),
       notificationsAvailable ? api.getSpotlightSettings() : Promise.resolve(null)
     ]).then(([value, notifications, spotlight]) => {
-      setSettings(value); setEnabled(value.enabled); setEndpoint(value.endpoint); setNotificationSettings(notifications); setSpotlightSettings(spotlight);
+      setSettings(value); setEnabled(value.enabled); setProvider(value.provider); setEndpoint(value.endpoint); setModel(value.model); setNotificationSettings(notifications); setSpotlightSettings(spotlight);
     }).catch((error) => notify(error instanceof Error ? error.message : '设置加载失败', 'error')).finally(() => setBusy(null));
   }, [notificationsAvailable, notify]);
+  const selectedProvider = settings?.providers.find((item) => item.id === provider);
+  const changeProvider = (nextId: AIProviderPreset['id']) => {
+    const next = settings?.providers.find((item) => item.id === nextId);
+    setProvider(nextId); setEndpoint(next?.defaultEndpoint || ''); setModel(''); setModels([]); setApiKey(''); setClearApiKey(false); setTestResult(null);
+  };
   const toggleNotifications = async (kind: 'enabled' | 'sourceSyncEnabled', nextEnabled: boolean) => {
     setBusy('notifications');
     try {
@@ -956,8 +964,8 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
   const save = async () => {
     setBusy('save'); setTestResult(null);
     try {
-      const result = await api.updateAISettings({ enabled, endpoint: endpoint.trim(), apiKey: apiKey || undefined, clearApiKey });
-      setSettings(result.settings); setEnabled(result.settings.enabled); setEndpoint(result.settings.endpoint); setApiKey(''); setClearApiKey(false);
+      const result = await api.updateAISettings({ enabled, provider, endpoint: endpoint.trim(), model: model.trim(), apiKey: apiKey || undefined, clearApiKey });
+      setSettings(result.settings); setEnabled(result.settings.enabled); setProvider(result.settings.provider); setEndpoint(result.settings.endpoint); setModel(result.settings.model); setApiKey(''); setClearApiKey(false);
       onConfigurationChanged(result.status); notify(enabled ? 'AI 服务设置已保存并立即生效' : '远程 AI 已关闭，Reader 将使用本地能力');
     } catch (error) { notify(error instanceof Error ? error.message : 'AI 设置保存失败', 'error'); }
     finally { setBusy(null); }
@@ -965,22 +973,100 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
   const test = async () => {
     setBusy('test'); setTestResult(null);
     try {
-      const result = await api.testAISettings(endpoint.trim(), apiKey || undefined);
+      const result = await api.testAISettings(provider, endpoint.trim(), model.trim(), apiKey || undefined);
       setTestResult({ ok: true, message: `连接成功${result.model ? ` · ${result.model}` : ''}` });
     } catch (error) { setTestResult({ ok: false, message: error instanceof Error ? error.message : '连接测试失败' }); }
+    finally { setBusy(null); }
+  };
+  const loadModels = async () => {
+    setBusy('models'); setTestResult(null);
+    try {
+      const result = await api.listAIModels(provider, endpoint.trim(), model.trim(), apiKey || undefined);
+      setModels(result);
+      if (!model && result.length === 1) setModel(result[0].id);
+      setTestResult({ ok: true, message: result.length ? `已读取 ${result.length} 个模型` : '服务没有返回可用模型' });
+    } catch (error) { setTestResult({ ok: false, message: error instanceof Error ? error.message : '模型目录读取失败' }); }
     finally { setBusy(null); }
   };
   const reset = async () => {
     if (!window.confirm('恢复环境变量默认值？Reader 会移除为应用保存的 Keychain 密钥。')) return;
     setBusy('reset'); setTestResult(null);
     try {
-      const result = await api.resetAISettings(); setSettings(result.settings); setEnabled(result.settings.enabled); setEndpoint(result.settings.endpoint); setApiKey(''); setClearApiKey(false);
+      const result = await api.resetAISettings(); setSettings(result.settings); setEnabled(result.settings.enabled); setProvider(result.settings.provider); setEndpoint(result.settings.endpoint); setModel(result.settings.model); setModels([]); setApiKey(''); setClearApiKey(false);
       onConfigurationChanged(result.status); notify('已恢复环境变量默认配置');
     } catch (error) { notify(error instanceof Error ? error.message : '默认配置恢复失败', 'error'); }
     finally { setBusy(null); }
   };
   const keychain = settings?.credentialBackend === 'macos-keychain';
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" data-screen-label="设置"><header><div><span className="eyebrow">Reader 设置</span><h2 id="settings-title">应用设置与 AI 隐私</h2><p>控制系统搜索、后台通知、正文何时离开本机，以及凭据保存在哪里。</p></div><button type="button" className="icon-button" aria-label="关闭设置" onClick={onClose} disabled={Boolean(busy)}>×</button></header>{busy === 'load' ? <div className="settings-loading">正在读取本地设置…</div> : <><div className="settings-layout"><aside className="settings-summary"><span className={`settings-state ${enabled && endpoint ? 'remote' : 'local'}`}><i></i><span><strong>{enabled && endpoint ? '远程 AI 已启用' : '本地模式'}</strong><small>{enabled && endpoint ? '仅在你主动执行任务时发送正文' : '摘要与结构化整理不离开设备'}</small></span></span><div className="settings-facts"><span><small>凭据存储</small><strong>{keychain ? 'macOS Keychain' : settings?.credentialBackend === 'environment-only' ? '环境变量' : settings?.credentialBackend || '未配置'}</strong></span><span><small>配置来源</small><strong>{settings?.configured ? 'Reader 设置' : settings?.environmentAvailable ? '环境变量' : '本地默认'}</strong></span><span><small>最近更新</small><strong>{settings?.updatedAt ? formatMoment(settings.updatedAt) : '尚未保存'}</strong></span></div>{notificationsAvailable && notificationSettings && <div className="settings-notification-controls"><label className="settings-toggle settings-notification-toggle"><input type="checkbox" checked={notificationSettings.enabled} disabled={Boolean(busy)} onChange={(event) => void toggleNotifications('enabled', event.target.checked)}/><span><strong>后台导入通知</strong><small>默认关闭；只显示成功/失败数量，不显示标题、网址、文件名或错误内容。</small></span><i aria-hidden="true"></i></label><label className="settings-toggle settings-notification-toggle"><input type="checkbox" checked={notificationSettings.sourceSyncEnabled} disabled={Boolean(busy)} onChange={(event) => void toggleNotifications('sourceSyncEnabled', event.target.checked)}/><span><strong>后台订阅通知</strong><small>默认关闭；自动同步有新增或失败时只显示聚合数量，手动同步不通知。</small></span><i aria-hidden="true"></i></label></div>}{notificationsAvailable && spotlightSettings && <div className="settings-notification-controls spotlight-controls"><label className="settings-toggle settings-notification-toggle"><input type="checkbox" checked={spotlightSettings.enabled} disabled={Boolean(busy) || (!spotlightSettings.available && !spotlightSettings.enabled)} onChange={(event) => void toggleSpotlight(event.target.checked)}/><span><strong>在 macOS Spotlight 中搜索</strong><small>默认关闭；开启后标题、摘要、标签和最多 20,000 字正文会进入本机受保护的系统索引。关闭会删除索引。</small></span><i aria-hidden="true"></i></label><small className="spotlight-status">{spotlightSettings.state === 'indexing' ? `正在更新索引${spotlightSettings.pending ? ` · 待处理 ${spotlightSettings.pending}` : ''}` : spotlightSettings.enabled ? `索引已开启${spotlightSettings.indexedAt ? ` · ${formatMoment(spotlightSettings.indexedAt)}` : ''}` : spotlightSettings.available ? '未开启，不会向系统索引写入资料' : '当前 Reader 未检测到 Spotlight 组件'}</small>{spotlightSettings.warning && <p className="settings-warning">{spotlightSettings.warning}</p>}</div>}{settings?.warning && <p className="settings-warning">{settings.warning}</p>}</aside><div className="settings-form"><label className="settings-toggle"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)}/><span><strong>启用远程 AI 服务</strong><small>关闭后，翻译不可用；摘要和资料整理继续在本机运行。</small></span><i aria-hidden="true"></i></label><label><span>Reader Gateway 地址</span><input type="url" value={endpoint} onChange={(event) => { setEndpoint(event.target.value); setTestResult(null); }} placeholder="https://gateway.example/v1/respond"/><small>远程服务必须使用 HTTPS；本地模型可使用 localhost HTTP。</small></label><label><span>API 密钥</span><div className="secret-field"><input type="password" autoComplete="new-password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} disabled={!settings?.credentialWritable} placeholder={settings?.apiKeyStored && !clearApiKey ? '已安全存储；输入新值可替换' : '可选，取决于你的网关'}/>{settings?.apiKeyStored && <button type="button" onClick={() => { setApiKey(''); setClearApiKey((value) => !value); }}>{clearApiKey ? '保留密钥' : '移除密钥'}</button>}</div><small>{keychain ? '密钥写入 macOS Keychain，不进入 settings.json、备份或导出。' : '当前平台只支持通过 READER_AI_API_KEY 环境变量提供密钥。'}</small></label><div className="settings-contract"><span className="eyebrow">连接测试</span><p>测试只发送 Reader 自带的一句英文，不会读取或发送你的资料库内容。</p>{testResult && <span className={testResult.ok ? 'success' : 'error'}><i></i>{testResult.message}</span>}</div></div></div><footer><button type="button" className="button quiet-danger settings-reset" onClick={() => void reset()} disabled={Boolean(busy) || !settings?.configured}>恢复默认</button><span className="settings-footer-spacer"></span><button type="button" className="button" onClick={() => void test()} disabled={Boolean(busy) || !endpoint.trim()}>{busy === 'test' ? '正在测试…' : '测试连接'}</button><button type="button" className="button primary" onClick={() => void save()} disabled={Boolean(busy)}>{busy === 'save' ? '正在保存…' : '保存 AI 设置'}</button></footer></>}</section></div>;
+  const credentialScopeChanged = Boolean(settings && (provider !== settings.provider || endpoint.trim() !== settings.endpoint));
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" data-screen-label="设置">
+      <header>
+        <div><span className="eyebrow">Reader 设置</span><h2 id="settings-title">应用设置与 AI 隐私</h2><p>控制系统搜索、后台通知、正文何时离开本机，以及凭据保存在哪里。</p></div>
+        <button type="button" className="icon-button" aria-label="关闭设置" onClick={onClose} disabled={Boolean(busy)}>×</button>
+      </header>
+      {busy === 'load' ? <div className="settings-loading">正在读取本地设置…</div> : <>
+        <div className="settings-layout">
+          <aside className="settings-summary">
+            <span className={`settings-state ${enabled && endpoint ? 'remote' : 'local'}`}><i></i><span><strong>{enabled && endpoint ? '远程 AI 已启用' : '本地模式'}</strong><small>{enabled && endpoint ? '仅在你主动执行任务时发送正文' : '摘要与结构化整理不离开设备'}</small></span></span>
+            <div className="settings-facts">
+              <span><small>AI 提供商</small><strong>{selectedProvider?.name || '本地能力'}</strong></span>
+              <span><small>模型</small><strong>{model || '由网关选择'}</strong></span>
+              <span><small>凭据存储</small><strong>{keychain ? 'macOS Keychain' : settings?.credentialBackend === 'environment-only' ? '环境变量' : settings?.credentialBackend || '未配置'}</strong></span>
+              <span><small>配置来源</small><strong>{settings?.configured ? 'Reader 设置' : settings?.environmentAvailable ? '环境变量' : '本地默认'}</strong></span>
+              <span><small>最近更新</small><strong>{settings?.updatedAt ? formatMoment(settings.updatedAt) : '尚未保存'}</strong></span>
+            </div>
+            {notificationsAvailable && notificationSettings && <div className="settings-notification-controls">
+              <label className="settings-toggle settings-notification-toggle"><input type="checkbox" checked={notificationSettings.enabled} disabled={Boolean(busy)} onChange={(event) => void toggleNotifications('enabled', event.target.checked)}/><span><strong>后台导入通知</strong><small>默认关闭；只显示成功/失败数量，不显示标题、网址、文件名或错误内容。</small></span><i aria-hidden="true"></i></label>
+              <label className="settings-toggle settings-notification-toggle"><input type="checkbox" checked={notificationSettings.sourceSyncEnabled} disabled={Boolean(busy)} onChange={(event) => void toggleNotifications('sourceSyncEnabled', event.target.checked)}/><span><strong>后台订阅通知</strong><small>默认关闭；自动同步有新增或失败时只显示聚合数量，手动同步不通知。</small></span><i aria-hidden="true"></i></label>
+            </div>}
+            {notificationsAvailable && spotlightSettings && <div className="settings-notification-controls spotlight-controls">
+              <label className="settings-toggle settings-notification-toggle"><input type="checkbox" checked={spotlightSettings.enabled} disabled={Boolean(busy) || (!spotlightSettings.available && !spotlightSettings.enabled)} onChange={(event) => void toggleSpotlight(event.target.checked)}/><span><strong>在 macOS Spotlight 中搜索</strong><small>默认关闭；开启后标题、摘要、标签和最多 20,000 字正文会进入本机受保护的系统索引。关闭会删除索引。</small></span><i aria-hidden="true"></i></label>
+              <small className="spotlight-status">{spotlightSettings.state === 'indexing' ? `正在更新索引${spotlightSettings.pending ? ` · 待处理 ${spotlightSettings.pending}` : ''}` : spotlightSettings.enabled ? `索引已开启${spotlightSettings.indexedAt ? ` · ${formatMoment(spotlightSettings.indexedAt)}` : ''}` : spotlightSettings.available ? '未开启，不会向系统索引写入资料' : '当前 Reader 未检测到 Spotlight 组件'}</small>
+              {spotlightSettings.warning && <p className="settings-warning">{spotlightSettings.warning}</p>}
+            </div>}
+            {settings?.warning && <p className="settings-warning">{settings.warning}</p>}
+          </aside>
+          <div className="settings-form">
+            <label className="settings-toggle"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)}/><span><strong>启用远程 AI 服务</strong><small>关闭后，翻译不可用；摘要和资料整理继续在本机运行。</small></span><i aria-hidden="true"></i></label>
+            <label>
+              <span>AI 提供商</span>
+              <select value={provider} onChange={(event) => changeProvider(event.target.value as AIProviderPreset['id'])}>
+                {(settings?.providers || []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <small>Reader Gateway 保持原有 action 契约；其他预设使用 OpenAI-compatible Chat Completions。</small>
+            </label>
+            <label>
+              <span>{provider === 'reader-gateway' ? 'Reader Gateway 地址' : 'OpenAI-compatible 基础地址'}</span>
+              <input type="url" value={endpoint} disabled={selectedProvider?.endpointLocked} onChange={(event) => { setEndpoint(event.target.value); setModels([]); setApiKey(''); setClearApiKey(false); setTestResult(null); }} placeholder={provider === 'reader-gateway' ? 'https://gateway.example/v1/respond' : 'https://models.example/v1/'}/>
+              <small>{selectedProvider?.endpointLocked ? '该预设使用固定官方或本机回环地址。' : '远程服务必须使用 HTTPS；HTTP 仅允许 localhost 或 127.0.0.1。'}</small>
+            </label>
+            {selectedProvider?.modelRequired && <label>
+              <span>模型 ID</span>
+              <div className="secret-field">
+                <input list="ai-model-catalog" value={model} onChange={(event) => { setModel(event.target.value); setTestResult(null); }} placeholder="先读取目录或手动填写"/>
+                <button type="button" onClick={() => void loadModels()} disabled={Boolean(busy) || !selectedProvider.modelCatalog || !endpoint.trim()}>{busy === 'models' ? '读取中…' : '读取模型'}</button>
+              </div>
+              <datalist id="ai-model-catalog">{models.map((item) => <option key={item.id} value={item.id}>{item.ownedBy}</option>)}</datalist>
+              <small>目录来自当前服务的 `/models`，只读取模型元数据，不发送资料库内容；也可手动填写服务允许的模型 ID。</small>
+            </label>}
+            <label>
+              <span>API 密钥</span>
+              <div className="secret-field"><input type="password" autoComplete="new-password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} disabled={!settings?.credentialWritable} placeholder={settings?.apiKeyStored && credentialScopeChanged ? '服务已切换；请为新服务重新输入' : settings?.apiKeyStored && !clearApiKey ? '已安全存储；输入新值可替换' : selectedProvider?.apiKeyRecommended ? '该提供商通常需要 API 密钥' : '可选，取决于服务'}/>{settings?.apiKeyStored && !credentialScopeChanged && <button type="button" onClick={() => { setApiKey(''); setClearApiKey((value) => !value); }}>{clearApiKey ? '保留密钥' : '移除密钥'}</button>}</div>
+              <small>{credentialScopeChanged && settings?.apiKeyStored ? '提供商或地址已改变；旧密钥不会用于连接测试或模型目录，并会在保存时从 Keychain 清除。' : keychain ? '密钥写入 macOS Keychain，不进入 settings.json、备份、导出或模型目录响应。' : '当前平台只支持通过 READER_AI_API_KEY 环境变量提供密钥。'}</small>
+            </label>
+            <div className="settings-contract"><span className="eyebrow">连接测试</span><p>测试只发送 Reader 自带的一句英文，不会读取或发送你的资料库内容。</p>{testResult && <span className={testResult.ok ? 'success' : 'error'}><i></i>{testResult.message}</span>}</div>
+          </div>
+        </div>
+        <footer>
+          <button type="button" className="button quiet-danger settings-reset" onClick={() => void reset()} disabled={Boolean(busy) || !settings?.configured}>恢复默认</button>
+          <span className="settings-footer-spacer"></span>
+          <button type="button" className="button" onClick={() => void test()} disabled={Boolean(busy) || !endpoint.trim() || Boolean(selectedProvider?.modelRequired && !model.trim())}>{busy === 'test' ? '正在测试…' : '测试连接'}</button>
+          <button type="button" className="button primary" onClick={() => void save()} disabled={Boolean(busy)}>{busy === 'save' ? '正在保存…' : '保存 AI 设置'}</button>
+        </footer>
+      </>}
+    </section>
+  </div>;
 }
 
 function ConnectorSettingsModal({ onClose, notify }: { onClose: () => void; notify: (message: string, tone?: Toast['tone']) => void }) {

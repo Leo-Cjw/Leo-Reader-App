@@ -557,9 +557,11 @@ export async function createReaderServer({
         const body = await readJSON(request);
         if (typeof body.enabled !== 'boolean') throw new HTTPError(400, 'enabled 必须是布尔值');
         if (typeof body.endpoint !== 'string') throw new HTTPError(400, 'endpoint 必须是字符串');
+        if ('provider' in body && typeof body.provider !== 'string') throw new HTTPError(400, 'provider 必须是字符串');
+        if ('model' in body && typeof body.model !== 'string') throw new HTTPError(400, 'model 必须是字符串');
         if ('api_key' in body && typeof body.api_key !== 'string') throw new HTTPError(400, 'api_key 必须是字符串');
         const settings = await aiSettingsManager.update({
-          enabled: body.enabled, endpoint: body.endpoint,
+          enabled: body.enabled, provider: body.provider, endpoint: body.endpoint, model: body.model,
           apiKey: typeof body.api_key === 'string' ? body.api_key : undefined,
           clearApiKey: body.clear_api_key
         });
@@ -574,7 +576,31 @@ export async function createReaderServer({
       if (pathname === '/api/settings/ai/test' && method === 'POST') {
         if (!aiSettingsManager) throw new HTTPError(501, '当前运行模式不支持 AI 设置');
         const body = await readJSON(request);
-        return sendJSON(response, 200, { result: await aiSettingsManager.test({ endpoint: body.endpoint, apiKey: typeof body.api_key === 'string' ? body.api_key : undefined }) });
+        if ('provider' in body && typeof body.provider !== 'string') throw new HTTPError(400, 'provider 必须是字符串');
+        if ('endpoint' in body && typeof body.endpoint !== 'string') throw new HTTPError(400, 'endpoint 必须是字符串');
+        if ('model' in body && typeof body.model !== 'string') throw new HTTPError(400, 'model 必须是字符串');
+        if ('api_key' in body && typeof body.api_key !== 'string') throw new HTTPError(400, 'api_key 必须是字符串');
+        return sendJSON(response, 200, {
+          result: await aiSettingsManager.test({
+            provider: body.provider, endpoint: body.endpoint, model: body.model,
+            apiKey: typeof body.api_key === 'string' ? body.api_key : undefined
+          })
+        });
+      }
+
+      if (pathname === '/api/settings/ai/models' && method === 'POST') {
+        if (!aiSettingsManager) throw new HTTPError(501, '当前运行模式不支持 AI 设置');
+        const body = await readJSON(request);
+        if ('provider' in body && typeof body.provider !== 'string') throw new HTTPError(400, 'provider 必须是字符串');
+        if ('endpoint' in body && typeof body.endpoint !== 'string') throw new HTTPError(400, 'endpoint 必须是字符串');
+        if ('model' in body && typeof body.model !== 'string') throw new HTTPError(400, 'model 必须是字符串');
+        if ('api_key' in body && typeof body.api_key !== 'string') throw new HTTPError(400, 'api_key 必须是字符串');
+        return sendJSON(response, 200, {
+          models: await aiSettingsManager.models({
+            provider: body.provider, endpoint: body.endpoint, model: body.model,
+            apiKey: typeof body.api_key === 'string' ? body.api_key : undefined
+          })
+        });
       }
 
       if (pathname === '/api/settings/notifications' && method === 'GET') {

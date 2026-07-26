@@ -99,6 +99,7 @@ async function verifyDialog(client, specification) {
   assert.equal(roleNames(modalTree, 'dialog').length, 1, `${specification.name}必须暴露一个 dialog`);
   assert.equal(roleNames(modalTree, 'main').length, 0, `${specification.name}打开后不能暴露背景 main`);
   assertNamedControls(modalTree, `${specification.name}对话框`);
+  if (specification.verify) await specification.verify(client);
 
   await dispatchKey(client, 'Tab', 'Tab', 9);
   assert.equal(
@@ -165,7 +166,30 @@ try {
       find: "[...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === '设置')",
       dialogLabel: '应用设置与 AI 隐私',
       openerMatch: '.title-actions button:nth-of-type(2)',
-      initialFocus: { tag: 'H2', text: '应用设置与 AI 隐私' }
+      initialFocus: { tag: 'H2', text: '应用设置与 AI 隐私' },
+      verify: async (client) => {
+        const changed = await client.value(`(() => {
+          const label = [...document.querySelectorAll('.settings-form label')]
+            .find((item) => item.querySelector(':scope > span')?.textContent?.trim() === 'AI 提供商');
+          const select = label?.querySelector('select');
+          if (!(select instanceof HTMLSelectElement)) return false;
+          select.value = 'ollama';
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        })()`);
+        assert.equal(changed, true, '设置窗口必须提供 AI 提供商选择');
+        await waitFor('Ollama 预设字段', async () => client.value(`(() => {
+          const labels = [...document.querySelectorAll('.settings-form label')];
+          const endpoint = labels.find((item) => item.querySelector(':scope > span')?.textContent?.includes('OpenAI-compatible 基础地址'))?.querySelector('input[type="url"]');
+          const model = labels.find((item) => item.querySelector(':scope > span')?.textContent?.trim() === '模型 ID')?.querySelector('input');
+          const load = [...document.querySelectorAll('.settings-form button')].find((button) => button.textContent?.trim() === '读取模型');
+          return endpoint instanceof HTMLInputElement && endpoint.disabled
+            && endpoint.value === 'http://127.0.0.1:11434/v1/'
+            && model instanceof HTMLInputElement
+            && load instanceof HTMLButtonElement;
+        })()`));
+        assertNamedControls(await client.tree(), '设置窗口提供商与模型字段');
+      }
     },
     {
       name: '添加内容',

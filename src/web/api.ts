@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AIModel, AIProviderPreset, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -211,14 +211,17 @@ export const api = {
   async getAISettings() {
     return (await request<{ settings: AISettings }>('/api/settings/ai')).settings;
   },
-  async updateAISettings(input: { enabled: boolean; endpoint: string; apiKey?: string; clearApiKey?: boolean }) {
-    return await request<{ settings: AISettings; status: AIStatus }>('/api/settings/ai', { method: 'PUT', body: JSON.stringify({ enabled: input.enabled, endpoint: input.endpoint, api_key: input.apiKey || undefined, clear_api_key: input.clearApiKey || false }) });
+  async updateAISettings(input: { enabled: boolean; provider: AIProviderPreset['id']; endpoint: string; model: string; apiKey?: string; clearApiKey?: boolean }) {
+    return await request<{ settings: AISettings; status: AIStatus }>('/api/settings/ai', { method: 'PUT', body: JSON.stringify({ enabled: input.enabled, provider: input.provider, endpoint: input.endpoint, model: input.model, api_key: input.apiKey || undefined, clear_api_key: input.clearApiKey || false }) });
   },
   async resetAISettings() {
     return await request<{ settings: AISettings; status: AIStatus }>('/api/settings/ai', { method: 'DELETE' });
   },
-  async testAISettings(endpoint: string, apiKey?: string) {
-    return (await request<{ result: AIConnectionResult }>('/api/settings/ai/test', { method: 'POST', body: JSON.stringify({ endpoint, api_key: apiKey || undefined }) })).result;
+  async testAISettings(provider: AIProviderPreset['id'], endpoint: string, model: string, apiKey?: string) {
+    return (await request<{ result: AIConnectionResult }>('/api/settings/ai/test', { method: 'POST', body: JSON.stringify({ provider, endpoint, model, api_key: apiKey || undefined }) })).result;
+  },
+  async listAIModels(provider: AIProviderPreset['id'], endpoint: string, model: string, apiKey?: string) {
+    return (await request<{ models: AIModel[] }>('/api/settings/ai/models', { method: 'POST', body: JSON.stringify({ provider, endpoint, model, api_key: apiKey || undefined }) })).models;
   },
   async getNotificationSettings() {
     return (await request<{ settings: NotificationSettings }>('/api/settings/notifications')).settings;

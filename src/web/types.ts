@@ -52,11 +52,27 @@ export interface Highlight {
 
 export interface AIStatus {
   provider: string;
+  model?: string | null;
   remoteConfigured: boolean;
   configurationSource?: string;
   credentialBackend?: string;
   capabilities: { summary: boolean; chat: boolean; rag: boolean; compose: boolean; translate: boolean };
   index?: RAGIndexStatus;
+}
+
+export interface AIProviderPreset {
+  id: 'reader-gateway' | 'openai' | 'ollama' | 'openai-compatible';
+  name: string;
+  defaultEndpoint: string;
+  endpointLocked: boolean;
+  modelRequired: boolean;
+  modelCatalog: boolean;
+  apiKeyRecommended: boolean;
+}
+
+export interface AIModel {
+  id: string;
+  ownedBy: string;
 }
 
 export interface RAGIndexStatus {
@@ -99,7 +115,10 @@ export interface RAGChatResult {
 export interface AISettings {
   configured: boolean;
   enabled: boolean;
+  provider: AIProviderPreset['id'];
   endpoint: string;
+  model: string;
+  providers: AIProviderPreset[];
   apiKeyStored: boolean;
   apiKeySource: 'keychain' | 'environment' | 'none';
   credentialBackend: 'macos-keychain' | 'environment-only' | string;

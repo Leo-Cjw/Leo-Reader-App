@@ -1,4 +1,4 @@
-# Reader for Mac 0.47.0
+# Reader for Mac 0.48.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-0.47.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.48.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -88,7 +88,7 @@ npm run desktop:pack
 - 重复治理：按规范化原链接、完整正文或标题摘要检测重复组；用户明确选择保留版本后合并标签、收藏、摘要与阅读进度，副本仅归档且可恢复。
 - 检索：拉丁文字使用 SQLite FTS5 词法索引；三个及以上字符的中文词组使用 FTS5 trigram 子串索引，短词保留兼容路径。
 - 阅读器：三栏桌面布局、明暗主题、文章助手和键盘入口；Mac App 可把当前文章放入按 ID 去重的独立专注窗口，窗口复用正文、附件和高亮定位，但不写收藏、整理、阅读进度或批注，返回资料库后再继续编辑。
-- AI：默认完全本地的提取式摘要、多资料结构化整理与 RAG 问答；可在当前文章或整个资料库中检索，回答附带可点击的原文片段。文章新增、编辑、导入完成和版本恢复会在同一事务中重建分块索引。启用远程网关后只发送本地命中的有限片段，密钥存入 macOS Keychain。
+- AI：默认完全本地的提取式摘要、多资料结构化整理与 RAG 问答；可在当前文章或整个资料库中检索，回答附带可点击的原文片段。文章新增、编辑、导入完成和版本恢复会在同一事务中重建分块索引。远程模式可选择既有 Reader Gateway、OpenAI、回环 Ollama 或其他 OpenAI-compatible 服务，从服务读取受限模型目录或手填模型 ID；只有用户主动执行任务时才发送既有边界内的内容，密钥存入 macOS Keychain。
 - 安全：阻止 localhost、私网 IP 与云元数据地址；限制跳转、超时和 4 MB 正文响应体；单张图片 12 MB、单篇本地化预算 48 MB。
 - 媒体读取：同源私有文件端点，支持 HTTP Range，可流畅拖动本地视频。
 - 数据安全：一键生成包含 SQLite、附件和 SHA-256 清单的完整备份；默认可使用口令创建 `.readerbackup.enc` 认证加密文件，也兼容明文 `.readerbackup.zip`。恢复前完成解密、哈希与 SQLite 完整性校验，并在下次启动时原子替换。
@@ -110,7 +110,7 @@ npm run desktop:pack
 - 可再生缩略图：`data/thumbnails/`
 - 待恢复暂存：`data/restore/`
 - 本地运行日志：`data/logs/`（目录 `0700`、文件 `0600`；有限轮转，不进入备份或导出）
-- 非敏感运行时设置：`data/settings.json`（权限 `0600`；保存 AI 非密钥配置、导入队列暂停、通知与 Spotlight opt-in，不保存 API 密钥，也不进入备份或导出）
+- 非敏感运行时设置：`data/settings.json`（权限 `0600`；保存 AI 提供商、端点、模型等非密钥配置，以及导入队列暂停、通知与 Spotlight opt-in；不保存 API 密钥，也不进入备份或导出）
 - 敏感凭据：AI API Key 与 X Bearer Token 分别写入 macOS Keychain；微博 OAuth 令牌由官方 CLI 自行写入系统 Keychain，Reader 不读取令牌。
 - 数据库采用 WAL 模式，运行时可能出现 `-wal` 和 `-shm` 文件。
 - Reader 启动时把默认数据目录权限收紧为 `0700`，数据库及现有 WAL/SHM 文件收紧为 `0600`，避免其他本机用户读取资料库。
@@ -122,24 +122,34 @@ npm run desktop:pack
 
 ## AI 服务配置
 
-默认摘要和结构化整理无需联网。翻译要求兼容的远程 AI 网关；Reader 不会用词语替换伪装本地翻译。推荐点击标题栏“设置”，填写网关地址、按需保存 API 密钥并先执行隐私连接测试。macOS 上密钥写入系统 Keychain，`settings.json`、备份、导出和设置 API 都不会返回它。
+默认摘要和结构化整理无需联网。翻译要求用户明确启用远程 AI；Reader 不会用词语替换伪装本地翻译。点击标题栏“设置”后可选择：
+
+- `Reader Gateway`：保留原有 `{ action, ...payload }` 网关契约。
+- `OpenAI`：固定使用 `https://api.openai.com/v1/` 的 OpenAI-compatible Chat Completions 与模型目录。
+- `Ollama（本机）`：固定使用 `http://127.0.0.1:11434/v1/`，不开放局域网 HTTP。
+- `其他 OpenAI-compatible 服务`：用户提供 HTTPS 基础地址，或提供 `localhost`/`127.0.0.1`/`::1` 回环 HTTP。
+
+OpenAI-compatible 预设从 `<base>/models` 读取当前服务实际返回的模型 ID，并调用 `<base>/chat/completions` 的 JSON 模式；目录读取必须由用户点击触发，只请求模型元数据，不发送资料库内容。也可以手动填写模型 ID。切换提供商或服务地址时，Reader 不会把旧 Keychain 密钥用于候选连接或模型目录；若没有为新作用域输入新密钥，保存时会清除旧密钥。
+
+推荐先执行隐私连接测试。测试只发送 Reader 内置英文，不读取资料库。macOS 上密钥写入系统 Keychain，`settings.json`、备份、导出、设置 API 和模型目录响应都不会返回它。
 
 也可在启动前用环境变量提供默认值；一旦保存 Reader 设置，运行时设置优先：
 
 ```bash
+READER_AI_PROVIDER=reader-gateway \
 READER_AI_ENDPOINT=https://your-gateway.example/v1/respond \
 READER_AI_API_KEY=replace-me \
 npm start
 ```
 
-网关统一接收 `{ "action", ...payload }`：
+`READER_AI_PROVIDER` 可取 `reader-gateway`、`openai`、`ollama` 或 `openai-compatible`；OpenAI-compatible 预设启用时还需 `READER_AI_MODEL`。Reader Gateway 统一接收 `{ "action", ...payload }`：
 
 - `summarize`：输入 `article`，返回 `{ "summary", "points", "model" }`。
 - `chat`：输入 `prompt`、`scope`、`context`（本地命中的有限片段），返回 `{ "answer", "model", "citationIds" }`。未命中证据时 Reader 不调用远程服务。
 - `translate`：输入 `article`、`targetLanguage`，返回 `{ "title", "excerpt", "content", "language", "model" }`。
 - `compose`：输入 `articles`、`prompt`、`format`、`language`，返回 `{ "title", "excerpt", "content", "language", "model" }`。
 
-请求超时为 60 秒，响应最大 2 MB；单次创作最多 20 篇来源、约 24 万字符。非本机网关必须使用 HTTPS；HTTP 只允许 `localhost`、`127.0.0.1` 或 `::1`。连接测试只发送 Reader 内置文本，不读取资料库正文。
+请求超时为 60 秒，响应最大 2 MB，并拒绝 HTTP 重定向；单次创作最多 20 篇来源、约 24 万字符。非本机网关必须使用 HTTPS；HTTP 只允许 `localhost`、`127.0.0.1` 或 `::1`。连接测试只发送 Reader 内置文本，不读取资料库正文。
 
 ## 社交连接器
 
@@ -176,8 +186,9 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `GET /api/ai/status`：读取 AI 能力和远程服务配置状态，不返回密钥或端点。
 - `GET /api/ai/index`：读取本地分块索引版本、文章数、片段数和待索引状态。
 - `POST /api/ai/search`：只执行本地片段检索，返回带原文偏移的候选引用。
-- `GET/PUT/DELETE /api/settings/ai`：读取、更新或恢复 AI 运行时设置；响应不返回密钥。
+- `GET/PUT/DELETE /api/settings/ai`：读取、更新或恢复 AI 提供商、端点、模型与凭据状态；响应不返回密钥。
 - `POST /api/settings/ai/test`：使用内置测试文本验证候选网关，不发送资料库内容。
+- `POST /api/settings/ai/models`：显式读取候选 OpenAI-compatible 服务的受限模型目录；不发送资料库内容或返回密钥。
 - `POST /api/ai/translate`：翻译一篇文章，并保存带来源记录的本地 Markdown 草稿。
 - `POST /api/ai/compose`：基于最多 20 篇来源生成可编辑、可回链的创作草稿。
 - `GET/POST /api/import-jobs`：查看队列或创建 URL 导入任务。
@@ -211,4 +222,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.47.0 变更见 [docs/RELEASE_NOTES_0.47.0.md](docs/RELEASE_NOTES_0.47.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.48.0 变更见 [docs/RELEASE_NOTES_0.48.0.md](docs/RELEASE_NOTES_0.48.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

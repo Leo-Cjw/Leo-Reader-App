@@ -1,8 +1,14 @@
 import { AIService } from './ai.mjs';
-import { normalizeAIEndpoint } from './settings.mjs';
+import { normalizeAIConfiguration, publicAIProviderPresets } from './ai-providers.mjs';
 
 function configurationError(message, status = 400) {
   return Object.assign(new Error(message), { status, expected: true });
+}
+
+function candidateApiKey(input, current, configuration) {
+  if (typeof input.apiKey === 'string' && input.apiKey) return input.apiKey;
+  const sameScope = configuration.provider === current.provider && configuration.endpoint === current.endpoint;
+  return sameScope ? current.apiKey : '';
 }
 
 export class AISettingsManager {
@@ -11,7 +17,7 @@ export class AISettingsManager {
     this.credentialStore = credentialStore;
     this.aiService = aiService;
     this.environment = environment || {};
-    this.effective = { enabled: false, endpoint: '', apiKey: '', source: 'local' };
+    this.effective = { enabled: false, provider: 'reader-gateway', endpoint: '', model: '', apiKey: '', source: 'local' };
   }
 
   async initialize() {
@@ -22,19 +28,38 @@ export class AISettingsManager {
   async resolve() {
     const stored = this.settingsStore.getAI();
     if (!stored.configured) {
+      const provider = String(this.environment.READER_AI_PROVIDER || 'reader-gateway').trim();
       const endpoint = String(this.environment.READER_AI_ENDPOINT || '').trim();
+      const model = String(this.environment.READER_AI_MODEL || '').trim();
       const apiKey = String(this.environment.READER_AI_API_KEY || '');
-      return { stored, enabled: Boolean(endpoint), endpoint, apiKey, source: endpoint ? 'environment' : 'local', apiKeySource: apiKey ? 'environment' : 'none' };
+      const environmentAvailable = Boolean(
+        this.environment.READER_AI_PROVIDER || this.environment.READER_AI_ENDPOINT || this.environment.READER_AI_MODEL
+      );
+      const configuration = normalizeAIConfiguration({ enabled: environmentAvailable, provider, endpoint, model });
+      return {
+        stored, ...configuration, apiKey,
+        source: environmentAvailable ? 'environment' : 'local',
+        apiKeySource: apiKey ? 'environment' : 'none',
+        environmentAvailable
+      };
     }
     let apiKey = '';
     if (stored.hasApiKey) apiKey = String(await this.credentialStore.get() || '');
-    return { stored, enabled: stored.enabled, endpoint: stored.endpoint, apiKey, source: 'settings', apiKeySource: apiKey ? 'keychain' : 'none' };
+    const configuration = normalizeAIConfiguration(stored);
+    return {
+      stored, ...configuration, apiKey, source: 'settings',
+      apiKeySource: apiKey ? 'keychain' : 'none',
+      environmentAvailable: Boolean(
+        this.environment.READER_AI_PROVIDER || this.environment.READER_AI_ENDPOINT || this.environment.READER_AI_MODEL
+      )
+    };
   }
 
   async apply() {
     this.effective = await this.resolve();
     this.aiService.configure({
-      enabled: this.effective.enabled, endpoint: this.effective.endpoint, apiKey: this.effective.apiKey,
+      enabled: this.effective.enabled, provider: this.effective.provider, endpoint: this.effective.endpoint,
+      model: this.effective.model, apiKey: this.effective.apiKey,
       source: this.effective.source, credentialBackend: this.credentialStore.describe().backend
     });
     return this.publicSettings();
@@ -46,24 +71,26 @@ export class AISettingsManager {
     return {
       configured: current.stored.configured,
       enabled: current.enabled,
+      provider: current.provider,
       endpoint: current.endpoint,
+      model: current.model,
+      providers: publicAIProviderPresets(),
       apiKeyStored: current.apiKeySource !== 'none',
       apiKeySource: current.apiKeySource,
       credentialBackend: credential.backend,
       credentialWritable: credential.writable,
-      environmentAvailable: Boolean(this.environment.READER_AI_ENDPOINT),
+      environmentAvailable: current.environmentAvailable,
       updatedAt: current.stored.updatedAt,
       warning: this.settingsStore.loadError
     };
   }
 
   async update(input = {}) {
-    const endpoint = normalizeAIEndpoint(input.endpoint);
-    const enabled = Boolean(input.enabled);
-    if (enabled && !endpoint) throw configurationError('启用远程 AI 前需要填写服务地址');
+    const configuration = normalizeAIConfiguration(input);
     const previous = await this.resolve();
     const wantsNewKey = typeof input.apiKey === 'string' && input.apiKey.length > 0;
-    const clearKey = Boolean(input.clearApiKey);
+    const credentialScopeChanged = configuration.provider !== previous.provider || configuration.endpoint !== previous.endpoint;
+    const clearKey = Boolean(input.clearApiKey) || (credentialScopeChanged && !wantsNewKey);
     let hasApiKey = previous.stored.configured ? previous.stored.hasApiKey : false;
     let credentialChanged = false;
     try {
@@ -75,7 +102,7 @@ export class AISettingsManager {
         await this.credentialStore.delete();
         hasApiKey = false; credentialChanged = true;
       }
-      await this.settingsStore.saveAI({ enabled, endpoint, hasApiKey });
+      await this.settingsStore.saveAI({ ...configuration, hasApiKey });
     } catch (error) {
       if (credentialChanged) {
         if (previous.apiKey) await this.credentialStore.set(previous.apiKey).catch(() => {});
@@ -95,10 +122,26 @@ export class AISettingsManager {
 
   async test(input = {}) {
     const current = await this.resolve();
-    const endpoint = normalizeAIEndpoint(input.endpoint || current.endpoint);
-    if (!endpoint) throw configurationError('请先填写 AI 服务地址');
-    const apiKey = typeof input.apiKey === 'string' && input.apiKey ? input.apiKey : current.apiKey;
-    const tester = new AIService({ endpoint, apiKey });
+    const configuration = normalizeAIConfiguration({
+      enabled: true,
+      provider: typeof input.provider === 'string' ? input.provider : current.provider,
+      endpoint: typeof input.endpoint === 'string' ? input.endpoint : current.endpoint,
+      model: typeof input.model === 'string' ? input.model : current.model
+    });
+    const apiKey = candidateApiKey(input, current, configuration);
+    const tester = new AIService({ ...configuration, apiKey });
     return await tester.testConnection();
+  }
+
+  async models(input = {}) {
+    const current = await this.resolve();
+    const configuration = normalizeAIConfiguration({
+      enabled: true,
+      provider: typeof input.provider === 'string' ? input.provider : current.provider,
+      endpoint: typeof input.endpoint === 'string' ? input.endpoint : current.endpoint,
+      model: typeof input.model === 'string' && input.model.trim() ? input.model : 'catalog-placeholder'
+    });
+    const apiKey = candidateApiKey(input, current, configuration);
+    return await new AIService({ ...configuration, apiKey }).listModels();
   }
 }

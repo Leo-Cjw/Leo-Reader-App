@@ -1,10 +1,13 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { normalizeAIConfiguration } from './ai-providers.mjs';
+
+export { normalizeAIEndpoint } from './ai-providers.mjs';
 
 const DEFAULT_SETTINGS = Object.freeze({
   version: 1,
-  ai: { configured: false, enabled: false, endpoint: '', hasApiKey: false, updatedAt: null },
+  ai: { configured: false, enabled: false, provider: 'reader-gateway', endpoint: '', model: '', hasApiKey: false, updatedAt: null },
   imports: { paused: false, updatedAt: null },
   notifications: { enabled: false, sourceSyncEnabled: false, updatedAt: null },
   spotlight: { enabled: false, updatedAt: null }
@@ -18,25 +21,6 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-export function normalizeAIEndpoint(value) {
-  const input = String(value || '').trim();
-  if (!input) return '';
-  if (input.length > 2048) throw settingsError('AI 服务地址长度超过限制');
-  let url;
-  try { url = new URL(input); }
-  catch { throw settingsError('AI 服务地址不是有效 URL'); }
-  if (url.username || url.password) throw settingsError('AI 服务地址不能包含用户名或密码');
-  if (url.hash) throw settingsError('AI 服务地址不能包含片段');
-  for (const name of url.searchParams.keys()) {
-    if (/(?:api.?key|token|secret|signature|credential|password|^sig$)/i.test(name)) throw settingsError('AI 服务地址不能在查询参数中包含密钥；请使用 API 密钥字段');
-  }
-  const loopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname.toLowerCase());
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
-    throw settingsError('远程 AI 服务必须使用 HTTPS；HTTP 仅允许 localhost 或 127.0.0.1');
-  }
-  return url.toString();
-}
-
 export class SettingsStore {
   constructor(filePath) {
     this.filePath = filePath;
@@ -48,15 +32,19 @@ export class SettingsStore {
     try {
       const parsed = JSON.parse(await readFile(this.filePath, 'utf8'));
       const ai = parsed?.ai && typeof parsed.ai === 'object' ? parsed.ai : {};
-      const endpoint = normalizeAIEndpoint(ai.endpoint);
-      if (ai.enabled && !endpoint) throw new Error('enabled AI endpoint is missing');
+      const configuration = normalizeAIConfiguration({
+        enabled: Boolean(ai.enabled),
+        provider: ai.provider,
+        endpoint: ai.endpoint,
+        model: ai.model
+      });
       const imports = parsed?.imports && typeof parsed.imports === 'object' ? parsed.imports : {};
       const notifications = parsed?.notifications && typeof parsed.notifications === 'object' ? parsed.notifications : {};
       const spotlight = parsed?.spotlight && typeof parsed.spotlight === 'object' ? parsed.spotlight : {};
       this.value = {
         version: 1,
         ai: {
-          configured: Boolean(ai.configured), enabled: Boolean(ai.enabled), endpoint,
+          configured: Boolean(ai.configured), ...configuration,
           hasApiKey: Boolean(ai.hasApiKey), updatedAt: typeof ai.updatedAt === 'string' ? ai.updatedAt : null
         },
         imports: {
@@ -88,7 +76,8 @@ export class SettingsStore {
     const next = {
       ...clone(this.value),
       ai: {
-        configured: true, enabled: Boolean(input.enabled), endpoint: String(input.endpoint || ''),
+        configured: true, enabled: Boolean(input.enabled), provider: String(input.provider || 'reader-gateway'),
+        endpoint: String(input.endpoint || ''), model: String(input.model || ''),
         hasApiKey: Boolean(input.hasApiKey), updatedAt: new Date().toISOString()
       }
     };

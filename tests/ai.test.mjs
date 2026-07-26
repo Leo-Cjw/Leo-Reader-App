@@ -56,3 +56,103 @@ test('configured AI uses the action contract and validates translate and compose
   assert.doesNotMatch(JSON.stringify(requests[2].body), /明确控制何时把正文发送/);
   assert.ok(requests.every((item) => item.authorization === 'Bearer secret-test-key'));
 });
+
+test('OpenAI-compatible providers discover a bounded model catalog and use chat completions', async (t) => {
+  const requests = [];
+  const provider = http.createServer(async (request, response) => {
+    if (request.method === 'GET' && request.url === '/v1/models') {
+      requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization });
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        object: 'list',
+        data: [
+          { id: 'zeta-model', owned_by: 'local' },
+          { id: 'alpha/model:latest', owned_by: 'local' },
+          { id: 'bad model', owned_by: 'ignored' }
+        ]
+      }));
+      return;
+    }
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization, body });
+    const action = JSON.parse(body.messages[1].content).action;
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({
+      id: 'chatcmpl-reader',
+      model: 'alpha/model:latest',
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: JSON.stringify(action === 'summarize'
+            ? { summary: 'Reader compatible connection is healthy.', points: [] }
+            : {
+                language: 'en',
+                title: 'Translated through a compatible provider',
+                excerpt: 'Private and editable.',
+                content: '# Translation\n\nReader remains local-first.'
+              })
+        },
+        finish_reason: 'stop'
+      }]
+    }));
+  });
+  await new Promise((resolve) => provider.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => provider.close(resolve)));
+  const endpoint = `http://127.0.0.1:${provider.address().port}/v1/`;
+  const service = new AIService({
+    provider: 'openai-compatible',
+    endpoint,
+    model: 'alpha/model:latest',
+    apiKey: 'compatible-secret'
+  });
+
+  assert.deepEqual(await service.listModels(), [
+    { id: 'alpha/model:latest', ownedBy: 'local' },
+    { id: 'zeta-model', ownedBy: 'local' }
+  ]);
+  const connection = await service.testConnection();
+  assert.equal(connection.summary, 'Reader compatible connection is healthy.');
+  assert.equal(connection.provider, 'openai-compatible');
+  const translated = await service.translate(article, 'en');
+  assert.equal(translated.provider, 'openai-compatible');
+  assert.equal(translated.model, 'alpha/model:latest');
+  assert.equal(translated.title, 'Translated through a compatible provider');
+  assert.deepEqual(requests.map((item) => `${item.method} ${item.url}`), [
+    'GET /v1/models',
+    'POST /v1/chat/completions',
+    'POST /v1/chat/completions'
+  ]);
+  assert.ok(requests.every((item) => item.authorization === 'Bearer compatible-secret'));
+  assert.ok(requests.slice(1).every((item) => item.body.model === 'alpha/model:latest'));
+  assert.ok(requests.slice(1).every((item) => JSON.stringify(item.body.response_format) === '{"type":"json_object"}'));
+  assert.ok(requests.slice(1).every((item) => item.body.messages[0].role === 'system'));
+  assert.equal(JSON.parse(requests[2].body.messages[1].content).action, 'translate');
+  assert.equal(JSON.parse(requests[2].body.messages[1].content).article.id, undefined);
+});
+
+test('AI requests reject redirects before a credential can reach another endpoint', async (t) => {
+  const targetRequests = [];
+  const target = http.createServer((request, response) => {
+    targetRequests.push({ url: request.url, authorization: request.headers.authorization });
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ summary: 'must not be reached' }));
+  });
+  await new Promise((resolve) => target.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => target.close(resolve)));
+
+  const redirect = http.createServer((_request, response) => {
+    response.writeHead(307, { location: `http://127.0.0.1:${target.address().port}/redirected` });
+    response.end();
+  });
+  await new Promise((resolve) => redirect.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => redirect.close(resolve)));
+
+  const service = new AIService({
+    endpoint: `http://127.0.0.1:${redirect.address().port}/gateway`,
+    apiKey: 'redirect-secret'
+  });
+  await assert.rejects(() => service.testConnection(), /连接失败/);
+  assert.deepEqual(targetRequests, []);
+});
