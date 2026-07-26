@@ -152,7 +152,12 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 
 - 发行门禁分别审计生产依赖和完整构建依赖。生产依赖必须在 `low` 阈值下保持 0 个已知漏洞；任何新增或未评估的构建公告同样使门禁失败。
 - 0.34 把运行时 ZIP 库升级到 Archiver 8，使生产树使用修复了 CVE-2026-14257 的 `brace-expansion` 5.0.8。文章、附件或备份文件名不会进入 glob brace pattern。
-- Electron Builder 26.15.3 与 `@electron/universal` 2.0.3 仍固定依赖旧版 minimatch/brace API；上游尚无兼容 Node 20 的修复版本。该公告只允许存在于 devDependency 构建树，输入是仓库内固定 `files` globs 和受控源码文件名，不进入 Reader App、用户导入或本机服务运行时。审计脚本只放行这一条精确 GitHub Advisory；上游发布兼容修复后应立即移除例外。
+- Electron Builder 26.15.3 与 `@electron/universal` 2.0.3 仍固定依赖旧版 minimatch/brace API。该公告只允许存在于 devDependency 构建树，输入是仓库内固定 `files` globs 和受控源码文件名，不进入 Reader App、用户导入或本机服务运行时。审计脚本只放行这一条精确 GitHub Advisory；上游发布兼容修复后应立即移除例外。
+
+## 源码 CI
+
+- GitHub Actions 只对 `main` 推送和面向 `main` 的 pull request 执行 macOS 15 验证，固定 Node.js 24，并依次运行 `npm ci`、生产依赖审计、测试和生产构建。
+- 工作流权限仅为 `contents: read`，checkout 不保留凭据；它不读取仓库 secret、不执行签名、公证、打包、发布或自动更新上传。并发取消只针对同一 ref 的旧验证，不影响已经开始的其他分支。
 
 ## 只读正文键盘选区
 
@@ -214,4 +219,4 @@ npm run qa:share
 npm run qa:upgrade
 ```
 
-0.64.0 的依赖审计、162 项自动测试、词法/多探针向量双性能门禁、确定性语义分离/近邻召回集、最终包版本身份、发行清单与 sidecar 自校验、回环监听/来源/响应策略、AX、Share 和跨版本升级门禁均记录在对应发行说明。新增受控并发回归确认 Keychain 已替换、非密钥设置仍暂停时，对外设置读取不会暴露混合状态，连接测试不会把新密钥发送到旧端点；旧网关请求数为 0，新网关只收到预期的新密钥。设置读取、连接测试和模型目录现在等待当前 AI 变更提交，运行中 AI 服务仍使用变更前的完整内存配置。0.63 的变更排序与补偿、0.62 的完整设置保存队列、既有 `0600` 权限、私有临时文件、原子 rename、默认关闭 opt-in 和 Keychain 不落盘边界不变。0.61 的退出更新入口 quiescing、0.60 的完整深度签名验证、0.59 的更新安装 single-flight、0.58 的服务退出 quiescing/single-flight，以及全部既有网络与恢复门禁继续执行。0.64.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。
+1.0.0 候选将依赖审计、自动测试、生产构建和最终包/数据兼容门禁记录在对应发行说明。新增受控并发回归确认 Keychain 已替换、非密钥设置仍暂停时，对外设置读取不会暴露混合状态，连接测试不会把新密钥发送到旧端点；旧网关请求数为 0，新网关只收到预期的新密钥。设置读取、连接测试和模型目录现在等待当前 AI 变更提交，运行中 AI 服务仍使用变更前的完整内存配置。0.63 的变更排序与补偿、0.62 的完整设置保存队列、既有 `0600` 权限、私有临时文件、原子 rename、默认关闭 opt-in 和 Keychain 不落盘边界不变。0.61 的退出更新入口 quiescing、0.60 的完整深度签名验证、0.59 的更新安装 single-flight、0.58 的服务退出 quiescing/single-flight，以及全部既有网络与恢复门禁继续执行。1.0.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。
