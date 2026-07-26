@@ -45,6 +45,8 @@ export function createUpdateController({
   let checking = false;
   let interactiveCheck = false;
   let downloadedRelease = '';
+  let installPrompt = null;
+  let installStarted = false;
   let initialTimer = null;
   let intervalTimer = null;
   let listenersInstalled = false;
@@ -54,29 +56,45 @@ export function createUpdateController({
     return window && !window.isDestroyed() ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
   }
 
-  async function promptToInstall(releaseName = downloadedRelease || '新版本') {
-    const result = await showMessage({
-      type: 'info',
-      buttons: ['重启并安装', '稍后'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Reader 更新已就绪',
-      message: `${releaseName} 已安全下载`,
-      detail: '重启 Reader 后安装更新。资料库仍保存在原来的本机目录中。'
-    });
-    if (result.response !== 0) return;
-    try {
-      await beforeInstall();
-      autoUpdater.quitAndInstall();
-    } catch {
-      console.warn('Reader 无法安全停止以安装更新');
-      await showMessage({
-        type: 'warning',
-        buttons: ['好'],
-        title: '暂时无法安装更新',
-        message: 'Reader 无法安全停止后台任务，请退出应用后重新打开再试。'
+  function promptToInstall(releaseName = downloadedRelease || '新版本') {
+    if (installPrompt) return installPrompt;
+    if (installStarted) return Promise.resolve(true);
+    installPrompt = (async () => {
+      const result = await showMessage({
+        type: 'info',
+        buttons: ['重启并安装', '稍后'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Reader 更新已就绪',
+        message: `${releaseName} 已安全下载`,
+        detail: '重启 Reader 后安装更新。资料库仍保存在原来的本机目录中。'
       });
-    }
+      if (result.response !== 0) return false;
+      let cleanupCompleted = false;
+      try {
+        installStarted = true;
+        await beforeInstall();
+        cleanupCompleted = true;
+        autoUpdater.quitAndInstall();
+        return true;
+      } catch {
+        if (cleanupCompleted) {
+          console.warn('Reader 更新安装启动失败；正在安全退出');
+          app.quit();
+          return false;
+        }
+        installStarted = false;
+        console.warn('Reader 无法安全停止以安装更新');
+        await showMessage({
+          type: 'warning',
+          buttons: ['好'],
+          title: '暂时无法安装更新',
+          message: 'Reader 无法安全停止后台任务，请退出应用后重新打开再试。'
+        });
+        return false;
+      }
+    })().finally(() => { installPrompt = null; });
+    return installPrompt;
   }
 
   const onChecking = () => { checking = true; };

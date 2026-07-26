@@ -12,21 +12,28 @@ function flushEvents() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-function updateHarness({ signed = true } = {}) {
+function updateHarness({
+  signed = true,
+  installResponses: configuredInstallResponses = [1, 0],
+  beforeInstallImpl = async () => {},
+  quitAndInstallError = null
+} = {}) {
   const updater = new EventEmitter();
   const feedURLs = [];
   let checks = 0;
   let installs = 0;
+  let quits = 0;
   updater.setFeedURL = (options) => feedURLs.push(options);
   updater.checkForUpdates = () => { checks += 1; };
   const installOrder = [];
   updater.quitAndInstall = () => {
     installs += 1;
     installOrder.push('install');
+    if (quitAndInstallError) throw quitAndInstallError;
   };
 
   const messages = [];
-  const installResponses = [1, 0];
+  const installResponses = [...configuredInstallResponses];
   const dialog = {
     showMessageBox: async (...args) => {
       const options = args.at(-1);
@@ -46,7 +53,8 @@ function updateHarness({ signed = true } = {}) {
   const app = {
     isPackaged: true,
     getPath: () => '/Applications/Reader.app/Contents/MacOS/Reader',
-    getVersion: () => '0.28.0'
+    getVersion: () => '0.28.0',
+    quit: () => { quits += 1; installOrder.push('quit'); }
   };
   const controller = createUpdateController({
     app,
@@ -55,7 +63,7 @@ function updateHarness({ signed = true } = {}) {
     getWindow: () => null,
     platform: 'darwin',
     inspectSignature: async () => signed,
-    beforeInstall: async () => { installOrder.push('cleanup'); },
+    beforeInstall: async () => { installOrder.push('cleanup'); await beforeInstallImpl(); },
     setTimeoutImpl: (callback, delay) => makeTimer('timeout', callback, delay),
     clearTimeoutImpl: (timer) => cleared.push(timer),
     setIntervalImpl: (callback, delay) => makeTimer('interval', callback, delay),
@@ -71,7 +79,8 @@ function updateHarness({ signed = true } = {}) {
     cleared,
     updater,
     get checks() { return checks; },
-    get installs() { return installs; }
+    get installs() { return installs; },
+    get quits() { return quits; }
   };
 }
 
@@ -159,4 +168,77 @@ test('signed builds schedule one update stream and install only after confirmati
     'error',
     'update-downloaded'
   ]) assert.equal(harness.updater.listenerCount(event), 0);
+});
+
+test('downloaded update prompts and installation are single-flight across concurrent triggers', async () => {
+  let releaseCleanup;
+  let markCleanupStarted;
+  const cleanupStarted = new Promise((resolve) => { markCleanupStarted = resolve; });
+  const cleanupGate = new Promise((resolve) => { releaseCleanup = resolve; });
+  const harness = updateHarness({
+    installResponses: [0, 0, 0],
+    beforeInstallImpl: async () => {
+      markCleanupStarted();
+      await cleanupGate;
+    }
+  });
+  await harness.controller.start();
+
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.59.0');
+  await cleanupStarted;
+  const concurrentCheck = harness.controller.check(true);
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.59.0');
+  await flushEvents();
+  try {
+    assert.equal(harness.messages.filter((message) => message.title === 'Reader 更新已就绪').length, 1);
+    assert.equal(harness.installOrder.filter((step) => step === 'cleanup').length, 1);
+  } finally {
+    releaseCleanup();
+    await concurrentCheck;
+    await flushEvents();
+  }
+  assert.equal(harness.installs, 1);
+  assert.deepEqual(harness.installOrder, ['cleanup', 'install']);
+
+  const messageCount = harness.messages.length;
+  assert.equal(await harness.controller.check(true), true);
+  assert.equal(harness.messages.length, messageCount);
+  assert.equal(harness.installs, 1);
+});
+
+test('update install launch failure exits after completed cleanup instead of leaving a stopped app open', async () => {
+  const harness = updateHarness({
+    installResponses: [0],
+    quitAndInstallError: new Error('simulated updater launch failure')
+  });
+  await harness.controller.start();
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.59.0');
+  await flushEvents();
+
+  assert.deepEqual(harness.installOrder, ['cleanup', 'install', 'quit']);
+  assert.equal(harness.quits, 1);
+  assert.equal(harness.messages.some((message) => message.title === '暂时无法安装更新'), false);
+});
+
+test('failed pre-install cleanup remains visible and retryable without starting the updater', async () => {
+  let cleanupAttempts = 0;
+  const harness = updateHarness({
+    installResponses: [0, 0],
+    beforeInstallImpl: async () => {
+      cleanupAttempts += 1;
+      if (cleanupAttempts === 1) throw new Error('simulated cleanup failure');
+    }
+  });
+  await harness.controller.start();
+  harness.updater.emit('update-downloaded', {}, '', 'Reader 0.59.0');
+  await flushEvents();
+
+  assert.equal(harness.installs, 0);
+  assert.equal(harness.quits, 0);
+  assert.equal(harness.messages.some((message) => message.title === '暂时无法安装更新'), true);
+
+  assert.equal(await harness.controller.check(true), true);
+  assert.equal(cleanupAttempts, 2);
+  assert.equal(harness.installs, 1);
+  assert.deepEqual(harness.installOrder, ['cleanup', 'cleanup', 'install']);
 });

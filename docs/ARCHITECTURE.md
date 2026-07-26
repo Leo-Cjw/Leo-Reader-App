@@ -42,6 +42,8 @@ flowchart LR
 
 0.58.0 把本地服务关闭改为 single-flight quiescing。首次 `close()` 同步让 HTTP server 停止接受新连接，再并行等待已经进入的请求以及导入、订阅、Spotlight、语义索引和自动备份按既有事务语义完成；不缩短 2 GB 导入/备份边界，也不使用 `closeAllConnections` 强杀活动连接。普通退出、渲染器故障的安全退出和正式更新安装即使并发触发，也共享同一关闭 Promise，组件停止、`app_stopped` 诊断和日志 flush 只执行一次。即使后台组件停止失败，HTTP close 仍在 `finally` 中等待完成，避免退出路径重新开放 listener。
 
+0.59.0 把下载完成提示、菜单手动检查和重复的 `update-downloaded` 事件收敛到同一安装协调状态。提示进行中时所有入口复用同一 Promise；用户选择“稍后”或安装前安全关闭失败后会释放状态，允许再次确认。用户确认且安全关闭成功后，本轮只调用一次 `quitAndInstall()`，后续入口不再重复弹窗或重复安装。若系统 updater 在后台已经完整停止后同步拒绝启动，Reader 立即调用正常 App 退出流程，不保留一个界面仍在但本地服务已停止的失效进程。
+
 0.35.0 在打包元数据中注册唯一的 `reader-local` URL scheme，作为浏览器、快捷指令和 Share Extension 的外部保存边界。主进程在 `ready` 前监听 macOS `open-url`，并同时从冷启动/第二实例 argv 中提取候选。URL 路径只接受 `reader-local://add`、唯一 `url` 参数、最长 2,048 字符且不含用户名或密码的 HTTP(S) 目标。未知动作、重复/额外参数、外层 fragment、其他目标协议和畸形输入直接忽略。
 
 0.45.0 在同一动作下增加与 URL 互斥的唯一 `text` 参数。扩展把最多 4,096 UTF-8 bytes、非空且不含禁止控制字符的文本编码为无 padding 的规范 Base64URL；Electron 主进程严格解码、执行 fatal UTF-8 与重新编码一致性检查，preload 再次验证请求形状、字节数和控制字符。混合、重复、额外、非规范或超限参数均被拒绝。

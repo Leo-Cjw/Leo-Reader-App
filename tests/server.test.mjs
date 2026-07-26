@@ -109,7 +109,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.automaticBackupPauseReasons, ['low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.58.0');
+  assert.equal(APP_VERSION, '0.59.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
