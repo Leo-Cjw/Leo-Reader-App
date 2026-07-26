@@ -25,8 +25,11 @@ flowchart LR
   API --> AI[Local Summary / AI Adapter]
   DB --> CHUNKS[(Article Chunks + FTS5)]
   CHUNKS --> AI
+  CHUNKS --> VECTORS[(Optional Local Vectors + LSH)]
+  VECTORS --> AI
   IMPORT --> WEB[Public Web]
   AI -. optional .-> MODEL[Configured AI Provider]
+  VECTORS -. opt-in loopback .-> OLLAMA[Local Ollama /api/embed]
 ```
 
 生产构建由 Electron 主进程启动随机回环端口的本地服务，再由沙箱化渲染进程加载静态界面和 `/api`。应用包中的 `dist` 只读，SQLite、附件与备份写入 `Application Support/Reader/ReaderData`，升级应用不会覆盖资料。数据模型和 API 仍保持独立边界，便于未来用 SwiftUI/WKWebView 逐模块替换。
@@ -73,6 +76,7 @@ Electron 主进程只从当前用户固定的 Share Extension 容器解析 token
 - `article_revisions`：文章内容字段的不可变快照；恢复旧版本时追加新快照而不改写历史。
 - `article_search` / `article_search_trigram`：分别承载拉丁文字词法检索与三个及以上字符的中文子串检索，由独立触发器与文章表保持一致。
 - `article_chunks` / `chunk_search`：按 Markdown 标题和段落生成的本地检索片段，以及由触发器维护的 FTS5 索引；记录原文偏移、内容哈希和稳定引用 ID。
+- `chunk_embeddings` / `chunk_embedding_buckets`：schema v12 增加的可选本地 Float32 单位向量和 16 组 LSH 桶；两者都是可删除、可重建的派生索引，通过外键随片段编辑或删除自动失效。
 - `schema_migrations`：记录已经提交的 schema 版本。
 - `schema_migration_audit`：从 schema v9 起保存迁移的固定名称、SHA-256 校验值和应用时间；启动时与代码中的注册表逐项核对。
 
@@ -89,6 +93,12 @@ Electron 主进程只从当前用户固定的 Share Extension 容器解析 token
 0.48.0 在既有 Reader Gateway action 契约旁增加统一的提供商注册表。`reader-gateway` 继续把结构化 action 直接 POST 到用户端点；`openai`、本机 `ollama` 与自定义 `openai-compatible` 则共享最小 Chat Completions 适配器，以 system 消息冻结任务 JSON 契约、把既有受限 payload 作为不可信来源数据发送，并要求 JSON object 响应。OpenAI 与 Ollama 的基础地址固定为官方 HTTPS 或 `127.0.0.1` 回环值；自定义基础地址继续执行 HTTPS/回环 HTTP、无用户信息、无片段、无密钥查询参数和无查询字符串校验。服务端只接受受限模型 ID，并把实际响应模型写入既有来源记录。
 
 模型目录不是启动任务。用户点击“读取模型”后，服务端才对同一 OpenAI-compatible 基础地址发起 `GET models`，沿用 60 秒和 2 MB 响应边界，只保留前 500 个合法、去重、排序后的 `{ id, ownedBy }`；请求不含文章、检索片段或其他资料库数据。提供商、规范化端点和模型保存在权限为 `0600` 的 `settings.json`，API 密钥仍只进入 Keychain。密钥作用域由提供商与规范化端点共同确定：候选测试/目录只有作用域完全相同时才可复用已存密钥；切换作用域且未提供新密钥时，保存会删除旧 Keychain 项，防止把一个服务的凭据发送给另一个服务。所有 AI Fetch 都设置 `redirect: error`，配置必须直接指向最终端点。
+
+0.49.0 增加与远程生成配置彼此独立、默认关闭的本地语义检索。嵌入客户端只允许固定 `http://127.0.0.1:11434/api/embed`，不接受可配置主机、不发送认证头、拒绝重定向，并按最多 16 段、每段最多 2,000 字符、120 秒、8 MB 响应和 8–4,096 维有限浮点向量校验 Ollama 批次。模型测试只发送 Reader 内置英文；用户明确启用后，后台服务才领取尚未嵌入的活动片段。模型请求设置 `truncate: false`，避免服务静默截断已经由 Reader 限定的片段。
+
+Schema v12 将单位化 Float32 向量保存为长度必须等于 `dimensions × 4` 的 BLOB，并为每个片段生成 16 个确定性稀疏随机投影桶。查询只从 `(model, band, bucket)` 索引命中的至多 1,500 个候选读取向量，再计算精确余弦相似度；因此不会为每次提问扫描整个向量库。结果与最多 12 个现有词法候选使用等权 reciprocal-rank fusion 混排，共同命中的片段自然优先，纯语义首位仍能进入有限结果。查询嵌入失败、模型维度变化或索引暂不可用时返回词法回退模式，不阻断问答；同名模型维度变化会清空并重建全部派生向量，避免混用空间。
+
+片段 ID 已包含正文哈希。后台嵌入完成后只在片段 ID 与 `content_sha256` 仍匹配时事务写入向量和完整 16 桶；编辑、恢复或删除文章会先替换片段，外键级联删除旧向量。关闭语义检索会等待当前批次稳定结束、删除全部向量和桶，再保存关闭状态。全文/RAG 受控修复重建权威片段时同样通过级联清空向量，启用状态下随后重新领取。索引任务在睡眠、低电量、严重热/降频和资料恢复锁下暂停，但离线不会阻止固定回环 Ollama。
 
 资料夹读取使用递归 CTE 计算子树内容数，选择父资料夹时也会包含所有后代内容。移动资料夹会先拒绝自引用与环；删除非系统资料夹时，整棵子树的文章在同一事务中移入目标资料夹，再由外键级联移除目录节点。批量移动、标签、收藏、已读和归档同样在单一事务中提交，避免只更新一部分内容。
 
@@ -215,6 +225,8 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 0.47.0 把同一最终包 Share 门禁扩展到文件。QA 在独立权限受限目录构造与 Swift 扩展相同的载荷/manifest，使用第二实例只传递 UUID token，核对附件页显示、默认资料夹和确认提示；确认前文章数与导入任务数都必须不变，确认后 Markdown 内容、附件记录和类型必须精确落库且原暂存成对删除。第二份文件走取消路径，要求暂存立即删除、资料库和队列均不变化；最后继续执行 URL 回归。三个最终包 QA 脚本在自动测试中先通过 Node 语法检查，避免门禁自身直到发行阶段才暴露解析错误。
 
 0.48.0 在最终包 AX 设置门禁中实际切换到 Ollama 预设，要求固定回环基础地址只读、模型输入和“读取模型”按钮出现，并重新读取变更后的 AX 树以拒绝任何无名称控件。该门禁不访问 Ollama 或写入设置；它只证明最终打包 React 代码中的动态提供商路径可操作，连接、目录、凭据作用域与响应边界由 Node/HTTP 测试覆盖。
+
+0.49.0 在同一最终包设置门禁中增加具名“本地嵌入模型”输入、“测试本地模型”和“启用语义检索”按钮检查。门禁保持默认关闭，不访问 Ollama、不创建向量；服务端测试覆盖固定回环、无认证头、重定向拒绝、批次边界、编辑失效、维度变化、混排、词法回退与关闭清理。
 
 发行流水线分别构建 x86_64 与 arm64 应用，再用项目内的流式 Mach-O 合并工具生成通用主程序、Helper 与 Share Extension；两套 `@napi-rs/canvas` 原生模块按架构保留在独立包路径，由运行时选择。Electron 压缩包必须匹配依赖自带的官方 SHA-256 清单。合并后按代码类型应用最小 entitlement、执行深度严格验证，并生成带“应用程序”快捷方式且通过 `hdiutil verify` 的压缩 DMG。
 

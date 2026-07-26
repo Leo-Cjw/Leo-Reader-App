@@ -632,6 +632,14 @@ button, select { cursor: pointer; }
 .settings-contract > span:last-child i { width: 6px; height: 6px; border-radius: 50%; background: #668970; }
 .settings-contract > span.error { color: #963e33; }
 .settings-contract > span.error i { background: #963e33; }
+.semantic-search-settings { display: grid; gap: 11px; }
+.semantic-search-settings > p { margin: 0; }
+.semantic-search-settings > label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 9px; }
+.semantic-search-settings > label > span { color: var(--ink); font-weight: 680; }
+.semantic-search-settings > label > small, .semantic-search-status { color: var(--faint); font-size: 8px; line-height: 1.45; }
+.semantic-search-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.semantic-search-actions button { min-height: 30px; padding: 0 10px; }
+.semantic-search-settings .settings-warning { margin: 0; }
 .settings-modal > footer { align-items: center; }
 .settings-footer-spacer { flex: 1; }
 .settings-reset { margin-right: auto; }

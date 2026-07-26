@@ -3,11 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { ReaderDatabase, sqlValue } from '../src/server/db.mjs';
+import { embeddingBuckets, embeddingVectorHex, normalizeEmbeddingVector } from '../src/server/semantic-search.mjs';
 
 const ARTICLE_COUNT = 2_000;
 const CHUNKS_PER_ARTICLE = 5;
 const QUERY_RUNS = 30;
 const MAX_P95_MS = 250;
+const EMBEDDING_MODEL = 'reader-benchmark-embedding';
 
 function percentile(values, ratio) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -50,9 +52,44 @@ try {
   }
   const p50 = percentile(timings, 0.5);
   const p95 = percentile(timings, 0.95);
+  const semanticIndexStarted = performance.now();
+  for (let start = 0; start < ARTICLE_COUNT * CHUNKS_PER_ARTICLE; start += batchSize) {
+    const statements = ['BEGIN IMMEDIATE;'];
+    for (let flatIndex = start; flatIndex < Math.min(start + batchSize, ARTICLE_COUNT * CHUNKS_PER_ARTICLE); flatIndex += 1) {
+      const articleIndex = Math.floor(flatIndex / CHUNKS_PER_ARTICLE);
+      const chunkIndex = flatIndex % CHUNKS_PER_ARTICLE;
+      const chunkId = `bench-${articleIndex}:${chunkIndex}`;
+      const relevant = articleIndex % 100 === 0 && chunkIndex === 2;
+      const vector = normalizeEmbeddingVector(relevant ? [1,0,0,0,0,0,0,0] : [0,1,0,0,0,0,0,0]);
+      statements.push(`INSERT INTO chunk_embeddings(chunk_id,model,dimensions,vector,created_at) VALUES (${sqlValue(chunkId)},${sqlValue(EMBEDDING_MODEL)},8,X'${embeddingVectorHex(vector)}',${sqlValue(timestamp)});`);
+      for (const { band, bucket } of embeddingBuckets(vector)) {
+        statements.push(`INSERT INTO chunk_embedding_buckets(chunk_id,model,band,bucket) VALUES (${sqlValue(chunkId)},${sqlValue(EMBEDDING_MODEL)},${band},${bucket});`);
+      }
+    }
+    statements.push('COMMIT;');
+    await db.execute(statements.join('\n'));
+  }
+  const semanticIndexMs = performance.now() - semanticIndexStarted;
+  const semanticTimings = [];
+  let semanticResults = [];
+  const semanticQuery = normalizeEmbeddingVector([1,0,0,0,0,0,0,0]);
+  for (let run = 0; run < QUERY_RUNS; run += 1) {
+    const started = performance.now();
+    semanticResults = await db.searchChunkEmbeddings(EMBEDDING_MODEL, semanticQuery, { limit: 36 });
+    semanticTimings.push(performance.now() - started);
+  }
+  const semanticP50 = percentile(semanticTimings, 0.5);
+  const semanticP95 = percentile(semanticTimings, 0.95);
   const status = await db.getChunkIndexStatus();
-  console.log(JSON.stringify({ articles: status.articleCount, chunks: status.chunkCount, indexMs: Number(indexMs.toFixed(1)), queryRuns: QUERY_RUNS, p50Ms: Number(p50.toFixed(2)), p95Ms: Number(p95.toFixed(2)), resultCount: lastResults.length, gateMs: MAX_P95_MS }, null, 2));
-  if (status.chunkCount < ARTICLE_COUNT * CHUNKS_PER_ARTICLE || !lastResults.length || p95 > MAX_P95_MS) process.exitCode = 1;
+  console.log(JSON.stringify({
+    articles: status.articleCount,
+    chunks: status.chunkCount,
+    lexical: { indexMs: Number(indexMs.toFixed(1)), queryRuns: QUERY_RUNS, p50Ms: Number(p50.toFixed(2)), p95Ms: Number(p95.toFixed(2)), resultCount: lastResults.length },
+    semantic: { indexMs: Number(semanticIndexMs.toFixed(1)), queryRuns: QUERY_RUNS, p50Ms: Number(semanticP50.toFixed(2)), p95Ms: Number(semanticP95.toFixed(2)), resultCount: semanticResults.length },
+    gateMs: MAX_P95_MS
+  }, null, 2));
+  if (status.chunkCount < ARTICLE_COUNT * CHUNKS_PER_ARTICLE || !lastResults.length || !semanticResults.length
+    || !status.embeddingConsistent || p95 > MAX_P95_MS || semanticP95 > MAX_P95_MS) process.exitCode = 1;
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

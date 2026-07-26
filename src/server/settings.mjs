@@ -2,6 +2,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { normalizeAIConfiguration } from './ai-providers.mjs';
+import { normalizeEmbeddingModel, SEMANTIC_SEARCH_DEFAULT_MODEL } from './semantic-search.mjs';
 
 export { normalizeAIEndpoint } from './ai-providers.mjs';
 
@@ -10,7 +11,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   ai: { configured: false, enabled: false, provider: 'reader-gateway', endpoint: '', model: '', hasApiKey: false, updatedAt: null },
   imports: { paused: false, updatedAt: null },
   notifications: { enabled: false, sourceSyncEnabled: false, updatedAt: null },
-  spotlight: { enabled: false, updatedAt: null }
+  spotlight: { enabled: false, updatedAt: null },
+  semanticSearch: { enabled: false, model: SEMANTIC_SEARCH_DEFAULT_MODEL, updatedAt: null }
 });
 
 function settingsError(message, status = 400) {
@@ -41,6 +43,13 @@ export class SettingsStore {
       const imports = parsed?.imports && typeof parsed.imports === 'object' ? parsed.imports : {};
       const notifications = parsed?.notifications && typeof parsed.notifications === 'object' ? parsed.notifications : {};
       const spotlight = parsed?.spotlight && typeof parsed.spotlight === 'object' ? parsed.spotlight : {};
+      const semanticSearch = parsed?.semanticSearch && typeof parsed.semanticSearch === 'object' ? parsed.semanticSearch : {};
+      let semanticModel = SEMANTIC_SEARCH_DEFAULT_MODEL;
+      let semanticEnabled = false;
+      try {
+        semanticModel = normalizeEmbeddingModel(semanticSearch.model || SEMANTIC_SEARCH_DEFAULT_MODEL);
+        semanticEnabled = semanticSearch.enabled === true;
+      } catch {}
       this.value = {
         version: 1,
         ai: {
@@ -58,6 +67,11 @@ export class SettingsStore {
         spotlight: {
           enabled: spotlight.enabled === true,
           updatedAt: typeof spotlight.updatedAt === 'string' ? spotlight.updatedAt : null
+        },
+        semanticSearch: {
+          enabled: semanticEnabled,
+          model: semanticModel,
+          updatedAt: typeof semanticSearch.updatedAt === 'string' ? semanticSearch.updatedAt : null
         }
       };
       await chmod(this.filePath, 0o600).catch(() => {});
@@ -71,6 +85,7 @@ export class SettingsStore {
   getImportQueue() { return clone(this.value.imports); }
   getNotifications() { return clone(this.value.notifications); }
   getSpotlight() { return clone(this.value.spotlight); }
+  getSemanticSearch() { return clone(this.value.semanticSearch); }
 
   async saveAI(input) {
     const next = {
@@ -132,6 +147,21 @@ export class SettingsStore {
     this.value = next;
     this.loadError = null;
     return this.getSpotlight();
+  }
+
+  async saveSemanticSearch(enabled, model = SEMANTIC_SEARCH_DEFAULT_MODEL) {
+    const next = {
+      ...clone(this.value),
+      semanticSearch: {
+        enabled: enabled === true,
+        model: normalizeEmbeddingModel(model),
+        updatedAt: new Date().toISOString()
+      }
+    };
+    await this.persist(next);
+    this.value = next;
+    this.loadError = null;
+    return this.getSemanticSearch();
   }
 
   async persist(value = this.value) {

@@ -5,6 +5,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import { SCHEMA_VERSION, schemaSQL } from './schema.mjs';
 import { applyPendingMigrations } from './migrations.mjs';
 import { chunkArticleMarkdown, ragQueryTerms, scoreRagChunk } from './chunks.mjs';
+import {
+  cosineSimilarity,
+  embeddingBuckets,
+  embeddingVectorFromHex,
+  embeddingVectorHex,
+  normalizeEmbeddingModel,
+  normalizeEmbeddingVector,
+  SEMANTIC_SEARCH_HASH_BANDS
+} from './semantic-search.mjs';
 
 const SQLITE_BINARY = process.env.READER_SQLITE_BINARY || '/usr/bin/sqlite3';
 const HIGHLIGHT_COLORS = new Set(['amber', 'green', 'blue', 'pink']);
@@ -432,12 +441,17 @@ export class ReaderDatabase {
       (SELECT count(*) FROM article_search_docsize) AS article_search_rows,
       (SELECT count(*) FROM article_search_trigram_docsize) AS article_search_trigram_rows,
       (SELECT count(*) FROM chunk_search_docsize) AS chunk_search_rows,
+      (SELECT count(*) FROM chunk_embeddings) AS embedding_rows,
+      (SELECT count(*) FROM chunk_embedding_buckets) AS embedding_bucket_rows,
       (SELECT count(*) FROM articles a WHERE a.archived=0 AND length(trim(a.content))>0 AND NOT EXISTS (SELECT 1 FROM article_chunks c WHERE c.article_id=a.id)) AS pending_articles;`);
     const totalArticles = Number(row?.total_articles || 0);
     const totalChunks = Number(row?.total_chunks || 0);
     const articleSearchRows = Number(row?.article_search_rows || 0);
     const articleSearchTrigramRows = Number(row?.article_search_trigram_rows || 0);
     const chunkSearchRows = Number(row?.chunk_search_rows || 0);
+    const embeddingRows = Number(row?.embedding_rows || 0);
+    const embeddingBucketRows = Number(row?.embedding_bucket_rows || 0);
+    const embeddingConsistent = embeddingBucketRows === embeddingRows * SEMANTIC_SEARCH_HASH_BANDS;
     return {
       version: 1,
       mode: 'local-lexical',
@@ -448,8 +462,137 @@ export class ReaderDatabase {
       articleSearchRows,
       articleSearchTrigramRows,
       chunkSearchRows,
-      consistent: totalArticles === articleSearchRows && totalArticles === articleSearchTrigramRows && totalChunks === chunkSearchRows
+      embeddingRows,
+      embeddingBucketRows,
+      embeddingConsistent,
+      consistent: totalArticles === articleSearchRows && totalArticles === articleSearchTrigramRows
+        && totalChunks === chunkSearchRows && embeddingConsistent
     };
+  }
+
+  async getEmbeddingIndexStatus(model = '') {
+    const normalizedModel = normalizeEmbeddingModel(model, { required: false });
+    const modelFilter = normalizedModel ? ` AND e.model=${sqlValue(normalizedModel)}` : '';
+    const row = await this.one(`SELECT
+      (SELECT count(*) FROM article_chunks c JOIN articles a ON a.id=c.article_id WHERE a.archived=0) AS total_chunks,
+      (SELECT count(*) FROM chunk_embeddings e JOIN article_chunks c ON c.id=e.chunk_id JOIN articles a ON a.id=c.article_id WHERE a.archived=0${modelFilter}) AS embedded_chunks,
+      (SELECT min(e.dimensions) FROM chunk_embeddings e WHERE e.model=${sqlValue(normalizedModel)}) AS min_dimensions,
+      (SELECT max(e.dimensions) FROM chunk_embeddings e WHERE e.model=${sqlValue(normalizedModel)}) AS max_dimensions;`);
+    const totalChunks = Number(row?.total_chunks || 0);
+    const embeddedChunks = Number(row?.embedded_chunks || 0);
+    const minDimensions = Number(row?.min_dimensions || 0);
+    const maxDimensions = Number(row?.max_dimensions || 0);
+    return {
+      totalChunks,
+      embeddedChunks,
+      pendingChunks: Math.max(0, totalChunks - embeddedChunks),
+      dimensions: minDimensions > 0 && minDimensions === maxDimensions ? minDimensions : null
+    };
+  }
+
+  async listPendingEmbeddingChunks(model, limit = 16) {
+    const normalizedModel = normalizeEmbeddingModel(model);
+    const safeLimit = Math.min(Math.max(Number(limit) || 16, 1), 16);
+    return await this.query(`SELECT c.id,c.heading,c.content,c.content_sha256
+      FROM article_chunks c
+      JOIN articles a ON a.id=c.article_id
+      LEFT JOIN chunk_embeddings e ON e.chunk_id=c.id AND e.model=${sqlValue(normalizedModel)}
+      WHERE a.archived=0 AND e.chunk_id IS NULL
+      ORDER BY c.rowid
+      LIMIT ${safeLimit};`);
+  }
+
+  async saveChunkEmbeddings(model, entries) {
+    const normalizedModel = normalizeEmbeddingModel(model);
+    if (!Array.isArray(entries) || !entries.length || entries.length > 16) throw new TypeError('向量批次必须包含 1–16 个片段');
+    const timestamp = now();
+    const statements = [];
+    for (const entry of entries) {
+      const chunkId = String(entry?.chunkId || '');
+      const contentHash = String(entry?.contentHash || '');
+      if (!chunkId || chunkId.length > 300 || !/^[0-9a-f]{64}$/i.test(contentHash)) throw new TypeError('向量片段标识无效');
+      const vector = normalizeEmbeddingVector(entry.vector);
+      const vectorHex = embeddingVectorHex(vector);
+      const buckets = embeddingBuckets(vector);
+      statements.push(`DELETE FROM chunk_embedding_buckets WHERE chunk_id=${sqlValue(chunkId)};`);
+      statements.push(`INSERT INTO chunk_embeddings(chunk_id,model,dimensions,vector,created_at)
+        SELECT c.id,${sqlValue(normalizedModel)},${vector.length},X'${vectorHex}',${sqlValue(timestamp)}
+        FROM article_chunks c
+        WHERE c.id=${sqlValue(chunkId)} AND c.content_sha256=${sqlValue(contentHash)}
+        ON CONFLICT(chunk_id) DO UPDATE SET
+          model=excluded.model,dimensions=excluded.dimensions,vector=excluded.vector,created_at=excluded.created_at;`);
+      for (const bucket of buckets) {
+        statements.push(`INSERT INTO chunk_embedding_buckets(chunk_id,model,band,bucket)
+          SELECT chunk_id,model,${bucket.band},${bucket.bucket}
+          FROM chunk_embeddings WHERE chunk_id=${sqlValue(chunkId)} AND model=${sqlValue(normalizedModel)};`);
+      }
+    }
+    await this.execute(`BEGIN IMMEDIATE;\n${statements.join('\n')}\nCOMMIT;`);
+    return await this.getEmbeddingIndexStatus(normalizedModel);
+  }
+
+  async clearChunkEmbeddings() {
+    await this.execute('DELETE FROM chunk_embeddings;');
+    return { cleared: true };
+  }
+
+  async searchChunkEmbeddings(model, queryVector, { articleId = null, limit = 36 } = {}) {
+    const normalizedModel = normalizeEmbeddingModel(model);
+    const vector = normalizeEmbeddingVector(queryVector);
+    const buckets = embeddingBuckets(vector);
+    const safeLimit = Math.min(Math.max(Number(limit) || 36, 1), 48);
+    const bucketWhere = buckets.map(({ band, bucket }) => `(b.band=${band} AND b.bucket=${bucket})`).join(' OR ');
+    const articleFilter = articleId ? ` AND a.id=${sqlValue(articleId)}` : '';
+    const candidates = await this.query(`WITH candidate_chunks AS (
+        SELECT b.chunk_id,count(*) AS band_matches
+        FROM chunk_embedding_buckets b
+        JOIN article_chunks c ON c.id=b.chunk_id
+        JOIN articles a ON a.id=c.article_id
+        WHERE b.model=${sqlValue(normalizedModel)} AND a.archived=0${articleFilter} AND (${bucketWhere})
+        GROUP BY b.chunk_id
+        ORDER BY band_matches DESC,b.chunk_id
+        LIMIT 1500
+      )
+      SELECT c.id,c.article_id,c.chunk_index,c.heading,c.content,c.start_offset,c.end_offset,c.content_sha256,
+        a.title AS article_title,a.excerpt AS article_excerpt,a.source AS article_source,a.url AS article_url,a.language AS article_language,
+        e.dimensions,hex(e.vector) AS vector_hex,k.band_matches
+      FROM candidate_chunks k
+      JOIN chunk_embeddings e ON e.chunk_id=k.chunk_id AND e.model=${sqlValue(normalizedModel)}
+      JOIN article_chunks c ON c.id=e.chunk_id
+      JOIN articles a ON a.id=c.article_id
+      ORDER BY k.band_matches DESC,c.chunk_index;`);
+    const ranked = candidates
+      .map((chunk) => ({
+        ...chunk,
+        semanticScore: cosineSimilarity(vector, embeddingVectorFromHex(chunk.vector_hex, chunk.dimensions))
+      }))
+      .filter((chunk) => chunk.semanticScore >= 0.1)
+      .sort((left, right) => right.semanticScore - left.semanticScore
+        || Number(right.band_matches) - Number(left.band_matches)
+        || Number(left.chunk_index) - Number(right.chunk_index));
+    const seen = new Set();
+    const results = [];
+    for (const chunk of ranked) {
+      if (seen.has(chunk.content_sha256)) continue;
+      seen.add(chunk.content_sha256);
+      results.push({
+        id: chunk.id,
+        articleId: chunk.article_id,
+        articleTitle: chunk.article_title,
+        articleSource: chunk.article_source || '',
+        articleUrl: chunk.article_url || null,
+        articleLanguage: chunk.article_language || 'zh',
+        heading: chunk.heading || '',
+        quote: chunk.content,
+        chunkIndex: Number(chunk.chunk_index),
+        startOffset: Number(chunk.start_offset),
+        endOffset: Number(chunk.end_offset),
+        score: Number(chunk.semanticScore.toFixed(6)),
+        semanticScore: Number(chunk.semanticScore.toFixed(6))
+      });
+      if (results.length >= safeLimit) break;
+    }
+    return results;
   }
 
   async searchArticleChunks(query, { articleId = null, limit = 6 } = {}) {

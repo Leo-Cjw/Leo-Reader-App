@@ -18,15 +18,26 @@ function pauseReasons(state, sourceSync = false) {
   return reasons;
 }
 
-export function createBackgroundWorkPolicy(importWorker, sourceScheduler) {
+function semanticPauseReasons(state) {
+  const reasons = [];
+  if (state.restoreLocked) reasons.push('restore');
+  if (state.suspended) reasons.push('suspended');
+  if (state.lowBattery) reasons.push('low-battery');
+  if (state.powerConstrained) reasons.push('system-constrained');
+  return reasons;
+}
+
+export function createBackgroundWorkPolicy(importWorker, sourceScheduler, semanticSearch = null) {
   let state = { ...initialState };
   let importsPaused = false;
   let sourceSyncPaused = false;
+  let semanticSearchPaused = false;
   let updateQueue = Promise.resolve();
 
   function snapshot() {
     const importPauseReasons = pauseReasons(state);
     const sourceSyncPauseReasons = pauseReasons(state, true);
+    const semanticSearchPauseReasons = semanticPauseReasons(state);
     return {
       suspended: state.suspended,
       online: state.online,
@@ -36,15 +47,22 @@ export function createBackgroundWorkPolicy(importWorker, sourceScheduler) {
       importUserPaused: state.importUserPaused,
       importsPaused,
       sourceSyncPaused,
+      semanticSearchPaused,
       importPauseReasons,
-      sourceSyncPauseReasons
+      sourceSyncPauseReasons,
+      semanticSearchPauseReasons
     };
   }
 
   async function reconcile() {
     const shouldPauseImports = pauseReasons(state).length > 0;
     const shouldPauseSourceSync = pauseReasons(state, true).length > 0;
+    const shouldPauseSemanticSearch = semanticPauseReasons(state).length > 0;
 
+    if (shouldPauseSemanticSearch && !semanticSearchPaused) {
+      await semanticSearch?.pause?.();
+      semanticSearchPaused = true;
+    }
     if (shouldPauseSourceSync && !sourceSyncPaused) {
       await sourceScheduler.pause();
       sourceSyncPaused = true;
@@ -60,6 +78,10 @@ export function createBackgroundWorkPolicy(importWorker, sourceScheduler) {
     if (!shouldPauseSourceSync && sourceSyncPaused) {
       sourceScheduler.resume();
       sourceSyncPaused = false;
+    }
+    if (!shouldPauseSemanticSearch && semanticSearchPaused) {
+      semanticSearch?.resume?.();
+      semanticSearchPaused = false;
     }
     return snapshot();
   }

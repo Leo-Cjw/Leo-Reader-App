@@ -16,29 +16,36 @@ function worker() {
 test('background policy combines restore, sleep, connectivity and power constraints without premature resume', async () => {
   const imports = worker();
   const sources = worker();
-  const policy = createBackgroundWorkPolicy(imports, sources);
+  const semantic = worker();
+  const policy = createBackgroundWorkPolicy(imports, sources, semantic);
 
   assert.deepEqual(policy.snapshot().sourceSyncPauseReasons, []);
   await policy.update({ online: false });
   assert.equal(imports.pauses, 0);
   assert.equal(sources.pauses, 1);
+  assert.equal(semantic.pauses, 0);
   assert.deepEqual(policy.snapshot().sourceSyncPauseReasons, ['offline']);
 
   await policy.update({ lowBattery: true, suspended: true });
   assert.equal(imports.pauses, 1);
   assert.equal(sources.pauses, 1);
+  assert.equal(semantic.pauses, 1);
   assert.deepEqual(policy.snapshot().sourceSyncPauseReasons, ['suspended', 'offline', 'low-battery']);
+  assert.deepEqual(policy.snapshot().semanticSearchPauseReasons, ['suspended', 'low-battery']);
 
   await policy.update({ online: true, lowBattery: false, restoreLocked: true, suspended: false });
   assert.equal(imports.resumes, 0);
   assert.equal(sources.resumes, 0);
+  assert.equal(semantic.resumes, 0);
   assert.deepEqual(policy.snapshot().sourceSyncPauseReasons, ['restore']);
 
   await policy.update({ restoreLocked: false });
   assert.equal(imports.resumes, 1);
   assert.equal(sources.resumes, 1);
+  assert.equal(semantic.resumes, 1);
   assert.equal(policy.snapshot().importsPaused, false);
   assert.equal(policy.snapshot().sourceSyncPaused, false);
+  assert.equal(policy.snapshot().semanticSearchPaused, false);
 });
 
 test('user pause affects imports only and cannot bypass a restore lock', async () => {

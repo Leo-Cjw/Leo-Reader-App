@@ -85,7 +85,24 @@ export interface RAGIndexStatus {
   articleSearchRows: number;
   articleSearchTrigramRows: number;
   chunkSearchRows: number;
+  embeddingRows: number;
+  embeddingBucketRows: number;
+  embeddingConsistent: boolean;
   consistent: boolean;
+  semantic?: SemanticSearchStatus;
+}
+
+export interface SemanticSearchStatus {
+  enabled: boolean;
+  model: string;
+  updatedAt: string | null;
+  state: 'disabled' | 'starting' | 'indexing' | 'ready' | 'paused' | 'error' | string;
+  totalChunks: number;
+  embeddedChunks: number;
+  pendingChunks: number;
+  dimensions: number | null;
+  indexedAt: string | null;
+  warning: string | null;
 }
 
 export interface RAGCitation {
@@ -450,8 +467,10 @@ export interface BackgroundWorkState {
   importUserPaused: boolean;
   importsPaused: boolean;
   sourceSyncPaused: boolean;
+  semanticSearchPaused: boolean;
   importPauseReasons: string[];
   sourceSyncPauseReasons: string[];
+  semanticSearchPauseReasons: string[];
 }
 
 export interface ConnectorStatus {

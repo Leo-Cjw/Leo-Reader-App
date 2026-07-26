@@ -71,7 +71,7 @@ async function verifyFixtureFiles() {
 async function verifyPreservedState(client, { afterRestart = false } = {}) {
   const health = await request(client, '/api/health');
   assert.equal(health.version, packageMetadata.version);
-  assert.equal(health.schemaVersion, 11);
+  assert.equal(health.schemaVersion, 12);
   assert.equal(health.background.importUserPaused, true);
   assert.equal(health.background.importsPaused, true);
 
@@ -151,6 +151,11 @@ async function verifyPreservedState(client, { afterRestart = false } = {}) {
   const notifications = (await request(client, '/api/settings/notifications')).settings;
   assert.equal(notifications.enabled, expected.notifications.enabled);
   assert.equal(notifications.sourceSyncEnabled, expected.notifications.sourceSyncEnabled);
+  const semanticSearch = (await request(client, '/api/settings/semantic-search')).settings;
+  assert.equal(semanticSearch.enabled, false);
+  assert.equal(semanticSearch.model, 'embeddinggemma');
+  assert.equal(semanticSearch.embeddedChunks, 0);
+  assert.ok(semanticSearch.totalChunks > 0);
   const dataHealth = (await request(client, '/api/data-health', { method: 'POST' })).health;
   assert.equal(dataHealth.status, 'healthy');
   assert.equal(dataHealth.database.integrity, true);
@@ -214,9 +219,10 @@ try {
 
   console.log(`Reader ${packageMetadata.version} 最终包跨版本升级门禁通过`);
   console.log(`source=${manifest.createdBy.appVersion} schema v${manifest.createdBy.schemaVersion}`);
-  console.log(`target=${packageMetadata.version} schema v11`);
+  console.log(`target=${packageMetadata.version} schema v12`);
   console.log('preserved=article, folders, tags, highlight, revisions, smart folder, pending import, settings, attachment');
   console.log('post-upgrade write and restart=true');
+  console.log('semantic index=default-off, derived vectors=0');
   console.log('sqlite integrity=ok');
   console.log('attachment sha256=unchanged');
 } finally {

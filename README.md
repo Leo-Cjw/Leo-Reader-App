@@ -1,14 +1,14 @@
-# Reader for Mac 0.48.0
+# Reader for Mac 0.49.0
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
-当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、可从系统分享菜单接收网页、短文本摘录或单个受支持文件的沙箱化 Share Extension、默认关闭且可彻底删除的 macOS Spotlight 本机索引、安全的 `reader-local://` 外部保存入口、按文章去重的专注阅读窗口、渲染界面崩溃恢复、可选的隐私安全导入与订阅通知、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引和段落级引用的 AI 工作台。
+当前版本是可运行的 Mac App，而不是静态原型：它包含持久化数据库、可从系统分享菜单接收网页、短文本摘录或单个受支持文件的沙箱化 Share Extension、默认关闭且可彻底删除的 macOS Spotlight 本机索引、安全的 `reader-local://` 外部保存入口、按文章去重的专注阅读窗口、渲染界面崩溃恢复、可选的隐私安全导入与订阅通知、正文选区高亮与批注、树形资料夹、拖拽整理、规则驱动的智能资料夹、批量整理、归档、附件/PDF、全文搜索、Readability 正文抽取、正文图片本地化、媒体缩略图、RSS/YouTube/X/微博后台订阅、OPML、支持本地图片与自动保存的双栏 Markdown 编辑器、文章版本历史、可往返的选择性 Markdown ZIP 导入导出、可逆重复治理、口令加密完整备份、资料库健康检查、可查看和清除的隐私安全本地日志，以及带运行时设置、Keychain 凭据、本地分块索引、可选 Ollama 向量混排和段落级引用的 AI 工作台。
 
 ## 快速开始
 
 ### Mac App
 
-打开 `Reader-0.48.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-0.49.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本地交付仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -77,7 +77,7 @@ npm run desktop:pack
 - 后台订阅通知：使用独立且默认关闭的开关；只有自动调度批次新增内容或出现失败且所有 Reader 窗口都不在前台时显示聚合数量。手动“立即同步”不会通知；点击后聚焦 Reader 并打开内容来源。
 - Spotlight 搜索：Mac App 设置中可明确开启，默认关闭。开启后标题、摘要、作者、来源、标签和最多 20,000 字正文进入仅限本机、首次解锁后可用的受保护系统索引；文章编辑、标签、归档和删除通过持久化队列增量同步。系统结果点击后只允许打开一个已存在的本地文章 ID；关闭会先删除 Reader 的 Spotlight domain，再清理待处理队列。
 - 界面故障恢复：Electron 渲染进程异常退出时，Reader 会用原生窗口说明已写入资料仍安全，并让用户选择重新载入界面或安全退出。重新载入不重启本地服务和导入队列，崩溃期间到达的合格外部 URL 会等待新界面就绪后再交付。
-- 自动订阅：RSS/Atom、YouTube、X 公开账号和微博账号统一入库；X 使用官方 API 与 `since_id` 增量游标，微博调用开放平台官方 CLI。后台调度保存平台游标、配额和失败退避状态，并在 Mac 睡眠、离线、电量不高于 20% 或系统严重受限时安全暂停。
+- 自动订阅：RSS/Atom、YouTube、X 公开账号和微博账号统一入库；X 使用官方 API 与 `since_id` 增量游标，微博调用开放平台官方 CLI。后台调度保存平台游标、配额和失败退避状态，并在 Mac 睡眠、离线、电量不高于 20% 或系统严重受限时安全暂停；可选语义索引同样服从睡眠、低电量、热限制和资料恢复锁。
 - 订阅中心：开关、15 分钟到每周的同步频率、立即同步、错误/限流状态、删除来源，以及 OPML 2.0 导入导出。删除来源或断开连接器不会删除已经保存的文章。
 - 资料管理：可创建、改名、嵌套和安全删除的树形资料夹；父资料夹可聚合子树内容。支持单篇和批量移动、添加/移除标签、收藏、已读、归档与恢复。
 - 智能整理：可以把关键词、内容类型、标签、来源、原资料夹、阅读/收藏状态、高亮、附件和保存时间组合成“全部满足”或“任一满足”的动态资料夹；规则、结果计数和自定义顺序都保存在本地。文章卡片可直接拖到普通资料夹，同级资料夹与智能资料夹可拖动排序。
@@ -88,7 +88,7 @@ npm run desktop:pack
 - 重复治理：按规范化原链接、完整正文或标题摘要检测重复组；用户明确选择保留版本后合并标签、收藏、摘要与阅读进度，副本仅归档且可恢复。
 - 检索：拉丁文字使用 SQLite FTS5 词法索引；三个及以上字符的中文词组使用 FTS5 trigram 子串索引，短词保留兼容路径。
 - 阅读器：三栏桌面布局、明暗主题、文章助手和键盘入口；Mac App 可把当前文章放入按 ID 去重的独立专注窗口，窗口复用正文、附件和高亮定位，但不写收藏、整理、阅读进度或批注，返回资料库后再继续编辑。
-- AI：默认完全本地的提取式摘要、多资料结构化整理与 RAG 问答；可在当前文章或整个资料库中检索，回答附带可点击的原文片段。文章新增、编辑、导入完成和版本恢复会在同一事务中重建分块索引。远程模式可选择既有 Reader Gateway、OpenAI、回环 Ollama 或其他 OpenAI-compatible 服务，从服务读取受限模型目录或手填模型 ID；只有用户主动执行任务时才发送既有边界内的内容，密钥存入 macOS Keychain。
+- AI：默认完全本地的提取式摘要、多资料结构化整理与 RAG 问答；可在当前文章或整个资料库中检索，回答附带可点击的原文片段。文章新增、编辑、导入完成和版本恢复会在同一事务中重建分块索引。用户还可明确启用固定回环 Ollama `/api/embed` 的本地语义索引，使用 LSH 向量候选与全文结果混排；索引失败会退回词法检索，关闭后删除全部派生向量。远程生成可选择既有 Reader Gateway、OpenAI、回环 Ollama 或其他 OpenAI-compatible 服务，从服务读取受限模型目录或手填模型 ID；只有用户主动执行任务时才发送既有边界内的内容，密钥存入 macOS Keychain。
 - 安全：阻止 localhost、私网 IP 与云元数据地址；限制跳转、超时和 4 MB 正文响应体；单张图片 12 MB、单篇本地化预算 48 MB。
 - 媒体读取：同源私有文件端点，支持 HTTP Range，可流畅拖动本地视频。
 - 数据安全：一键生成包含 SQLite、附件和 SHA-256 清单的完整备份；默认可使用口令创建 `.readerbackup.enc` 认证加密文件，也兼容明文 `.readerbackup.zip`。恢复前完成解密、哈希与 SQLite 完整性校验，并在下次启动时原子替换。
@@ -110,11 +110,11 @@ npm run desktop:pack
 - 可再生缩略图：`data/thumbnails/`
 - 待恢复暂存：`data/restore/`
 - 本地运行日志：`data/logs/`（目录 `0700`、文件 `0600`；有限轮转，不进入备份或导出）
-- 非敏感运行时设置：`data/settings.json`（权限 `0600`；保存 AI 提供商、端点、模型等非密钥配置，以及导入队列暂停、通知与 Spotlight opt-in；不保存 API 密钥，也不进入备份或导出）
+- 非敏感运行时设置：`data/settings.json`（权限 `0600`；保存 AI 提供商、端点、模型、本地语义检索模型与 opt-in，以及导入队列暂停、通知与 Spotlight opt-in；不保存 API 密钥，也不进入备份或导出）
 - 敏感凭据：AI API Key 与 X Bearer Token 分别写入 macOS Keychain；微博 OAuth 令牌由官方 CLI 自行写入系统 Keychain，Reader 不读取令牌。
 - 数据库采用 WAL 模式，运行时可能出现 `-wal` 和 `-shm` 文件。
 - Reader 启动时把默认数据目录权限收紧为 `0700`，数据库及现有 WAL/SHM 文件收紧为 `0600`，避免其他本机用户读取资料库。
-- 数据安全中心只自动修复可重建派生状态：本地文件权限、全文索引和 RAG 分块索引。数据库页损坏、失效外键、迁移历史异常、缺失/大小不符的附件及未引用文件不会被自动改写或删除；索引修复前的完整备份可在同一界面下载。
+- 数据安全中心只自动修复可重建派生状态：本地文件权限、全文索引、RAG 分块索引和可选语义向量索引。数据库页损坏、失效外键、迁移历史异常、缺失/大小不符的附件及未引用文件不会被自动改写或删除；索引修复前的完整备份可在同一界面下载。
 - Reader 检测到旧版 schema 时，会在任何结构变更前通过 SQLite `VACUUM INTO` 创建权限为 `0600` 的一致性数据库快照；文件名记录原 schema、目标 schema 和创建时间。“数据安全中心”可查看并导出这些数据库级恢复点。随后按版本顺序逐项事务迁移，并核对固定名称与 SHA-256 审计记录；若历史不匹配，或资料库来自比当前应用更新的 schema，Reader 会停止打开且不继续写入。
 - 在左侧“数据安全”打开数据安全中心。Reader 使用 SQLite `VACUUM INTO` 创建一致快照，再打包附件和校验清单；加密备份使用 scrypt 派生密钥与 AES-256-GCM 整包认证加密，Reader 不保存口令。
 - 恢复不会覆盖正在运行的数据库：上传包通过路径、大小、哈希和 SQLite 完整性校验后，Reader 先创建安全备份，再安排下次启动原子恢复。
@@ -132,6 +132,12 @@ npm run desktop:pack
 OpenAI-compatible 预设从 `<base>/models` 读取当前服务实际返回的模型 ID，并调用 `<base>/chat/completions` 的 JSON 模式；目录读取必须由用户点击触发，只请求模型元数据，不发送资料库内容。也可以手动填写模型 ID。切换提供商或服务地址时，Reader 不会把旧 Keychain 密钥用于候选连接或模型目录；若没有为新作用域输入新密钥，保存时会清除旧密钥。
 
 推荐先执行隐私连接测试。测试只发送 Reader 内置英文，不读取资料库。macOS 上密钥写入系统 Keychain，`settings.json`、备份、导出、设置 API 和模型目录响应都不会返回它。
+
+### 可选本地语义检索
+
+设置中的“本地语义检索”与远程生成服务彼此独立，默认关闭。启用前需在本机 Ollama 安装嵌入模型，例如 `embeddinggemma`、`qwen3-embedding` 或 `all-minilm`。Reader 只访问固定的 `http://127.0.0.1:11434/api/embed`，不复用远程 AI 地址或 Keychain 密钥；模型测试只发送内置英文，点击启用后才分批发送本地片段给本机 Ollama。
+
+Schema v12 将单位化 Float32 向量和 16 组 LSH 桶作为可重建派生数据保存在 SQLite。正文编辑、版本恢复或删除会自动淘汰旧向量；模型 ID 或维度变化会触发重建。查询时使用相同模型生成问题向量，与既有全文结果做 reciprocal-rank 混排；Ollama 超时、失败或索引未完成时仍返回词法结果。关闭功能会删除全部 `chunk_embeddings` 和 `chunk_embedding_buckets`，不影响文章、分块或 AI 生成设置。
 
 也可在启动前用环境变量提供默认值；一旦保存 Reader 设置，运行时设置优先：
 
@@ -184,11 +190,13 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/articles/:id/ai/summary`：生成并保存摘要。
 - `POST /api/articles/:id/ai/chat`：在当前文章或整个资料库中检索后回答，并返回段落级引用。
 - `GET /api/ai/status`：读取 AI 能力和远程服务配置状态，不返回密钥或端点。
-- `GET /api/ai/index`：读取本地分块索引版本、文章数、片段数和待索引状态。
-- `POST /api/ai/search`：只执行本地片段检索，返回带原文偏移的候选引用。
+- `GET /api/ai/index`：读取本地分块、全文和可选语义索引的数量、一致性与待处理状态。
+- `POST /api/ai/search`：执行本地词法检索或词法/向量混排，返回检索模式和带原文偏移的候选引用。
 - `GET/PUT/DELETE /api/settings/ai`：读取、更新或恢复 AI 提供商、端点、模型与凭据状态；响应不返回密钥。
 - `POST /api/settings/ai/test`：使用内置测试文本验证候选网关，不发送资料库内容。
 - `POST /api/settings/ai/models`：显式读取候选 OpenAI-compatible 服务的受限模型目录；不发送资料库内容或返回密钥。
+- `GET/PUT /api/settings/semantic-search`：读取状态，或显式启用、切换模型、关闭并删除本地语义索引。
+- `POST /api/settings/semantic-search/test`：只向固定回环 Ollama 发送内置英文，验证嵌入模型与向量维度。
 - `POST /api/ai/translate`：翻译一篇文章，并保存带来源记录的本地 Markdown 草稿。
 - `POST /api/ai/compose`：基于最多 20 篇来源生成可编辑、可回链的创作草稿。
 - `GET/POST /api/import-jobs`：查看队列或创建 URL 导入任务。
@@ -222,4 +230,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-0.48.0 变更见 [docs/RELEASE_NOTES_0.48.0.md](docs/RELEASE_NOTES_0.48.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+0.49.0 变更见 [docs/RELEASE_NOTES_0.49.0.md](docs/RELEASE_NOTES_0.49.0.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

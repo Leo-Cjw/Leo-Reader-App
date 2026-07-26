@@ -2,13 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api';
-import type { AIModel, AIProviderPreset, AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, ArticleSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, RAGCitation, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
+import type { AIModel, AIProviderPreset, AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, ArticleSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, RAGCitation, SemanticSearchStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
 
 type Toast = { id: number; message: string; tone?: 'error' | 'normal' };
-type ChatMessage = { role: 'user' | 'assistant'; text: string; citations?: RAGCitation[]; retrieval?: { matchedChunks: number; citedChunks: number } };
+type ChatMessage = { role: 'user' | 'assistant'; text: string; citations?: RAGCitation[]; retrieval?: { mode: string; matchedChunks: number; citedChunks: number } };
 
 const initialStats: Stats = { total: 0, unread: 0, favorites: 0, notes: 0, archived: 0 };
-const initialBackgroundWorkState: BackgroundWorkState = { suspended: false, online: true, lowBattery: false, powerConstrained: false, restoreLocked: false, importUserPaused: false, importsPaused: false, sourceSyncPaused: false, importPauseReasons: [], sourceSyncPauseReasons: [] };
+const initialBackgroundWorkState: BackgroundWorkState = { suspended: false, online: true, lowBattery: false, powerConstrained: false, restoreLocked: false, importUserPaused: false, importsPaused: false, sourceSyncPaused: false, semanticSearchPaused: false, importPauseReasons: [], sourceSyncPauseReasons: [], semanticSearchPauseReasons: [] };
 const viewLabels: Record<View, string> = { inbox: '收件箱', unread: '未读', favorites: '收藏', notes: '我的笔记', archive: '归档' };
 type ContentFilter = 'all' | 'articles' | 'feeds' | 'attachments' | 'notes' | 'media';
 type LibraryLayout = 'list' | 'gallery';
@@ -896,7 +896,7 @@ function AIPanel({ article, onClose, onArticleUpdated, onDerivedCreated, onOpenC
     <div className="ai-tabs" role="group" aria-label="文章助手功能"><button type="button" aria-pressed={tab === 'summary'} className={tab === 'summary' ? 'active' : ''} onClick={() => setTab('summary')}>摘要</button><button type="button" aria-pressed={tab === 'chat'} className={tab === 'chat' ? 'active' : ''} onClick={() => setTab('chat')}>对话</button><button type="button" aria-pressed={tab === 'translate'} className={tab === 'translate' ? 'active' : ''} onClick={() => setTab('translate')}>翻译</button></div>
     <div className="ai-content">
       {tab === 'summary' && <>{visibleSummary ? <><span className="eyebrow">核心摘要</span><p className="summary-text">{visibleSummary}</p>{summary?.points?.length ? <><span className="eyebrow">关键观点</span><ol className="point-list">{summary.points.map((point) => <li key={point}>{point}</li>)}</ol></> : null}</> : <div className="ai-empty"><strong>把内容压缩成可行动的理解</strong><span>默认使用完全本地的提取式摘要；配置 AI 服务后可获得更深层分析。</span><button type="button" className="button primary" onClick={() => void generate()} disabled={busy}>{busy ? '正在分析…' : '生成本地摘要'}</button></div>}</>}
-      {tab === 'chat' && <div className="rag-chat"><div className="rag-scope" role="group" aria-label="检索范围"><button type="button" aria-pressed={chatScope === 'article'} className={chatScope === 'article' ? 'active' : ''} onClick={() => setChatScope('article')}>当前文章</button><button type="button" aria-pressed={chatScope === 'library'} className={chatScope === 'library' ? 'active' : ''} onClick={() => setChatScope('library')}>整个资料库</button></div><div className={`rag-boundary ${status?.remoteConfigured ? 'remote' : 'local'}`}><i></i><span>{status?.remoteConfigured ? '先在本机检索，再仅发送命中的片段' : '检索与提取式回答完全在本机完成'}{status?.index ? ` · ${status.index.chunkCount} 个片段` : ''}</span></div><div className="messages">{messages.length === 0 && <div className="message assistant">我会先检索{chatScope === 'article' ? '当前文章' : '本地资料库'}，并把每条结论连回原文片段。</div>}{messages.map((message, index) => <div className={`message-group ${message.role}`} key={index}><div className={`message ${message.role}`}>{message.text}</div>{message.citations?.length ? <div className="rag-citations" aria-label="回答引用">{message.citations.map((citation, citationIndex) => <button type="button" key={citation.id} onClick={() => onOpenCitation(citation)}><span className="citation-number">{citationIndex + 1}</span><span><strong>{citation.heading || citation.articleTitle}</strong><small>{citation.articleTitle}{citation.articleSource ? ` · ${citation.articleSource}` : ''}</small><q>{citation.quote.slice(0, 145)}{citation.quote.length > 145 ? '…' : ''}</q></span></button>)}</div> : null}{message.retrieval && message.role === 'assistant' ? <small className="rag-trace">本地检索 {message.retrieval.matchedChunks} 段 · 引用 {message.retrieval.citedChunks} 段</small> : null}</div>)}{busy && <div className="message assistant pending">正在本机检索相关片段…</div>}</div></div>}
+      {tab === 'chat' && <div className="rag-chat"><div className="rag-scope" role="group" aria-label="检索范围"><button type="button" aria-pressed={chatScope === 'article'} className={chatScope === 'article' ? 'active' : ''} onClick={() => setChatScope('article')}>当前文章</button><button type="button" aria-pressed={chatScope === 'library'} className={chatScope === 'library' ? 'active' : ''} onClick={() => setChatScope('library')}>整个资料库</button></div><div className={`rag-boundary ${status?.remoteConfigured ? 'remote' : 'local'}`}><i></i><span>{status?.index?.semantic?.enabled ? status.remoteConfigured ? '先在本机混合检索，再仅发送命中的片段' : '全文与向量混合检索完全在本机完成' : status?.remoteConfigured ? '先在本机全文检索，再仅发送命中的片段' : '全文检索与提取式回答完全在本机完成'}{status?.index ? ` · ${status.index.chunkCount} 个片段` : ''}</span></div><div className="messages">{messages.length === 0 && <div className="message assistant">我会先检索{chatScope === 'article' ? '当前文章' : '本地资料库'}，并把每条结论连回原文片段。</div>}{messages.map((message, index) => <div className={`message-group ${message.role}`} key={index}><div className={`message ${message.role}`}>{message.text}</div>{message.citations?.length ? <div className="rag-citations" aria-label="回答引用">{message.citations.map((citation, citationIndex) => <button type="button" key={citation.id} onClick={() => onOpenCitation(citation)}><span className="citation-number">{citationIndex + 1}</span><span><strong>{citation.heading || citation.articleTitle}</strong><small>{citation.articleTitle}{citation.articleSource ? ` · ${citation.articleSource}` : ''}</small><q>{citation.quote.slice(0, 145)}{citation.quote.length > 145 ? '…' : ''}</q></span></button>)}</div> : null}{message.retrieval && message.role === 'assistant' ? <small className="rag-trace">{message.retrieval.mode.includes('hybrid') ? '本地混合检索' : message.retrieval.mode.includes('fallback') ? '本地全文回退' : '本地全文检索'} {message.retrieval.matchedChunks} 段 · 引用 {message.retrieval.citedChunks} 段</small> : null}</div>)}{busy && <div className="message assistant pending">正在本机检索相关片段…</div>}</div></div>}
       {tab === 'translate' && <div className="translation-panel"><span className="eyebrow">生成可编辑译文</span><label><span>目标语言</span><select aria-label="翻译目标语言" value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)}><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="en">English</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option></select></label><div className={`ai-privacy ${status?.remoteConfigured ? 'remote' : 'local'}`}><i></i><span><strong>{status?.remoteConfigured ? '仅在点击后发送当前文章' : '尚未配置 AI 服务'}</strong><small>{status?.remoteConfigured ? '译文及来源关系会保存到本地资料库。' : 'Reader 不会用词语替换冒充翻译；配置服务后才可使用。'}</small></span></div><button type="button" className="button primary translate-action" disabled={busy || !status?.remoteConfigured} onClick={() => void translate()}>{busy ? '正在翻译…' : '生成译文并保存'}</button></div>}
     </div>
     {tab === 'chat' && <div className="ai-composer"><textarea aria-label="就资料提问" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={chatScope === 'article' ? '就这篇内容提问…' : '检索整个本地资料库…'}></textarea><button className="icon-button" type="button" aria-label="发送问题" onClick={() => void send()}>↑</button></div>}
@@ -918,6 +918,8 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
   const [settings, setSettings] = useState<AISettings | null>(null);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
   const [spotlightSettings, setSpotlightSettings] = useState<SpotlightSettings | null>(null);
+  const [semanticSearch, setSemanticSearch] = useState<SemanticSearchStatus | null>(null);
+  const [semanticModel, setSemanticModel] = useState('embeddinggemma');
   const [enabled, setEnabled] = useState(false);
   const [provider, setProvider] = useState<AIProviderPreset['id']>('reader-gateway');
   const [endpoint, setEndpoint] = useState('');
@@ -925,17 +927,27 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
   const [models, setModels] = useState<AIModel[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [clearApiKey, setClearApiKey] = useState(false);
-  const [busy, setBusy] = useState<'load' | 'save' | 'test' | 'models' | 'reset' | 'notifications' | 'spotlight' | null>('load');
+  const [busy, setBusy] = useState<'load' | 'save' | 'test' | 'models' | 'reset' | 'notifications' | 'spotlight' | 'semantic-test' | 'semantic-enable' | 'semantic-disable' | null>('load');
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [semanticResult, setSemanticResult] = useState<{ ok: boolean; message: string } | null>(null);
   useEffect(() => {
     void Promise.all([
       api.getAISettings(),
       notificationsAvailable ? api.getNotificationSettings() : Promise.resolve(null),
-      notificationsAvailable ? api.getSpotlightSettings() : Promise.resolve(null)
-    ]).then(([value, notifications, spotlight]) => {
+      notificationsAvailable ? api.getSpotlightSettings() : Promise.resolve(null),
+      api.getSemanticSearchSettings()
+    ]).then(([value, notifications, spotlight, semantic]) => {
       setSettings(value); setEnabled(value.enabled); setProvider(value.provider); setEndpoint(value.endpoint); setModel(value.model); setNotificationSettings(notifications); setSpotlightSettings(spotlight);
+      setSemanticSearch(semantic); setSemanticModel(semantic.model);
     }).catch((error) => notify(error instanceof Error ? error.message : '设置加载失败', 'error')).finally(() => setBusy(null));
   }, [notificationsAvailable, notify]);
+  useEffect(() => {
+    if (!semanticSearch?.enabled) return;
+    const timer = window.setInterval(() => {
+      void api.getSemanticSearchSettings().then(setSemanticSearch).catch(() => {});
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [semanticSearch?.enabled]);
   const selectedProvider = settings?.providers.find((item) => item.id === provider);
   const changeProvider = (nextId: AIProviderPreset['id']) => {
     const next = settings?.providers.find((item) => item.id === nextId);
@@ -997,6 +1009,37 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
     } catch (error) { notify(error instanceof Error ? error.message : '默认配置恢复失败', 'error'); }
     finally { setBusy(null); }
   };
+  const testSemanticSearch = async () => {
+    setBusy('semantic-test'); setSemanticResult(null);
+    try {
+      const result = await api.testSemanticSearch(semanticModel.trim());
+      setSemanticResult({ ok: true, message: `本地嵌入模型可用 · ${result.dimensions} 维` });
+    } catch (error) { setSemanticResult({ ok: false, message: error instanceof Error ? error.message : '本地嵌入模型测试失败' }); }
+    finally { setBusy(null); }
+  };
+  const enableSemanticSearch = async () => {
+    setBusy('semantic-enable'); setSemanticResult(null);
+    try {
+      const next = await api.updateSemanticSearch(true, semanticModel.trim());
+      setSemanticSearch(next); setSemanticModel(next.model);
+      const status = await api.aiStatus().catch(() => null);
+      if (status) onConfigurationChanged(status);
+      notify(next.pendingChunks ? `本地语义索引已启用，待处理 ${next.pendingChunks} 个片段` : '本地语义检索已启用');
+    } catch (error) { notify(error instanceof Error ? error.message : '本地语义检索启用失败', 'error'); }
+    finally { setBusy(null); }
+  };
+  const disableSemanticSearch = async () => {
+    if (!window.confirm('关闭本地语义检索并删除全部派生向量？文章、全文索引和 AI 设置不会受影响。')) return;
+    setBusy('semantic-disable'); setSemanticResult(null);
+    try {
+      const next = await api.updateSemanticSearch(false, semanticModel.trim());
+      setSemanticSearch(next); setSemanticModel(next.model);
+      const status = await api.aiStatus().catch(() => null);
+      if (status) onConfigurationChanged(status);
+      notify('本地语义索引已关闭并删除');
+    } catch (error) { notify(error instanceof Error ? error.message : '本地语义索引删除失败', 'error'); }
+    finally { setBusy(null); }
+  };
   const keychain = settings?.credentialBackend === 'macos-keychain';
   const credentialScopeChanged = Boolean(settings && (provider !== settings.provider || endpoint.trim() !== settings.endpoint));
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -1014,6 +1057,7 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
               <span><small>模型</small><strong>{model || '由网关选择'}</strong></span>
               <span><small>凭据存储</small><strong>{keychain ? 'macOS Keychain' : settings?.credentialBackend === 'environment-only' ? '环境变量' : settings?.credentialBackend || '未配置'}</strong></span>
               <span><small>配置来源</small><strong>{settings?.configured ? 'Reader 设置' : settings?.environmentAvailable ? '环境变量' : '本地默认'}</strong></span>
+              <span><small>本地语义索引</small><strong>{semanticSearch?.enabled ? semanticSearch.state === 'ready' ? '已就绪' : semanticSearch.state === 'paused' ? '已暂停' : '正在建立' : '未启用'}</strong></span>
               <span><small>最近更新</small><strong>{settings?.updatedAt ? formatMoment(settings.updatedAt) : '尚未保存'}</strong></span>
             </div>
             {notificationsAvailable && notificationSettings && <div className="settings-notification-controls">
@@ -1055,6 +1099,23 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
               <div className="secret-field"><input type="password" autoComplete="new-password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} disabled={!settings?.credentialWritable} placeholder={settings?.apiKeyStored && credentialScopeChanged ? '服务已切换；请为新服务重新输入' : settings?.apiKeyStored && !clearApiKey ? '已安全存储；输入新值可替换' : selectedProvider?.apiKeyRecommended ? '该提供商通常需要 API 密钥' : '可选，取决于服务'}/>{settings?.apiKeyStored && !credentialScopeChanged && <button type="button" onClick={() => { setApiKey(''); setClearApiKey((value) => !value); }}>{clearApiKey ? '保留密钥' : '移除密钥'}</button>}</div>
               <small>{credentialScopeChanged && settings?.apiKeyStored ? '提供商或地址已改变；旧密钥不会用于连接测试或模型目录，并会在保存时从 Keychain 清除。' : keychain ? '密钥写入 macOS Keychain，不进入 settings.json、备份、导出或模型目录响应。' : '当前平台只支持通过 READER_AI_API_KEY 环境变量提供密钥。'}</small>
             </label>
+            <section className="settings-contract semantic-search-settings" aria-labelledby="semantic-search-title">
+              <span className="eyebrow" id="semantic-search-title">本地语义检索</span>
+              <p>可选调用固定回环地址的 Ollama `/api/embed`，把派生向量保存在本机并与全文结果混排；不会使用远程 AI 地址或 API 密钥。</p>
+              <label>
+                <span>本地嵌入模型</span>
+                <input aria-label="本地嵌入模型" value={semanticModel} onChange={(event) => { setSemanticModel(event.target.value); setSemanticResult(null); }} placeholder="embeddinggemma"/>
+                <small>推荐 `embeddinggemma`、`qwen3-embedding` 或 `all-minilm`；必须先在 Ollama 中安装。</small>
+              </label>
+              <div className="semantic-search-actions">
+                <button type="button" onClick={() => void testSemanticSearch()} disabled={Boolean(busy) || !semanticModel.trim()}>{busy === 'semantic-test' ? '测试中…' : '测试本地模型'}</button>
+                <button type="button" className="button primary" onClick={() => void enableSemanticSearch()} disabled={Boolean(busy) || !semanticModel.trim()}>{busy === 'semantic-enable' ? '正在启用…' : semanticSearch?.enabled && semanticSearch.model !== semanticModel.trim() ? '切换模型并重建' : semanticSearch?.enabled ? '继续建立索引' : '启用语义检索'}</button>
+                {semanticSearch?.enabled && <button type="button" className="quiet-danger" onClick={() => void disableSemanticSearch()} disabled={Boolean(busy)}>{busy === 'semantic-disable' ? '正在删除…' : '关闭并删除索引'}</button>}
+              </div>
+              <small className="semantic-search-status">{semanticSearch?.enabled ? `${semanticSearch.embeddedChunks} / ${semanticSearch.totalChunks} 个片段${semanticSearch.dimensions ? ` · ${semanticSearch.dimensions} 维` : ''}${semanticSearch.state === 'paused' ? ' · 因系统资源限制暂停' : ''}` : '默认关闭；关闭后只使用现有本地全文检索。'}</small>
+              {semanticSearch?.warning && <p className="settings-warning">{semanticSearch.warning}</p>}
+              {semanticResult && <span className={semanticResult.ok ? 'success' : 'error'}><i></i>{semanticResult.message}</span>}
+            </section>
             <div className="settings-contract"><span className="eyebrow">连接测试</span><p>测试只发送 Reader 自带的一句英文，不会读取或发送你的资料库内容。</p>{testResult && <span className={testResult.ok ? 'success' : 'error'}><i></i>{testResult.message}</span>}</div>
           </div>
         </div>

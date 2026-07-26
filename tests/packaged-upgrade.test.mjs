@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { ReaderDatabase } from '../src/server/db.mjs';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const fixtureRoot = path.join(projectRoot, 'tests', 'fixtures', 'upgrade-0.43');
@@ -97,6 +98,23 @@ test('frozen 0.43 packaged database remains self-consistent and auditable', asyn
   assert.equal(settings.ai.endpoint, '');
   assert.equal(settings.ai.hasApiKey, false);
   assert.doesNotMatch(JSON.stringify(settings), /"apiKey"\s*:|"bearer_token"\s*:|"password"\s*:|"secret"\s*:/i);
+});
+
+test('current Reader migrates the frozen schema v11 database to v12 without creating opt-in vectors', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'reader-upgrade-v11-v12-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const databasePath = path.join(root, 'reader.sqlite3');
+  await copyFile(path.join(fixtureRoot, 'data', 'reader.sqlite3'), databasePath);
+  const database = await new ReaderDatabase(databasePath).initialize();
+  assert.deepEqual(
+    { from: database.lastMigrationSnapshot?.fromVersion, to: database.lastMigrationSnapshot?.toVersion },
+    { from: 11, to: 12 }
+  );
+  assert.equal((await database.one('SELECT max(version) AS version FROM schema_migrations;')).version, 12);
+  assert.equal((await database.one('SELECT count(*) AS count FROM schema_migration_audit;')).count, 5);
+  assert.equal((await database.getArticle(manifest.expected.article.id)).content, manifest.expected.article.content);
+  assert.equal((await database.one('SELECT count(*) AS count FROM chunk_embeddings;')).count, 0);
+  assert.equal((await database.one('SELECT count(*) AS count FROM chunk_embedding_buckets;')).count, 0);
 });
 
 test('macOS release runs accessibility, Share and upgrade gates before producing the DMG', async () => {

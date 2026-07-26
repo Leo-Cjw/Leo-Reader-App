@@ -25,6 +25,7 @@ import { diagnosticErrorCategory, diagnosticRoute, LocalDiagnosticsStore } from 
 import { SCHEMA_VERSION } from './schema.mjs';
 import { createBackgroundWorkPolicy } from './background-work.mjs';
 import { createSpotlightService } from './spotlight.mjs';
+import { createSemanticSearchService } from './semantic-search.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -181,7 +182,9 @@ export async function createReaderServer({
   onImportBatchFinished = null,
   onSourceSyncBatchFinished = null,
   spotlightHelperPath = '',
-  spotlightService = null
+  spotlightService = null,
+  embeddingClient = null,
+  semanticSearchService = null
 } = {}) {
   const dataRoot = path.join(rootDir, 'data');
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
@@ -202,6 +205,12 @@ export async function createReaderServer({
   await diagnostics.record('app_started', { version: APP_VERSION, schemaVersion: SCHEMA_VERSION, restored: Boolean(appliedRestore) });
   const runtimeAIService = aiService || new AIService({ endpoint: '', apiKey: '' });
   const runtimeSettingsStore = settingsStore || await new SettingsStore(defaultSettingsPath(rootDir)).initialize();
+  const runtimeSemanticSearch = semanticSearchService || createSemanticSearchService({
+    database,
+    settingsStore: runtimeSettingsStore,
+    ...(embeddingClient ? { client: embeddingClient } : {})
+  });
+  await runtimeSemanticSearch.start();
   const runtimeSpotlight = spotlightService || createSpotlightService({
     database,
     settingsStore: runtimeSettingsStore,
@@ -245,11 +254,20 @@ export async function createReaderServer({
     }
   });
   sourceScheduler.start();
-  const backgroundWork = createBackgroundWorkPolicy(importWorker, sourceScheduler);
+  const backgroundWork = createBackgroundWorkPolicy(importWorker, sourceScheduler, runtimeSemanticSearch);
   if (importQueueSettings.paused) await backgroundWork.update({ importUserPaused: true });
   let dataRepairPromise = null;
   let restoreWriteLocked = false;
   let diagnosticsStopped = false;
+  const ragIndexStatus = async () => {
+    const lexical = await database.getChunkIndexStatus();
+    const semantic = await runtimeSemanticSearch.status();
+    return {
+      ...lexical,
+      mode: semantic.enabled ? 'local-hybrid' : 'local-lexical',
+      semantic
+    };
+  };
 
   const server = http.createServer(async (request, response) => {
     let requestPath = '/';
@@ -530,11 +548,11 @@ export async function createReaderServer({
       }
 
       if (pathname === '/api/ai/status' && method === 'GET') {
-        return sendJSON(response, 200, { ...await runtimeAIService.status(), index: await database.getChunkIndexStatus() });
+        return sendJSON(response, 200, { ...await runtimeAIService.status(), index: await ragIndexStatus() });
       }
 
       if (pathname === '/api/ai/index' && method === 'GET') {
-        return sendJSON(response, 200, { index: await database.getChunkIndexStatus() });
+        return sendJSON(response, 200, { index: await ragIndexStatus() });
       }
 
       if (pathname === '/api/ai/search' && method === 'POST') {
@@ -543,8 +561,11 @@ export async function createReaderServer({
         const scope = body.scope === 'library' ? 'library' : 'article';
         const articleId = scope === 'article' ? requiredString(body.article_id, '内容 ID', 200) : null;
         if (articleId && !(await database.getArticle(articleId))) throw new HTTPError(404, '内容不存在');
-        const citations = await database.searchArticleChunks(query, { articleId, limit: Math.min(Math.max(Number(body.limit) || 6, 1), 12) });
-        return sendJSON(response, 200, { query, scope, citations, index: await database.getChunkIndexStatus() });
+        const retrieval = await runtimeSemanticSearch.search(query, {
+          articleId,
+          limit: Math.min(Math.max(Number(body.limit) || 6, 1), 12)
+        });
+        return sendJSON(response, 200, { query, scope, citations: retrieval.citations, retrievalMode: retrieval.mode, index: await ragIndexStatus() });
       }
 
       if (pathname === '/api/settings/ai' && method === 'GET') {
@@ -600,6 +621,26 @@ export async function createReaderServer({
             provider: body.provider, endpoint: body.endpoint, model: body.model,
             apiKey: typeof body.api_key === 'string' ? body.api_key : undefined
           })
+        });
+      }
+
+      if (pathname === '/api/settings/semantic-search' && method === 'GET') {
+        return sendJSON(response, 200, { settings: await runtimeSemanticSearch.status() });
+      }
+
+      if (pathname === '/api/settings/semantic-search/test' && method === 'POST') {
+        const body = await readJSON(request);
+        if (typeof body.model !== 'string') throw new HTTPError(400, 'model 必须是字符串');
+        return sendJSON(response, 200, { result: await runtimeSemanticSearch.test(body.model) });
+      }
+
+      if (pathname === '/api/settings/semantic-search' && method === 'PUT') {
+        const body = await readJSON(request);
+        if (typeof body.enabled !== 'boolean') throw new HTTPError(400, 'enabled 必须是布尔值');
+        if (body.enabled && typeof body.model !== 'string') throw new HTTPError(400, 'model 必须是字符串');
+        if ('model' in body && typeof body.model !== 'string') throw new HTTPError(400, 'model 必须是字符串');
+        return sendJSON(response, 200, {
+          settings: await runtimeSemanticSearch.update({ enabled: body.enabled, model: body.model })
         });
       }
 
@@ -713,7 +754,8 @@ export async function createReaderServer({
         const body = await readJSON(request);
         const prompt = requiredString(body.prompt, '问题', 4000);
         const scope = body.scope === 'library' ? 'library' : 'article';
-        const matched = await database.searchArticleChunks(prompt, { articleId: scope === 'article' ? article.id : null, limit: 6 });
+        const retrieval = await runtimeSemanticSearch.search(prompt, { articleId: scope === 'article' ? article.id : null, limit: 6 });
+        const matched = retrieval.citations;
         const result = await runtimeAIService.chat(article, prompt, { context: matched, scope });
         const selected = new Set(Array.isArray(result.citationIds) ? result.citationIds : matched.map((citation) => citation.id));
         const citations = matched.filter((citation) => selected.has(citation.id));
@@ -722,7 +764,7 @@ export async function createReaderServer({
           citationIds: undefined,
           scope,
           citations,
-          retrieval: { mode: 'local-lexical-v1', matchedChunks: matched.length, citedChunks: citations.length }
+          retrieval: { mode: retrieval.mode, matchedChunks: matched.length, citedChunks: citations.length }
         });
       }
 
@@ -1126,13 +1168,14 @@ export async function createReaderServer({
     database,
     diagnostics,
     spotlight: runtimeSpotlight,
+    semanticSearch: runtimeSemanticSearch,
     host,
     port,
     setBackgroundWorkState(state) { return backgroundWork.update(state); },
     getBackgroundWorkState() { return backgroundWork.snapshot(); },
     async listen() { await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); }); return server.address(); },
     async close() {
-      await Promise.all([importWorker.stop(), sourceScheduler.stop(), runtimeSpotlight.stop()]);
+      await Promise.all([importWorker.stop(), sourceScheduler.stop(), runtimeSpotlight.stop(), runtimeSemanticSearch.stop()]);
       if (!diagnosticsStopped) {
         diagnosticsStopped = true;
         await diagnostics.record('app_stopped');

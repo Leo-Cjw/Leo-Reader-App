@@ -142,7 +142,7 @@ try {
   await client.call('Accessibility.enable');
   const health = await client.value("fetch('/api/health').then((response) => response.json())");
   assert.equal(health.ok, true);
-  assert.equal(health.schemaVersion, 11);
+  assert.equal(health.schemaVersion, 12);
 
   const ids = await client.value(`(() => {
     const values = [...document.querySelectorAll('[id]')].map((element) => element.id);
@@ -183,10 +183,17 @@ try {
           const endpoint = labels.find((item) => item.querySelector(':scope > span')?.textContent?.includes('OpenAI-compatible 基础地址'))?.querySelector('input[type="url"]');
           const model = labels.find((item) => item.querySelector(':scope > span')?.textContent?.trim() === '模型 ID')?.querySelector('input');
           const load = [...document.querySelectorAll('.settings-form button')].find((button) => button.textContent?.trim() === '读取模型');
+          const embeddingModel = document.querySelector('input[aria-label="本地嵌入模型"]');
+          const testEmbedding = [...document.querySelectorAll('.settings-form button')].find((button) => button.textContent?.trim() === '测试本地模型');
+          const enableSemantic = [...document.querySelectorAll('.settings-form button')].find((button) => button.textContent?.trim() === '启用语义检索');
           return endpoint instanceof HTMLInputElement && endpoint.disabled
             && endpoint.value === 'http://127.0.0.1:11434/v1/'
             && model instanceof HTMLInputElement
-            && load instanceof HTMLButtonElement;
+            && load instanceof HTMLButtonElement
+            && embeddingModel instanceof HTMLInputElement
+            && embeddingModel.value === 'embeddinggemma'
+            && testEmbedding instanceof HTMLButtonElement
+            && enableSemantic instanceof HTMLButtonElement;
         })()`));
         assertNamedControls(await client.tree(), '设置窗口提供商与模型字段');
       }

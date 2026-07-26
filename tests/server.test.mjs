@@ -61,17 +61,21 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
     importUserPaused: false,
     importsPaused: false,
     sourceSyncPaused: false,
+    semanticSearchPaused: false,
     importPauseReasons: [],
-    sourceSyncPauseReasons: []
+    sourceSyncPauseReasons: [],
+    semanticSearchPauseReasons: []
   });
   await app.setBackgroundWorkState({ online: false, lowBattery: true });
   const constrainedHealth = await json(`${base}/api/health`);
   assert.equal(constrainedHealth.body.background.importsPaused, false);
   assert.equal(constrainedHealth.body.background.sourceSyncPaused, true);
+  assert.equal(constrainedHealth.body.background.semanticSearchPaused, true);
   assert.deepEqual(constrainedHealth.body.background.sourceSyncPauseReasons, ['offline', 'low-battery']);
+  assert.deepEqual(constrainedHealth.body.background.semanticSearchPauseReasons, ['low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.48.0');
+  assert.equal(APP_VERSION, '0.49.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -300,12 +304,12 @@ test('migration snapshots are listed without private paths and can be exported s
   const snapshot = listed.body.snapshots[0];
   assert.deepEqual(
     { from: snapshot.from_schema_version, to: snapshot.to_schema_version, privatePath: snapshot.path },
-    { from: 7, to: 11, privatePath: undefined }
+    { from: 7, to: 12, privatePath: undefined }
   );
   const download = await fetch(`${base}/api/migration-snapshots/${snapshot.id}/download`);
   assert.equal(download.status, 200);
   assert.equal(download.headers.get('content-type'), 'application/vnd.sqlite3');
-  assert.match(download.headers.get('content-disposition') || '', /reader-before-schema-v7-to-v11/);
+  assert.match(download.headers.get('content-disposition') || '', /reader-before-schema-v7-to-v12/);
   assert.equal(Buffer.from(await download.arrayBuffer()).subarray(0, 16).toString(), 'SQLite format 3\u0000');
   assert.equal((await fetch(`${base}/api/migration-snapshots/00000000-0000-4000-8000-000000000000/download`)).status, 404);
 
@@ -323,7 +327,7 @@ test('migration snapshots are listed without private paths and can be exported s
       privatePath: scheduled.body.pendingRestore.pendingDir,
       privateHash: scheduled.body.pendingRestore.databaseSha256
     },
-    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 7, to: 11, restartRequired: true, privatePath: undefined, privateHash: undefined }
+    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 7, to: 12, restartRequired: true, privatePath: undefined, privateHash: undefined }
   );
   const safety = await json(`${base}/api/backups`);
   assert.equal(safety.body.pendingRestore.kind, 'migration_snapshot');

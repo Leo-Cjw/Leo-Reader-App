@@ -162,11 +162,41 @@ const v11Migration = {
 };
 v11Migration.checksum = migrationChecksum(v11Migration.signature);
 
+const v12Migration = {
+  version: 12,
+  name: 'v12-local-semantic-index',
+  signature: 'reader-schema-v12-local-semantic-index:1',
+  async buildSQL() {
+    return `
+      CREATE TABLE chunk_embeddings (
+        chunk_id TEXT PRIMARY KEY REFERENCES article_chunks(id) ON DELETE CASCADE,
+        model TEXT NOT NULL CHECK (length(model) BETWEEN 1 AND 200),
+        dimensions INTEGER NOT NULL CHECK (dimensions BETWEEN 8 AND 4096),
+        vector BLOB NOT NULL CHECK (typeof(vector)='blob' AND length(vector)=dimensions*4),
+        created_at TEXT NOT NULL,
+        UNIQUE(chunk_id,model)
+      );
+      CREATE INDEX idx_chunk_embeddings_model ON chunk_embeddings(model,chunk_id);
+      CREATE TABLE chunk_embedding_buckets (
+        chunk_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        band INTEGER NOT NULL CHECK (band BETWEEN 0 AND 15),
+        bucket INTEGER NOT NULL CHECK (bucket BETWEEN 0 AND 255),
+        PRIMARY KEY(chunk_id,band),
+        FOREIGN KEY(chunk_id,model) REFERENCES chunk_embeddings(chunk_id,model) ON DELETE CASCADE ON UPDATE CASCADE
+      );
+      CREATE INDEX idx_chunk_embedding_buckets_lookup ON chunk_embedding_buckets(model,band,bucket,chunk_id);
+    `;
+  }
+};
+v12Migration.checksum = migrationChecksum(v12Migration.signature);
+
 export const MIGRATION_REGISTRY = Object.freeze([
   Object.freeze(v8Migration),
   Object.freeze(v9Migration),
   Object.freeze(v10Migration),
-  Object.freeze(v11Migration)
+  Object.freeze(v11Migration),
+  Object.freeze(v12Migration)
 ]);
 
 function validateMigrationRegistry() {

@@ -85,7 +85,7 @@ test('migration snapshot restore preserves files, backs up current data and remi
       hasPrivatePath: Boolean(marker.pendingDir),
       hash: /^[0-9a-f]{64}$/.test(marker.databaseSha256)
     },
-    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 8, to: 11, hasPrivatePath: true, hash: true }
+    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 8, to: 12, hasPrivatePath: true, hash: true }
   );
   assert.equal((await stat(path.join(marker.pendingDir, 'migration-snapshot.sqlite3'))).mode & 0o777, 0o600);
   const safetyBackup = await resolveBackup(root, marker.safetyBackupId);
@@ -98,7 +98,7 @@ test('migration snapshot restore preserves files, backs up current data and remi
     { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 8, safetyBackupId: marker.safetyBackupId }
   );
   const restored = await new ReaderDatabase(dbPath).initialize();
-  assert.equal((await restored.one('SELECT max(version) AS version FROM schema_migrations;')).version, 11);
+  assert.equal((await restored.one('SELECT max(version) AS version FROM schema_migrations;')).version, 12);
   assert.equal((await restored.getArticle('before-upgrade')).content, '需要从迁移快照保留的正文');
   assert.equal(await restored.getArticle('after-upgrade'), null);
   assert.equal(await readFile(path.join(filesDir, 'preserved.bin'), 'utf8'), 'attachment-bytes-stay-in-place');
@@ -133,7 +133,7 @@ test('migration snapshot restore rejects incompatible or changed snapshots befor
         to_schema_version: 12
       }
     }),
-    /更新版本|schema v12/
+    /来源无效|更新版本|schema v12/
   );
   assert.equal(await getPendingRestore(root), null);
   assert.equal((await listBackups(root)).length, 0);
@@ -141,7 +141,7 @@ test('migration snapshot restore rejects incompatible or changed snapshots befor
   await database.createArticle({ id: 'current-safe', title: '当前资料', content: '快照损坏时不得替换。' });
   const migrationDirectory = path.join(path.dirname(dbPath), 'migration-backups');
   await mkdir(migrationDirectory, { recursive: true });
-  const compatiblePath = path.join(migrationDirectory, 'reader-before-schema-v8-to-v11-2026-01-01T00-00-00-000Z-11111111-1111-4111-8111-111111111111.sqlite3');
+  const compatiblePath = path.join(migrationDirectory, 'reader-before-schema-v8-to-v12-2026-01-01T00-00-00-000Z-11111111-1111-4111-8111-111111111111.sqlite3');
   const compatible = new ReaderDatabase(compatiblePath);
   await compatible.execute(schemaSQL);
   await compatible.execute("INSERT INTO schema_migrations(version,applied_at) VALUES (8,'2026-01-01');");
@@ -153,7 +153,7 @@ test('migration snapshot restore rejects incompatible or changed snapshots befor
       id: '11111111-1111-4111-8111-111111111111',
       path: compatiblePath,
       from_schema_version: 8,
-      to_schema_version: 11
+      to_schema_version: 12
     }
   });
   await writeFile(path.join(marker.pendingDir, 'migration-snapshot.sqlite3'), 'changed after validation');

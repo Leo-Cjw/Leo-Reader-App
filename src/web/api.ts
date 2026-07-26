@@ -1,4 +1,4 @@
-import type { AIConnectionResult, AIDraftResult, AIModel, AIProviderPreset, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
+import type { AIConnectionResult, AIDraftResult, AIModel, AIProviderPreset, AISettings, AIStatus, Article, ArticlePage, ArticleRevision, ArticleRevisionSummary, Attachment, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DataRepairResult, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, PortableImportResult, RAGChatResult, RAGCitation, RAGIndexStatus, SemanticSearchStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
 
 export class APIError extends Error {
   status: number;
@@ -222,6 +222,15 @@ export const api = {
   },
   async listAIModels(provider: AIProviderPreset['id'], endpoint: string, model: string, apiKey?: string) {
     return (await request<{ models: AIModel[] }>('/api/settings/ai/models', { method: 'POST', body: JSON.stringify({ provider, endpoint, model, api_key: apiKey || undefined }) })).models;
+  },
+  async getSemanticSearchSettings() {
+    return (await request<{ settings: SemanticSearchStatus }>('/api/settings/semantic-search')).settings;
+  },
+  async testSemanticSearch(model: string) {
+    return (await request<{ result: { ok: true; model: string; dimensions: number } }>('/api/settings/semantic-search/test', { method: 'POST', body: JSON.stringify({ model }) })).result;
+  },
+  async updateSemanticSearch(enabled: boolean, model: string) {
+    return (await request<{ settings: SemanticSearchStatus }>('/api/settings/semantic-search', { method: 'PUT', body: JSON.stringify({ enabled, model }) })).settings;
   },
   async getNotificationSettings() {
     return (await request<{ settings: NotificationSettings }>('/api/settings/notifications')).settings;
