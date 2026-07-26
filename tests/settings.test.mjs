@@ -159,6 +159,48 @@ test('AI settings keep secrets out of the local settings file and enforce secure
   assert.equal(settingsStore.getNotifications().sourceSyncEnabled, true);
 });
 
+test('settings saves serialize concurrent updates and continue after one write fails', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-settings-concurrent-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const filePath = path.join(dir, 'data', 'settings.json');
+  const settingsStore = await new SettingsStore(filePath).initialize();
+
+  await Promise.all([
+    settingsStore.saveImportQueue(true),
+    settingsStore.saveNotifications({ enabled: true, sourceSyncEnabled: true }),
+    settingsStore.saveAutomaticBackups(true),
+    settingsStore.saveSpotlight(true),
+    settingsStore.saveSemanticSearch(true, 'qwen3-embedding')
+  ]);
+
+  assert.equal(settingsStore.getImportQueue().paused, true);
+  assert.equal(settingsStore.getNotifications().enabled, true);
+  assert.equal(settingsStore.getNotifications().sourceSyncEnabled, true);
+  assert.equal(settingsStore.getAutomaticBackups().enabled, true);
+  assert.equal(settingsStore.getSpotlight().enabled, true);
+  const semantic = settingsStore.getSemanticSearch();
+  assert.equal(semantic.enabled, true);
+  assert.equal(semantic.model, 'qwen3-embedding');
+  assert.match(semantic.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+  const reloaded = await new SettingsStore(filePath).initialize();
+  assert.equal(reloaded.getImportQueue().paused, true);
+  assert.equal(reloaded.getNotifications().enabled, true);
+  assert.equal(reloaded.getNotifications().sourceSyncEnabled, true);
+  assert.equal(reloaded.getAutomaticBackups().enabled, true);
+  assert.equal(reloaded.getSpotlight().enabled, true);
+  assert.equal(reloaded.getSemanticSearch().enabled, true);
+  assert.equal(reloaded.getSemanticSearch().model, 'qwen3-embedding');
+
+  const blockedParent = path.join(dir, 'blocked');
+  await writeFile(blockedParent, 'not a directory');
+  const recoverableStore = new SettingsStore(path.join(blockedParent, 'settings.json'));
+  await assert.rejects(() => recoverableStore.saveImportQueue(true));
+  await rm(blockedParent);
+  await mkdir(blockedParent);
+  await recoverableStore.saveNotifications(true);
+  assert.equal(recoverableStore.getNotifications().enabled, true);
+});
+
 test('AI settings HTTP API updates runtime configuration without exposing the API key', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-settings-api-'));
   t.after(() => rm(dir, { recursive: true, force: true }));

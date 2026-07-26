@@ -29,6 +29,7 @@ export class SettingsStore {
     this.filePath = filePath;
     this.value = clone(DEFAULT_SETTINGS);
     this.loadError = null;
+    this.saveQueue = Promise.resolve();
   }
 
   async initialize() {
@@ -94,92 +95,75 @@ export class SettingsStore {
   getSpotlight() { return clone(this.value.spotlight); }
   getSemanticSearch() { return clone(this.value.semanticSearch); }
 
-  async saveAI(input) {
-    const next = {
-      ...clone(this.value),
+  saveAI(input) {
+    return this.enqueueSave((current) => ({
+      ...current,
       ai: {
         configured: true, enabled: Boolean(input.enabled), provider: String(input.provider || 'reader-gateway'),
         endpoint: String(input.endpoint || ''), model: String(input.model || ''),
         hasApiKey: Boolean(input.hasApiKey), updatedAt: new Date().toISOString()
       }
-    };
-    await this.persist(next);
-    this.value = next;
-    this.loadError = null;
-    return this.getAI();
+    }), 'ai');
   }
 
-  async resetAI() {
-    const next = { ...clone(this.value), ai: clone(DEFAULT_SETTINGS.ai) };
-    await this.persist(next);
-    this.value = next;
-    this.loadError = null;
-    return this.getAI();
+  resetAI() {
+    return this.enqueueSave((current) => ({ ...current, ai: clone(DEFAULT_SETTINGS.ai) }), 'ai');
   }
 
-  async saveImportQueue(paused) {
-    const next = {
-      ...clone(this.value),
+  saveImportQueue(paused) {
+    return this.enqueueSave((current) => ({
+      ...current,
       imports: { paused: Boolean(paused), updatedAt: new Date().toISOString() }
-    };
-    await this.persist(next);
-    this.value = next;
-    this.loadError = null;
-    return this.getImportQueue();
+    }), 'imports');
   }
 
-  async saveNotifications(input) {
+  saveNotifications(input) {
     const patch = typeof input === 'boolean' ? { enabled: input } : input || {};
-    const current = this.value.notifications;
-    const next = {
-      ...clone(this.value),
+    return this.enqueueSave((current) => ({
+      ...current,
       notifications: {
-        enabled: 'enabled' in patch ? Boolean(patch.enabled) : current.enabled,
-        sourceSyncEnabled: 'sourceSyncEnabled' in patch ? Boolean(patch.sourceSyncEnabled) : current.sourceSyncEnabled,
+        enabled: 'enabled' in patch ? Boolean(patch.enabled) : current.notifications.enabled,
+        sourceSyncEnabled: 'sourceSyncEnabled' in patch ? Boolean(patch.sourceSyncEnabled) : current.notifications.sourceSyncEnabled,
         updatedAt: new Date().toISOString()
       }
-    };
-    await this.persist(next);
-    this.value = next;
-    this.loadError = null;
-    return this.getNotifications();
+    }), 'notifications');
   }
 
-  async saveAutomaticBackups(enabled) {
-    const next = {
-      ...clone(this.value),
+  saveAutomaticBackups(enabled) {
+    return this.enqueueSave((current) => ({
+      ...current,
       automaticBackups: { enabled: enabled === true, updatedAt: new Date().toISOString() }
-    };
-    await this.persist(next);
-    this.value = next;
-    this.loadError = null;
-    return this.getAutomaticBackups();
+    }), 'automaticBackups');
   }
 
-  async saveSpotlight(enabled) {
-    const next = {
-      ...clone(this.value),
+  saveSpotlight(enabled) {
+    return this.enqueueSave((current) => ({
+      ...current,
       spotlight: { enabled: enabled === true, updatedAt: new Date().toISOString() }
-    };
-    await this.persist(next);
-    this.value = next;
-    this.loadError = null;
-    return this.getSpotlight();
+    }), 'spotlight');
   }
 
-  async saveSemanticSearch(enabled, model = SEMANTIC_SEARCH_DEFAULT_MODEL) {
-    const next = {
-      ...clone(this.value),
+  saveSemanticSearch(enabled, model = SEMANTIC_SEARCH_DEFAULT_MODEL) {
+    return this.enqueueSave((current) => ({
+      ...current,
       semanticSearch: {
         enabled: enabled === true,
         model: normalizeEmbeddingModel(model),
         updatedAt: new Date().toISOString()
       }
-    };
-    await this.persist(next);
-    this.value = next;
-    this.loadError = null;
-    return this.getSemanticSearch();
+    }), 'semanticSearch');
+  }
+
+  enqueueSave(createNext, resultKey) {
+    const operation = this.saveQueue.then(async () => {
+      const next = createNext(clone(this.value));
+      await this.persist(next);
+      this.value = next;
+      this.loadError = null;
+      return clone(next[resultKey]);
+    });
+    this.saveQueue = operation.catch(() => {});
+    return operation;
   }
 
   async persist(value = this.value) {
