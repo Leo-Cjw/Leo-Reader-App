@@ -35,7 +35,9 @@ flowchart LR
 
 0.45.0 在同一动作下增加与 URL 互斥的唯一 `text` 参数。扩展把最多 4,096 UTF-8 bytes、非空且不含禁止控制字符的文本编码为无 padding 的规范 Base64URL；Electron 主进程严格解码、执行 fatal UTF-8 与重新编码一致性检查，preload 再次验证请求形状、字节数和控制字符。混合、重复、额外、非规范或超限参数均被拒绝。
 
-合格请求最多在主进程和 preload 各排队 20 个，只有渲染器完成加载后才通过单向 `reader:add-request` IPC 送入页面。preload 不公开任意 IPC 发送、文件系统或网络能力；React 逐个把 URL 预填到既有导入页，或把文本原样预填到标题为“分享的文本摘录”的 Markdown 页，用户仍需选择资料夹并明确提交。深链处理本身不调用本地 API、不解析 DNS、不创建导入任务或 Markdown 文章；URL 提交后继续复用服务端 `assertPublicURL` 的 DNS、私网、凭据和长度校验，因此外部入口不会绕过原有 SSRF 边界。
+0.47.0 再增加与 URL/文本互斥的唯一 `file` 参数，但该参数只接受扩展生成的小写规范 UUID v4。深链不携带路径、文件名、MIME、大小、摘要或文件内容；主进程和 preload 各自重新验证 token。普通网页可以尝试唤起添加窗口，但不能借此指定任意本机路径或使用通用文件 IPC。
+
+合格请求最多在主进程和 preload 各排队 20 个，只有渲染器完成加载后才通过单向 `reader:add-request` IPC 送入页面。preload 不公开任意 IPC 发送、文件系统或网络能力；React 逐个把 URL 预填到既有导入页，把文本原样预填到标题为“分享的文本摘录”的 Markdown 页，或用文件 token 请求主进程返回受限名称/大小/MIME。用户仍需选择资料夹并明确提交。URL/文本深链处理本身不调用本地 API、不解析 DNS、不创建导入任务或文章；文件只在扩展私有缓存产生临时副本，确认前同样不创建 SQLite 记录或导入任务。URL 提交后继续复用服务端 `assertPublicURL`，文件确认后继续复用既有同源附件上传端点，因此外部入口不会绕过 SSRF、格式、大小或队列边界。
 
 0.37.0 为每个主窗口监听 Electron `render-process-gone`。初次文档尚未成功加载、窗口已替换、退出流程中或同一恢复提示仍在处理时不会重复介入；已加载界面异常退出后，主进程先停止向失效渲染器交付外部 URL，再异步显示原生选择。用户确认重新载入时只调用当前 `webContents.reload()`，回环服务、SQLite、导入 worker 和订阅调度继续运行；新文档触发 `did-finish-load` 后恢复 IPC 队列。选择退出则复用既有 `before-quit` 顺序，先停止后台任务并刷新诊断，再结束进程。恢复控制器不会同步重载，避免在崩溃事件回调栈内再次触发浏览器进程故障。
 
@@ -52,6 +54,10 @@ schema v11 新增 `spotlight_outbox`，文章可索引字段、归档状态和�
 0.42.0 增加嵌入 `Contents/PlugIns` 的 macOS Share Extension；0.45.0 把 strict matching 激活规则从单个 `public.url` 扩展为单个 URL 或单段文本。Swift 构建分别面向 x86_64/arm64，再合并为 bundle ID 受宿主前缀约束的 Universal `.appex`。扩展以普通 `NSViewController` 提供短暂、可访问的交接状态，通过异步 `NSItemProvider` 优先读取 URL，否则读取纯文本；独立 Swift 校验器分别限制为最长 2,048 字符、无控制字符/用户名/密码的 HTTP(S) 地址，或最多 4,096 UTF-8 bytes、非空且不含禁止控制字符的文本，再构造唯一 `reader-local://add?url=...` 或规范 Base64URL `reader-local://add?text=...` 并交给 `NSWorkspace`。扩展不联网、不读写文件、不访问 SQLite、Keychain、UserDefaults 或 App Group；系统选择扩展是第一次用户动作，Reader 既有添加窗口仍是最终写入确认。
 
 最终签名不再依赖无差别 `codesign --deep` 保存扩展权限：流水线先处理全部嵌套代码，再用只含 `com.apple.security.app-sandbox` 的 entitlement 重新签名 `.appex`，最后带主程序最小 `allow-jit` entitlement 重签宿主并执行深度严格验证。Developer ID 路径禁用自动 entitlement 补全并按文件选择权限，Spotlight helper 使用空权限，Share Extension 精确使用 sandbox，Electron helper 保留各自运行所需默认项；构建门禁回读并要求三者权限集合精确相等，拒绝额外 App Group 或未使用的硬件权限。
+
+0.47.0 把 strict matching 扩展到单个文件。Apple 的 `NSItemProvider.loadFileRepresentation` 临时副本会在回调返回时删除，因此扩展在回调内把受支持的 PDF、PNG/JPEG/GIF/WebP/HEIC、MP4/MOV/M4V/WebM、Markdown 或纯文本复制到自己的 `Caches/ReaderShareStaging`。目录/文件权限固定为 `0700/0600`，文件非空且最多 100 MB；随机 UUID v4 对应一个 `.payload` 和最后原子写入的固定 schema `.json`，记录受控文件名、MIME、精确字节数、SHA-256 与创建时间。扩展启动时删除超过 24 小时的成对暂存，打开 Reader 失败时立即删除本次副本。
+
+Electron 主进程只从当前用户固定的 Share Extension 容器解析 token，不接受渲染器提供路径。检查过程以 `O_NOFOLLOW` 打开描述与载荷，拒绝符号链接、非普通文件、组/其他用户可读权限、未知字段、过期/未来时间、大小或 SHA-256 不符及服务端不支持的类型；渲染器只获得冻结的 token、显示名、大小和 MIME。确认后主进程从已经验证的文件描述符流式写入随机回环附件端点，服务端再次执行 100 MB、文件名、MIME、图片签名与队列校验。成功、取消或切换入口都会清理暂存；传输失败保留原副本供当前用户重试，最迟由 24 小时清理回收。该方案不增加 App Group、网络、书签或用户文件 entitlement。
 
 ## 数据模型
 
@@ -202,6 +208,8 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 0.45.0 在最终 Universal App 上增加 Share 交接门禁。自动化先启动隔离候选，再以同一可执行文件的第二实例传入规范文本深链，核对 Markdown 页标题、逐字内容、默认资料夹和按钮状态，并通过统计 API 证明确认前文章数不变；只有模拟点击保存后才要求内容、类型与资料夹精确落库。随后以相同路径传入 URL，确认 URL 页和原值不回归且关闭前仍无写入。测试只使用临时 Chromium profile 与资料根目录，不注册系统 scheme，也不读取真实分享历史。
 
+0.47.0 把同一最终包 Share 门禁扩展到文件。QA 在独立权限受限目录构造与 Swift 扩展相同的载荷/manifest，使用第二实例只传递 UUID token，核对附件页显示、默认资料夹和确认提示；确认前文章数与导入任务数都必须不变，确认后 Markdown 内容、附件记录和类型必须精确落库且原暂存成对删除。第二份文件走取消路径，要求暂存立即删除、资料库和队列均不变化；最后继续执行 URL 回归。三个最终包 QA 脚本在自动测试中先通过 Node 语法检查，避免门禁自身直到发行阶段才暴露解析错误。
+
 发行流水线分别构建 x86_64 与 arm64 应用，再用项目内的流式 Mach-O 合并工具生成通用主程序、Helper 与 Share Extension；两套 `@napi-rs/canvas` 原生模块按架构保留在独立包路径，由运行时选择。Electron 压缩包必须匹配依赖自带的官方 SHA-256 清单。合并后按代码类型应用最小 entitlement、执行深度严格验证，并生成带“应用程序”快捷方式且通过 `hdiutil verify` 的压缩 DMG。
 
 0.27.0 在桌面主进程集中监听 Electron 的 suspend/resume、网络在线状态、macOS 电源与热状态。电池电量只通过只读的 `/usr/bin/pmset -g batt` 获取，不写系统设置：断网或电池供电且不高于 20% 时只暂停自动来源调度，本地附件导入与用户主动同步保持可用；睡眠、严重/临界热状态或 CPU 被系统限制到 50% 以下时暂停导入队列与自动同步。服务端把这些条件与待恢复写锁合并为单一串行策略，只有全部原因解除后才恢复对应 worker，避免唤醒或网络恢复绕过资料库恢复锁。当前脱敏状态通过 `/api/health` 提供，并在订阅中心显示面向用户的暂停原因。
@@ -213,7 +221,7 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
 
 - 取得真实 Apple Developer ID 与公证凭据，发布首个正式 GitHub Release，并完成跨版本自动升级演练。
-- Share Extension 已完成单网页 URL 或最多 4 KiB 选中文本的沙箱化、确认式系统交接；文件、图片和视频需要安全作用域或共享容器方案，仍待独立威胁建模与设计。Spotlight 已完成默认关闭的本机索引与深链闭环，仍需在 Developer ID、公证包和 Apple Silicon 真机验证系统结果点击；系统通知与 Share Extension 也仍需在正式签名包上完成最终可用性验收。
+- Share Extension 已完成单网页 URL、最多 4 KiB 选中文本或单个 100 MB 受支持文件的沙箱化、确认式系统交接；文件使用扩展私有缓存和不透明 token，不依赖易失临时 URL、路径深链、App Group 或安全作用域书签。Spotlight 已完成默认关闭的本机索引与深链闭环，仍需在 Developer ID、公证包和 Apple Silicon 真机验证系统结果点击；系统通知与 Share Extension 的真实系统菜单、Finder/照片来源也仍需在正式签名包上完成最终可用性验收。
 
 当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron 与 Canvas 切片完成官方哈希、Mach-O 架构及签名结构验证，仍应在 Apple Silicon 真机上补运行验收。
 

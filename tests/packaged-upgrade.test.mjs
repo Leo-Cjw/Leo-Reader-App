@@ -100,6 +100,11 @@ test('frozen 0.43 packaged database remains self-consistent and auditable', asyn
 });
 
 test('macOS release runs accessibility, Share and upgrade gates before producing the DMG', async () => {
+  for (const script of [
+    'verify-packaged-accessibility.mjs',
+    'verify-packaged-share.mjs',
+    'verify-packaged-upgrade.mjs'
+  ]) execFileSync(process.execPath, ['--check', path.join(projectRoot, 'scripts', script)]);
   const releaseScript = await readFile(path.join(projectRoot, 'scripts', 'build-mac-release.mjs'), 'utf8');
   const accessibility = releaseScript.indexOf('verify-packaged-accessibility.mjs');
   const share = releaseScript.indexOf('verify-packaged-share.mjs');

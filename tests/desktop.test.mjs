@@ -39,7 +39,7 @@ test('focused reader window ids stay bounded without narrowing valid local artic
   }
 });
 
-test('desktop add deep links accept one bounded URL or base64url text payload', () => {
+test('desktop add deep links accept one bounded URL, base64url text or opaque shared-file token', () => {
   assert.equal(READER_PROTOCOL_SCHEME, 'reader-local');
   assert.equal(
     parseReaderDeepLink('reader-local://add?url=https%3A%2F%2Fexample.com%2Farticle%3Fpage%3D2%23notes'),
@@ -53,6 +53,9 @@ test('desktop add deep links accept one bounded URL or base64url text payload', 
   assert.deepEqual(extractReaderAddDeepLink(['Reader', `reader-local://add?text=${encodedText}`]), { kind: 'text', text: sharedText });
   assert.equal(parseReaderDeepLink(`reader-local://add?text=${encodedText}`), null);
   assert.equal(MAX_READER_SHARED_TEXT_BYTES, 4096);
+  const fileToken = '123e4567-e89b-42d3-a456-426614174000';
+  assert.deepEqual(parseReaderAddDeepLink(`reader-local://add?file=${fileToken}`), { kind: 'file', token: fileToken });
+  assert.deepEqual(extractReaderAddDeepLink(['Reader', `reader-local://add?file=${fileToken}`]), { kind: 'file', token: fileToken });
 
   for (const candidate of [
     'reader-local://add',
@@ -61,7 +64,13 @@ test('desktop add deep links accept one bounded URL or base64url text payload', 
     'reader-local://add?url=https%3A%2F%2Fuser%3Asecret%40example.com',
     'reader-local://add?url=https%3A%2F%2Fexample.com&url=https%3A%2F%2Fother.example',
     `reader-local://add?url=https%3A%2F%2Fexample.com&text=${encodedText}`,
+    `reader-local://add?url=https%3A%2F%2Fexample.com&file=${fileToken}`,
+    `reader-local://add?text=${encodedText}&file=${fileToken}`,
     `reader-local://add?text=${encodedText}&text=${encodedText}`,
+    `reader-local://add?file=${fileToken}&file=${fileToken}`,
+    'reader-local://add?file=../private',
+    `reader-local://add?file=${fileToken.toUpperCase()}`,
+    'reader-local://add?file=123e4567-e89b-12d3-a456-426614174000',
     'reader-local://add?text=not+base64url',
     `reader-local://add?text=${Buffer.from('Reader\u0000secret').toString('base64url')}`,
     `reader-local://add?text=${Buffer.from('中'.repeat(1366) + 'x').toString('base64url')}`,
@@ -92,7 +101,7 @@ test('Spotlight deep links open exactly one bounded local article id', () => {
   ]) assert.equal(parseReaderOpenDeepLink(candidate), null, candidate);
 });
 
-test('desktop URL and text handoff wait for the renderer and still require add-dialog confirmation', async () => {
+test('desktop URL, text and file handoffs wait for the renderer and still require add-dialog confirmation', async () => {
   const main = await readFile(path.join(projectRoot, 'desktop', 'main.mjs'), 'utf8');
   const preload = await readFile(path.join(projectRoot, 'desktop', 'preload.cjs'), 'utf8');
   const app = await readFile(path.join(projectRoot, 'src', 'web', 'App.tsx'), 'utf8');
@@ -104,12 +113,24 @@ test('desktop URL and text handoff wait for the renderer and still require add-d
   assert.match(preload, /if \(!addRequestListeners\.size\)/);
   assert.match(preload, /for \(const request of pendingAddRequests\.splice\(0\)\) callback\(request\)/);
   assert.match(preload, /Buffer\.byteLength\(value\.text, 'utf8'\) <= 4096/);
+  assert.match(preload, /value\.kind === 'file'/);
+  assert.match(preload, /ipcRenderer\.invoke\('reader:inspect-shared-file', token\)/);
+  assert.match(preload, /ipcRenderer\.invoke\('reader:import-shared-file', token, collectionId\)/);
+  assert.match(preload, /ipcRenderer\.invoke\('reader:discard-shared-file', token\)/);
+  assert.match(main, /createSharedFileManager/);
+  assert.match(main, /standardShareStagingRoot\(app\.getPath\('home'\)\)/);
+  assert.match(main, /ipcMain\.handle\('reader:inspect-shared-file'/);
+  assert.match(main, /ipcMain\.handle\('reader:import-shared-file'/);
+  assert.match(main, /ipcMain\.handle\('reader:discard-shared-file'/);
   assert.match(app, /const \[externalAddRequests, setExternalAddRequests\] = useState<ExternalAddRequest\[\]>\(\[\]\)/);
   assert.match(app, /window\.readerDesktop\?\.onAddRequest/);
   assert.match(app, /initialRequest=\{externalAddRequests\[0\]\}/);
-  assert.match(app, /initialRequest\?\.kind === 'text' \? 'markdown' : 'url'/);
+  assert.match(app, /initialRequest\?\.kind === 'file' \? 'attachment' : 'url'/);
   assert.match(app, /initialRequest\?\.kind === 'text' \? '分享的文本摘录' : ''/);
   assert.match(app, /initialRequest\?\.kind === 'text' \? initialRequest\.text : ''/);
+  assert.match(app, /inspectSharedFile\(initialRequest\.token\)/);
+  assert.match(app, /importSharedFile\(initialRequest\.token, collection\)/);
+  assert.match(app, /discardSharedFile\(initialRequest\.token\)/);
   assert.match(app, /if \(tab === 'url'\) \{ const job = await api\.createURLImport\(url, collection\)/);
   assert.match(app, /if \(tab === 'markdown'\) onCreated\(await api\.createMarkdown\(title, content, collection\)\)/);
   assert.doesNotMatch(main, /createURLImport|api\/import-jobs/);

@@ -29,8 +29,10 @@ for (const [architecture, output] of architectures) {
     '-O', '-whole-module-optimization', '-parse-as-library', '-application-extension',
     '-target', `${architecture}-apple-macos12.0`,
     '-framework', 'AppKit',
+    '-framework', 'CryptoKit',
     '-framework', 'UniformTypeIdentifiers',
     path.join(sourceRoot, 'ShareURL.swift'),
+    path.join(sourceRoot, 'ShareFile.swift'),
     path.join(sourceRoot, 'ShareViewController.swift'),
     '-Xlinker', '-e', '-Xlinker', '_NSExtensionMain',
     '-o', output

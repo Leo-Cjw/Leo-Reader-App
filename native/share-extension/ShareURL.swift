@@ -94,4 +94,28 @@ enum ReaderShareURL {
         }
         return deepLink
     }
+
+    static func normalizeFileToken(_ value: String) -> String? {
+        guard value.count == 36,
+              value == value.lowercased(),
+              value[value.index(value.startIndex, offsetBy: 14)] == "4",
+              "89ab".contains(value[value.index(value.startIndex, offsetBy: 19)]),
+              UUID(uuidString: value)?.uuidString.lowercased() == value else {
+            return nil
+        }
+        return value
+    }
+
+    static func deepLink(forFileToken value: String) -> URL? {
+        guard let token = normalizeFileToken(value) else { return nil }
+        var components = URLComponents()
+        components.scheme = "reader-local"
+        components.host = "add"
+        components.queryItems = [URLQueryItem(name: "file", value: token)]
+        guard let deepLink = components.url,
+              deepLink.absoluteString.count <= maximumDeepLinkLength else {
+            return nil
+        }
+        return deepLink
+    }
 }

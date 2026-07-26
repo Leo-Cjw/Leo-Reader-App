@@ -17,9 +17,9 @@
   <key>CFBundlePackageType</key>
   <string>XPC!</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.46.0</string>
+  <string>0.47.0</string>
   <key>CFBundleVersion</key>
-  <string>46</string>
+  <string>47</string>
   <key>CFBundleSignature</key>
   <string>????</string>
   <key>CFBundleSupportedPlatforms</key>
@@ -36,6 +36,8 @@
     <dict>
       <key>NSExtensionActivationRule</key>
       <dict>
+        <key>NSExtensionActivationSupportsFileWithMaxCount</key>
+        <integer>1</integer>
         <key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
         <integer>1</integer>
         <key>NSExtensionActivationSupportsText</key>

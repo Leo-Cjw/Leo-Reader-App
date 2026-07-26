@@ -98,8 +98,10 @@ export async function launchPackagedReader({
   const sessionRoot = await mkdtemp(path.join(os.tmpdir(), prefix));
   const chromiumRoot = path.join(sessionRoot, 'chromium');
   const resolvedReaderRoot = readerRoot || path.join(sessionRoot, 'reader-data');
+  const shareStagingRoot = path.join(sessionRoot, 'share-staging');
   await mkdir(chromiumRoot, { recursive: true });
   await mkdir(resolvedReaderRoot, { recursive: true });
+  await mkdir(shareStagingRoot, { recursive: true, mode: 0o700 });
 
   let stderr = '';
   let spawnError;
@@ -112,6 +114,7 @@ export async function launchPackagedReader({
     env: {
       ...process.env,
       READER_DESKTOP_DATA_ROOT: resolvedReaderRoot,
+      READER_SHARE_STAGING_ROOT: shareStagingRoot,
       READER_RELEASE_QA: '1'
     },
     stdio: ['ignore', 'ignore', 'pipe']
@@ -156,6 +159,7 @@ export async function launchPackagedReader({
     chromiumRoot,
     executable,
     readerRoot: resolvedReaderRoot,
+    shareStagingRoot,
     async close() {
       if (closed) return;
       closed = true;

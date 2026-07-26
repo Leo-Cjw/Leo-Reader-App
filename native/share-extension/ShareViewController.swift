@@ -20,6 +20,7 @@ final class ReaderShareViewController: NSViewController {
         super.viewDidAppear()
         guard !started else { return }
         started = true
+        ReaderShareFile.cleanupExpired()
         loadSharedContent()
     }
 
@@ -28,10 +29,35 @@ final class ReaderShareViewController: NSViewController {
             .flatMap { $0.attachments ?? [] }
         if let provider = providers.first(where: {
             $0.hasItemConformingToTypeIdentifier(UTType.url.identifier)
+                && !$0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
         }) {
             provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, _ in
                 DispatchQueue.main.async {
                     self?.finish(ReaderShareURL.normalize(item).flatMap(ReaderShareURL.deepLink))
+                }
+            }
+            return
+        }
+        if let selection = providers.lazy.compactMap({ provider in
+            ReaderShareFile.preferredTypeIdentifier(for: provider).map { (provider, $0) }
+        }).first {
+            let (provider, typeIdentifier) = selection
+            let suggestedName = provider.suggestedName
+            provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { [weak self] url, _ in
+                guard let url else {
+                    DispatchQueue.main.async { self?.finish(nil) }
+                    return
+                }
+                let manifest = try? ReaderShareFile.stage(
+                    sourceURL: url,
+                    suggestedName: suggestedName,
+                    typeIdentifier: typeIdentifier
+                )
+                DispatchQueue.main.async {
+                    self?.finish(
+                        manifest.flatMap { ReaderShareURL.deepLink(forFileToken: $0.token) },
+                        stagedToken: manifest?.token
+                    )
                 }
             }
             return
@@ -49,13 +75,14 @@ final class ReaderShareViewController: NSViewController {
         finish(nil)
     }
 
-    private func finish(_ deepLink: URL?) {
+    private func finish(_ deepLink: URL?, stagedToken: String? = nil) {
         guard let deepLink,
               NSWorkspace.shared.open(deepLink) else {
+            if let stagedToken { ReaderShareFile.discard(token: stagedToken) }
             let error = NSError(
                 domain: "com.reader.localfirst.share-extension",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "无法把内容交给 Reader。请确认 Reader 已安装，且选中文本不超过 4 KiB。"]
+                userInfo: [NSLocalizedDescriptionKey: "无法把内容交给 Reader。请确认 Reader 已安装；文本不能超过 4 KiB，文件不能超过 100 MB。"]
             )
             extensionContext?.cancelRequest(withError: error)
             return

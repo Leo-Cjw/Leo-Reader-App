@@ -5,6 +5,7 @@ import { DESKTOP_COMMANDS, extractReaderAddDeepLink, extractReaderOpenDeepLink, 
 import { createDesktopBackgroundCoordinator } from './background-state.mjs';
 import { createRendererRecoveryController } from './renderer-recovery.mjs';
 import { createImportNotificationController, createSourceSyncNotificationController } from './notifications.mjs';
+import { createSharedFileManager, standardShareStagingRoot } from './shared-files.mjs';
 import { createUpdateController } from './updates.mjs';
 
 app.enableSandbox();
@@ -17,6 +18,7 @@ let mainWindow = null;
 let readerServer = null;
 let backgroundCoordinator = null;
 let updateController = null;
+let sharedFileManager = null;
 let appOrigin = '';
 let shutdownStarted = false;
 let rendererReady = false;
@@ -83,7 +85,7 @@ function flushPendingAddRequests() {
 function queueAddRequest(request) {
   if (!request || pendingAddRequests.length >= 20) return;
   const duplicate = pendingAddRequests.some((item) => item.kind === request.kind
-    && (item.kind === 'url' ? item.url === request.url : item.text === request.text));
+    && (item.kind === 'url' ? item.url === request.url : item.kind === 'text' ? item.text === request.text : item.token === request.token));
   if (!duplicate) pendingAddRequests.push(request);
   flushPendingAddRequests();
 }
@@ -274,6 +276,18 @@ function installIPCHandlers() {
     focusMainWindow();
     return Boolean(mainWindow && !mainWindow.isDestroyed());
   });
+  ipcMain.handle('reader:inspect-shared-file', async (event, token) => {
+    if (!isTrustedSender(event) || !sharedFileManager) return null;
+    return await sharedFileManager.inspect(token);
+  });
+  ipcMain.handle('reader:import-shared-file', async (event, token, collectionId) => {
+    if (!isTrustedSender(event) || !sharedFileManager) throw new Error('分享文件不可用');
+    return await sharedFileManager.upload(token, collectionId);
+  });
+  ipcMain.handle('reader:discard-shared-file', async (event, token) => {
+    if (!isTrustedSender(event) || !sharedFileManager) return false;
+    return await sharedFileManager.discard(token);
+  });
 }
 
 async function createWindow() {
@@ -340,6 +354,14 @@ async function startReader() {
   });
   await updateController.start();
   appOrigin = `http://127.0.0.1:${address.port}`;
+  const qaShareRoot = process.env.READER_RELEASE_QA === '1' && path.isAbsolute(process.env.READER_SHARE_STAGING_ROOT || '')
+    ? path.resolve(process.env.READER_SHARE_STAGING_ROOT)
+    : '';
+  sharedFileManager = createSharedFileManager({
+    stagingRoot: qaShareRoot || standardShareStagingRoot(app.getPath('home')),
+    appOrigin
+  });
+  await sharedFileManager.cleanupExpired();
   installMenu();
   configureSession();
   installIPCHandlers();

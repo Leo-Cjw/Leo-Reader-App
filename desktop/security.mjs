@@ -2,6 +2,7 @@ import path from 'node:path';
 
 export const READER_PROTOCOL_SCHEME = 'reader-local';
 export const MAX_READER_SHARED_TEXT_BYTES = 4_096;
+export const READER_SHARED_FILE_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export const DESKTOP_COMMANDS = new Set([
   'new',
@@ -62,19 +63,23 @@ export function parseReaderAddDeepLink(candidate) {
       || deepLink.password
       || deepLink.port
       || deepLink.hash
-      || [...deepLink.searchParams.keys()].some((key) => key !== 'url' && key !== 'text')) return null;
+      || [...deepLink.searchParams.keys()].some((key) => key !== 'url' && key !== 'text' && key !== 'file')) return null;
     const urls = deepLink.searchParams.getAll('url');
     const texts = deepLink.searchParams.getAll('text');
-    if (urls.length === 1 && texts.length === 0) {
+    const files = deepLink.searchParams.getAll('file');
+    if (urls.length === 1 && texts.length === 0 && files.length === 0) {
       const targetValue = urls[0].trim();
       if (!targetValue || targetValue.length > 2048) return null;
       const target = new URL(targetValue);
       if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password) return null;
       return { kind: 'url', url: target.toString() };
     }
-    if (texts.length === 1 && urls.length === 0) {
+    if (texts.length === 1 && urls.length === 0 && files.length === 0) {
       const text = parseSharedText(texts[0]);
       return text === null ? null : { kind: 'text', text };
+    }
+    if (files.length === 1 && urls.length === 0 && texts.length === 0 && READER_SHARED_FILE_TOKEN_PATTERN.test(files[0])) {
+      return { kind: 'file', token: files[0] };
     }
     return null;
   } catch {
