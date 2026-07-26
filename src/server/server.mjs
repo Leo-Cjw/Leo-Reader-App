@@ -157,8 +157,7 @@ function publicPendingRestore(marker) {
   return safe;
 }
 
-function assertTrustedLoopbackRequest(request, server, host, configuredPort) {
-  if (host !== '127.0.0.1') return;
+function assertTrustedLoopbackRequest(request, server, configuredPort) {
   const address = server.address();
   const activePort = address && typeof address === 'object' ? address.port : configuredPort;
   const authority = `127.0.0.1:${activePort}`;
@@ -203,6 +202,7 @@ export async function createReaderServer({
   embeddingClient = null,
   semanticSearchService = null
 } = {}) {
+  if (host !== '127.0.0.1') throw new TypeError('Reader 仅允许监听 127.0.0.1');
   const dataRoot = path.join(rootDir, 'data');
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
   await chmod(dataRoot, 0o700);
@@ -294,7 +294,7 @@ export async function createReaderServer({
     let requestPath = '/';
     const requestMethod = request.method || 'GET';
     try {
-      assertTrustedLoopbackRequest(request, server, host, port);
+      assertTrustedLoopbackRequest(request, server, port);
       const url = new URL(request.url || '/', `http://${request.headers.host || `${host}:${port}`}`);
       const method = requestMethod;
       const pathname = decodeURIComponent(url.pathname);

@@ -36,6 +36,8 @@ flowchart LR
 
 0.54.0 在回环服务的统一请求入口加入浏览器来源边界。默认 `127.0.0.1` 模式从已监听 socket 取得本轮随机端口，要求 HTTP `Host` 精确等于该 authority；请求带 `Origin` 时必须等于同一随机 origin，带 `Sec-Fetch-Site` 时只接受 `same-origin` 或顶层导航的 `none`。校验位于 URL 解析、路由、请求体读取和数据库访问之前，因此 DNS rebinding、跨 origin 表单/fetch 和伪造 Fetch Metadata 都不能触达读写 API。Electron、Share 文件桥和本机测试使用精确回环地址；不带浏览器来源头的同机 Node/CLI 调用保持兼容。显式改变 `READER_HOST` 会离开这项默认回环边界。
 
+0.55.0 移除上述可绕过监听边界：服务构造只接受精确 `127.0.0.1`，包括 `0.0.0.0`、主机名与 IPv6 在内的其他值都会在创建数据目录、打开 SQLite、启动后台服务或创建监听 socket 之前失败。桌面主进程继续显式使用随机 IPv4 回环端口，源码服务入口即使收到非回环 `READER_HOST` 也不能把无账号 API 暴露到局域网或公网。最终包门禁会主动注入 `READER_HOST=0.0.0.0`，并要求候选 App 的实际 origin 仍为 `127.0.0.1`。
+
 0.35.0 在打包元数据中注册唯一的 `reader-local` URL scheme，作为浏览器、快捷指令和 Share Extension 的外部保存边界。主进程在 `ready` 前监听 macOS `open-url`，并同时从冷启动/第二实例 argv 中提取候选。URL 路径只接受 `reader-local://add`、唯一 `url` 参数、最长 2,048 字符且不含用户名或密码的 HTTP(S) 目标。未知动作、重复/额外参数、外层 fragment、其他目标协议和畸形输入直接忽略。
 
 0.45.0 在同一动作下增加与 URL 互斥的唯一 `text` 参数。扩展把最多 4,096 UTF-8 bytes、非空且不含禁止控制字符的文本编码为无 padding 的规范 Base64URL；Electron 主进程严格解码、执行 fatal UTF-8 与重新编码一致性检查，preload 再次验证请求形状、字节数和控制字符。混合、重复、额外、非规范或超限参数均被拒绝。

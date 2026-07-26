@@ -2,9 +2,9 @@
 
 ## 默认信任模型
 
-Reader 默认只监听 `127.0.0.1`。本地 HTTP API 没有账号系统，安全前提是服务不暴露到局域网或公网。不要在不了解风险时修改 `READER_HOST`。
+Reader 只监听精确的 IPv4 回环地址 `127.0.0.1`。本地 HTTP API 没有账号系统，因此服务构造会在任何数据目录、SQLite、后台任务或 socket 初始化之前拒绝 `0.0.0.0`、主机名、IPv6 和其他监听地址；`READER_HOST` 不能用于把服务暴露到局域网或公网。
 
-默认回环模式要求每个请求的 `Host` 精确匹配本轮实际随机端口，阻止把攻击者域名 DNS rebinding 到 Reader。浏览器发送 `Origin` 时只能是同一回环 origin；发送 `Sec-Fetch-Site` 时只能是 `same-origin` 或 `none`。三项检查在 URL、路由、请求体和 SQLite 之前执行，失败统一返回 403。没有浏览器来源头的 Electron 主进程、Share 文件桥与同机 CLI 仍可调用；这不是面向已经取得当前用户权限进程的身份认证，显式修改 `READER_HOST` 也会脱离这项默认保护。
+回环服务要求每个请求的 `Host` 精确匹配本轮实际随机端口，阻止把攻击者域名 DNS rebinding 到 Reader。浏览器发送 `Origin` 时只能是同一回环 origin；发送 `Sec-Fetch-Site` 时只能是 `same-origin` 或 `none`。三项检查在 URL、路由、请求体和 SQLite 之前执行，失败统一返回 403。没有浏览器来源头的 Electron 主进程、Share 文件桥与同机 CLI 仍可调用；这不是面向已经取得当前用户权限进程的身份认证。
 
 Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WAL/SHM 文件设为 `0600`。这限制其他本机用户直接读取资料库，但不能防御已经取得当前用户权限或设备解锁权限的进程。
 
@@ -212,4 +212,4 @@ npm run qa:share
 npm run qa:upgrade
 ```
 
-0.54.0 的依赖审计、147 项自动测试、词法/多探针向量双性能门禁、确定性语义分离/近邻召回集、最终包版本身份、回环来源、AX、Share 和跨版本升级门禁均记录在对应发行说明。新增真实 HTTP 与最终候选 App 回归覆盖 DNS rebinding Host、恶意 Origin、`Sec-Fetch-Site: cross-site`、拒绝后的资料库零写入和精确同源正常写入；0.53 的 Bundle 发行身份、0.52 的创建时备份验证、0.51 的自动恢复点和全部既有恢复门禁继续执行。0.54.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。
+0.55.0 的依赖审计、148 项自动测试、词法/多探针向量双性能门禁、确定性语义分离/近邻召回集、最终包版本身份、回环监听/来源、AX、Share 和跨版本升级门禁均记录在对应发行说明。新增回归要求所有非 `127.0.0.1` 监听配置在触碰数据根之前失败，最终候选 App 即使继承恶意 `READER_HOST=0.0.0.0` 也必须回读为随机 IPv4 回环 origin；0.54 的 DNS rebinding Host、恶意 Origin、Fetch Metadata、零写入与精确同源请求门禁继续执行。0.53 的 Bundle 发行身份、0.52 的创建时备份验证、0.51 的自动恢复点和全部既有恢复门禁也继续执行。0.55.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。

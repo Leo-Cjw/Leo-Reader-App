@@ -3,6 +3,7 @@ import http from 'node:http';
 import { launchPackagedReader, packagedReaderApp } from './lib/packaged-reader-qa.mjs';
 
 const appPath = packagedReaderApp(process.argv[2]);
+process.env.READER_HOST = '0.0.0.0';
 
 async function requestJSON(url, { method = 'GET', headers = {}, body = '' } = {}) {
   return await new Promise((resolve, reject) => {
@@ -25,7 +26,9 @@ let session;
 try {
   session = await launchPackagedReader({ appPath, prefix: 'reader-packaged-loopback-' });
   const origin = await session.client.value('location.origin');
-  const authority = new URL(origin).host;
+  const localURL = new URL(origin);
+  assert.equal(localURL.hostname, '127.0.0.1');
+  const authority = localURL.host;
   const before = (await requestJSON(`${origin}/api/stats`)).body.stats.total;
   const payload = JSON.stringify({ mode: 'markdown', title: 'Blocked cross-site write', content: 'Must not persist.' });
 
@@ -51,6 +54,7 @@ try {
   assert.equal((await requestJSON(`${origin}/api/stats`)).body.stats.total, before + 1);
 
   console.log('Reader 最终包回环来源门禁通过');
+  console.log('non-loopback listener override=blocked');
   console.log('dns rebinding host=blocked');
   console.log('cross-origin write=blocked');
   console.log('cross-site read=blocked');

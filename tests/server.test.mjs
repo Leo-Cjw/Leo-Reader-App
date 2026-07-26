@@ -97,7 +97,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.automaticBackupPauseReasons, ['low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '0.54.0');
+  assert.equal(APP_VERSION, '0.55.0');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });
@@ -356,6 +356,20 @@ test('loopback API rejects DNS rebinding and cross-site browser requests before 
   });
   assert.equal(trusted.response.status, 201);
   assert.equal((await app.database.stats()).total, initialTotal + 1);
+});
+
+test('server rejects every non-127.0.0.1 listener before touching the data root', async (t) => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'reader-listener-boundary-'));
+  const root = path.join(parent, 'ReaderData');
+  t.after(() => rm(parent, { recursive: true, force: true }));
+
+  for (const host of ['0.0.0.0', 'localhost', '::1']) {
+    await assert.rejects(
+      createReaderServer({ rootDir: root, dbPath: path.join(root, 'data', 'reader.sqlite3'), host, port: 0 }),
+      /仅允许监听 127\.0\.0\.1/
+    );
+  }
+  await assert.rejects(stat(root), { code: 'ENOENT' });
 });
 
 test('migration snapshots are listed without private paths and can be exported safely', async (t) => {
