@@ -238,6 +238,26 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(main, /app\.on\('continue-activity'/);
 });
 
+test('desktop shutdown stops update ingress before draining local work', async () => {
+  const main = await readFile(path.join(projectRoot, 'desktop', 'main.mjs'), 'utf8');
+  const start = main.indexOf('async function closeReader()');
+  const end = main.indexOf('\n\nfunction sendCommand', start);
+  const closeReader = main.slice(start, end);
+  const stopUpdates = closeReader.indexOf('updateController?.stop()');
+  const stopBackground = closeReader.indexOf('backgroundCoordinator?.stop()');
+  const drainServer = closeReader.indexOf('if (server) await server.close()');
+  const clearUpdates = closeReader.indexOf('updateController = null');
+
+  assert.ok(
+    start >= 0
+      && end > start
+      && stopUpdates >= 0
+      && stopUpdates < stopBackground
+      && stopBackground < drainServer
+      && drainServer < clearUpdates
+  );
+});
+
 test('focused reading windows use narrow trusted IPC, deduplicate by article and stay read-only', async () => {
   const main = await readFile(path.join(projectRoot, 'desktop', 'main.mjs'), 'utf8');
   const preload = await readFile(path.join(projectRoot, 'desktop', 'preload.cjs'), 'utf8');

@@ -46,6 +46,8 @@ flowchart LR
 
 0.60.0 收紧正式更新的本机信任前提。运行时不再仅用 `codesign --display` 读取可残留在无效包上的 authority 元数据，而是先对当前主 App 运行 `codesign --verify --deep --strict --verbose=4`；完整包验证成功后才读取 Developer ID Application authority 与有效 Team Identifier。验证或元数据读取任一步失败都不会设置更新 feed、创建检查定时器或联系更新服务。两步检查继续使用固定可执行文件、10 秒超时与 256 KiB 输出上限；有效 ad-hoc 包仍因缺少 Developer ID 身份保持离线。
 
+0.61.0 把桌面退出的更新入口 quiescing 提前到本地服务 drain 之前。`closeReader()` 首先停止更新检查定时器并移除 updater 事件监听，再停止电源/网络后台协调，最后等待已经进入的 HTTP 请求与资料库后台事务自然完成；长导入、备份或索引收尾期间不会再接收下载完成事件或弹出新的安装提示。controller 引用只在 server close 成功后清空，因此由更新安装触发的关闭若失败，既有下载状态仍可按 0.59 的规则再次确认。
+
 0.35.0 在打包元数据中注册唯一的 `reader-local` URL scheme，作为浏览器、快捷指令和 Share Extension 的外部保存边界。主进程在 `ready` 前监听 macOS `open-url`，并同时从冷启动/第二实例 argv 中提取候选。URL 路径只接受 `reader-local://add`、唯一 `url` 参数、最长 2,048 字符且不含用户名或密码的 HTTP(S) 目标。未知动作、重复/额外参数、外层 fragment、其他目标协议和畸形输入直接忽略。
 
 0.45.0 在同一动作下增加与 URL 互斥的唯一 `text` 参数。扩展把最多 4,096 UTF-8 bytes、非空且不含禁止控制字符的文本编码为无 padding 的规范 Base64URL；Electron 主进程严格解码、执行 fatal UTF-8 与重新编码一致性检查，preload 再次验证请求形状、字节数和控制字符。混合、重复、额外、非规范或超限参数均被拒绝。

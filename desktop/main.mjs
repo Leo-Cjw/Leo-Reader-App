@@ -44,12 +44,12 @@ const sourceSyncNotificationController = createSourceSyncNotificationController(
 });
 
 async function closeReader() {
+  updateController?.stop();
   backgroundCoordinator?.stop();
   backgroundCoordinator = null;
   const server = readerServer;
   if (server) await server.close();
   if (readerServer === server) readerServer = null;
-  updateController?.stop();
   updateController = null;
 }
 
