@@ -4,7 +4,29 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ReaderDatabase } from '../src/server/db.mjs';
-import { localizeImportedResources } from '../src/server/import-worker.mjs';
+import { isBrokenImportedArticle, localizeImportedResources } from '../src/server/import-worker.mjs';
+
+test('v1 WeChat imports are eligible for an in-place formatting upgrade', () => {
+  assert.equal(isBrokenImportedArticle({ metadata: { extractor: 'wechat-article-v1' } }), true);
+  assert.equal(isBrokenImportedArticle({ metadata: { extractor: 'wechat-article-v2' } }), false);
+});
+
+test('a formatting upgrade hides a superseded lead image without deleting the attachment', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'reader-import-upgrade-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const db = await new ReaderDatabase(path.join(root, 'reader.sqlite3')).initialize();
+  const article = await db.createArticle({
+    title: 'WeChat v1',
+    content: '旧正文',
+    metadata: { extractor: 'wechat-article-v1', leadAttachmentId: 'old-lead' }
+  });
+  const finalized = await localizeImportedResources(db, article, {
+    content: '新版正文',
+    metadata: { extractor: 'wechat-article-v2', leadImage: null, inlineImageCount: 0, inlineImages: [] }
+  }, { filesDir: path.join(root, 'files') });
+  assert.equal(finalized.metadata.leadAttachmentId, null);
+  assert.deepEqual(finalized.metadata.hiddenAttachmentIds, ['old-lead']);
+});
 
 test('URL import finalization rewrites local images, preserves failures as links and keeps one baseline revision', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'reader-import-resources-'));

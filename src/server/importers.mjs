@@ -2,6 +2,7 @@ import dns from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import { Readability } from '@mozilla/readability';
@@ -83,7 +84,20 @@ function normalizedHostname(url) {
   return url.hostname.startsWith('[') && url.hostname.endsWith(']') ? url.hostname.slice(1, -1) : url.hostname;
 }
 
-export async function resolvePublicURL(value, { lookup = dns.lookup } = {}) {
+function isBenchmarkAddress(address) {
+  return net.isIPv4(address) && inIPv4Range(address, '198.18.0.0', 15);
+}
+
+function isMacOSTunnelAddress(address) {
+  if (process.platform !== 'darwin') return Promise.resolve(false);
+  return new Promise((resolve) => {
+    execFile('/sbin/route', ['-n', 'get', address], { encoding: 'utf8', timeout: 1000, maxBuffer: 16 * 1024 }, (error, stdout) => {
+      resolve(!error && /^\s*interface:\s*utun\d+\s*$/m.test(stdout));
+    });
+  });
+}
+
+export async function resolvePublicURL(value, { lookup = dns.lookup, isTunnelAddress = isMacOSTunnelAddress } = {}) {
   let url;
   try { url = new URL(value); }
   catch { throw new Error('URL 格式不正确'); }
@@ -97,7 +111,13 @@ export async function resolvePublicURL(value, { lookup = dns.lookup } = {}) {
     const address = String(entry?.address || '');
     return [address, { address, family: net.isIP(address) }];
   })).values()].filter((entry) => entry.family);
-  if (!addresses.length || addresses.some((entry) => isPrivateAddress(entry.address))) throw new Error('不允许访问私有网络地址');
+  const nonPublic = addresses.filter((entry) => isPrivateAddress(entry.address));
+  const tunneledFakeIP = !directIP.length && url.protocol === 'https:' && nonPublic.length === addresses.length
+    && nonPublic.every((entry) => isBenchmarkAddress(entry.address))
+    && (await Promise.all(nonPublic.map((entry) => isTunnelAddress(entry.address)))).every(Boolean);
+  if (!addresses.length || (nonPublic.length && !tunneledFakeIP)) {
+    throw new Error(directIP.length ? '不允许访问非公网网络地址' : '域名当前解析到非公网地址；请检查代理或 DNS 设置');
+  }
   url.hash = '';
   return { url, addresses };
 }
@@ -386,6 +406,7 @@ export function isWeChatVerificationPage(html, finalURL = '') {
 
 function prepareReadableMarkdown(contentHTML, canonicalURL) {
   const { document } = parseHTML(`<html><head><base href="${canonicalURL.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"></head><body>${contentHTML}</body></html>`);
+  const tablePipeToken = '\uE000';
   const inlineImages = [];
   const imageTokens = new Map();
   const sourceURLs = new Set();
@@ -411,6 +432,21 @@ function prepareReadableMarkdown(contentHTML, canonicalURL) {
   }
   for (const source of document.querySelectorAll('picture source')) source.remove();
 
+  // WeChat code samples use <br> elements inside nested spans. linkedom's
+  // textContent intentionally omits those visual line breaks, so preserve them
+  // before Turndown reads the <pre><code> text.
+  for (const pre of document.querySelectorAll('pre')) {
+    for (const lineBreak of pre.querySelectorAll('br')) lineBreak.replaceWith(document.createTextNode('\n'));
+  }
+
+  // WeChat tables wrap cell text in block-level sections. GFM tables cannot
+  // contain those internal newlines, so reduce each cell to its displayed text
+  // while retaining the table's rows, header cells and column boundaries.
+  for (const cell of document.querySelectorAll('th,td')) {
+    for (const lineBreak of cell.querySelectorAll('br')) lineBreak.replaceWith(document.createTextNode(' '));
+    cell.textContent = (cell.textContent || '').replace(/\s+/g, ' ').trim().replaceAll('|', tablePipeToken);
+  }
+
   const turndown = new TurndownService({
     headingStyle: 'atx',
     bulletListMarker: '-',
@@ -428,7 +464,7 @@ function prepareReadableMarkdown(contentHTML, canonicalURL) {
     }
   });
   return {
-    markdown: turndown.turndown(document.body.innerHTML).replace(/\n{3,}/g, '\n\n').trim(),
+    markdown: turndown.turndown(document.body.innerHTML).replaceAll(tablePipeToken, '\\|').replace(/\n{3,}/g, '\n\n').trim(),
     inlineImages,
     inlineImageTotal: sourceURLs.size
   };
@@ -447,7 +483,9 @@ export function extractWeChatArticle(html, canonicalURL) {
   const author = (document.querySelector('#js_author_name_text')?.textContent || metaContent(document, ['meta[name="author"]'])).trim();
   const accountName = (document.querySelector('#js_name')?.textContent || '').replace(/\s+/g, ' ').trim() || '微信公众号';
   const description = metaContent(document, ['meta[name="description"]', 'meta[property="og:description"]']);
-  const leadImage = absoluteURL(metaContent(document, ['meta[property="og:image"]', 'meta[name="twitter:image"]']), canonicalURL);
+  const leadImage = prepared.inlineImages.length
+    ? null
+    : absoluteURL(metaContent(document, ['meta[property="og:image"]', 'meta[name="twitter:image"]']), canonicalURL);
   const timestamp = Number(html.match(/var\s+(?:ct|create_time)\s*=\s*["']?(\d{10})/)?.[1] || 0);
   return {
     url: normalizeWeChatURL(canonicalURL),
@@ -461,7 +499,7 @@ export function extractWeChatArticle(html, canonicalURL) {
     content: prepared.markdown,
     metadata: {
       importedAt: new Date().toISOString(),
-      extractor: 'wechat-article-v1',
+      extractor: 'wechat-article-v2',
       platform: 'wechat',
       accountName,
       leadImage,

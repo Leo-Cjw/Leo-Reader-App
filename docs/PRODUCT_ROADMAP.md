@@ -1,8 +1,8 @@
 # 成熟产品路线图
 
-## 当前基线：Reader for Mac 1.0.0 Candidate
+## 当前基线：Reader for Mac 1.0.1 Candidate
 
-已完成可运行的 local-first 主链路：本地 SQLite、数据迁移、正文高亮与批注、文章/目录/标签、收藏与阅读状态、URL/RSS/YouTube/X/微博/Markdown 采集、全文搜索、阅读器、明暗主题和 AI 工作台。1.0.0 候选将 0.64 的 AI 跨存储一致读取与既有数据兼容门禁作为稳定基线，并增加 Node.js 24 的最小 macOS CI：每次 `main` 推送和面向 `main` 的 pull request 均执行确定性安装、生产依赖审计、自动测试和生产构建。Schema 继续保持 v12，设置格式继续为 version 1。全部 14 个顶层模态 AX、Share 文件与 0.43 冻结资料库升级门禁继续执行；CI 不打包、不签名、不公证、不发布。正式发行仍需真实 Apple 凭据和真机验收。
+已完成可运行的 local-first 主链路：本地 SQLite、数据迁移、正文高亮与批注、文章/目录/标签、收藏与阅读状态、URL/RSS/YouTube/X/微博/Markdown 采集、全文搜索、阅读器、明暗主题和 AI 工作台。1.0.1 候选在 1.0.0 的稳定基线上补齐微信文章的表格/代码块语义保留、受控 macOS 透明代理兼容和新版应用图标；Node.js 24 的最小 macOS CI 继续在每次 `main` 推送和面向 `main` 的 pull request 执行确定性安装、生产依赖审计、自动测试和生产构建。Schema 继续保持 v12，设置格式继续为 version 1。全部 14 个顶层模态 AX、Share 文件与 0.43 冻结资料库升级门禁继续执行；CI 不打包、不签名、不公证、不发布。正式发行仍需真实 Apple 凭据和真机验收。
 
 ## M2：完整内容采集（进行中）
 

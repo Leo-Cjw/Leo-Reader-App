@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import readerLogo from '../../design/logo/reader-logo-future-v1-1024.png';
 import { api } from './api';
 import type { AIModel, AIProviderPreset, AIProvenance, AISettings, AIStatus, Article, ArticleRevision, ArticleRevisionSummary, ArticleSummary, Attachment, AutomaticBackupStatus, BackgroundWorkState, Backup, Collection, ConnectorStatus, DataHealth, DiagnosticEntry, DiagnosticsSnapshot, DuplicateGroup, Highlight, HighlightColor, ImportJob, MigrationSnapshot, NotificationSettings, PendingRestore, PortableImportPreview, RAGCitation, SemanticSearchStatus, SmartCollection, SmartCollectionRule, Source, SpotlightSettings, Stats, SummaryResult, Tag, View } from './types';
 
@@ -435,7 +436,7 @@ function Sidebar({ view, setView, collectionId, setCollectionId, smartCollection
     if (targetId) focusCollection(targetId);
   };
   return <aside className="sidebar" aria-label="产品导航">
-    <div className="brand-row"><div className="brand"><span className="brand-mark">R</span><strong>Reader</strong></div><button className="icon-button" type="button" aria-label="添加内容" onClick={onAdd}>＋</button></div>
+    <div className="brand-row"><div className="brand"><img className="brand-mark" src={readerLogo} alt=""/><strong>Reader</strong></div><button className="icon-button" type="button" aria-label="添加内容" onClick={onAdd}>＋</button></div>
     <nav className="nav-stack" aria-label="资料库">
       {items.map((item) => <button key={item.view} type="button" aria-current={view === item.view && !collectionId && !smartCollectionId && !tagFilter ? 'page' : undefined} className={`nav-item ${view === item.view && !collectionId && !smartCollectionId && !tagFilter ? 'active' : ''}`} onClick={() => { setView(item.view); setCollectionId(null); setSmartCollectionId(null); setTagFilter(''); }}>
         <span className="nav-glyph">{item.glyph}</span><span className="nav-label">{viewLabels[item.view]}</span><span className="nav-count">{item.count}</span>
@@ -773,9 +774,10 @@ function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDis
   if (!article) return <main className="reader-pane empty-reader" aria-label="阅读器" aria-busy={Boolean(loadingTitle)}><div><strong>{loadingTitle ? `正在载入“${loadingTitle}”` : readOnly ? '无法载入这篇内容' : '选择一篇内容开始阅读'}</strong><span>{loadingTitle ? '正文从本地资料库读取，完成后会自动显示。' : readOnly ? '内容可能已从资料库移除。' : '阅读进度、收藏和批注都会保存在本地。'}</span>{readOnly && onFocusLibrary && <button className="button" type="button" onClick={onFocusLibrary}>返回资料库</button>}</div></main>;
   const embeddedIds = new Set(Array.isArray(article.metadata?.embeddedAttachmentIds) ? article.metadata.embeddedAttachmentIds.filter((id): id is string => typeof id === 'string') : []);
   for (const attachment of article.attachments || []) if (article.content.includes(attachment.url) || (attachment.thumbnail_url && article.content.includes(attachment.thumbnail_url))) embeddedIds.add(attachment.id);
+  const hiddenAttachmentIds = new Set(Array.isArray(article.metadata?.hiddenAttachmentIds) ? article.metadata.hiddenAttachmentIds.filter((id): id is string => typeof id === 'string') : []);
   const leadAttachmentId = typeof article.metadata?.leadAttachmentId === 'string' ? article.metadata.leadAttachmentId : '';
-  const leadAttachment = embeddedIds.has(leadAttachmentId) ? undefined : article.attachments?.find((attachment) => attachment.id === leadAttachmentId);
-  const standaloneAttachments = article.attachments?.filter((attachment) => attachment.id !== leadAttachmentId && !embeddedIds.has(attachment.id)) || [];
+  const leadAttachment = embeddedIds.has(leadAttachmentId) || hiddenAttachmentIds.has(leadAttachmentId) ? undefined : article.attachments?.find((attachment) => attachment.id === leadAttachmentId);
+  const standaloneAttachments = article.attachments?.filter((attachment) => attachment.id !== leadAttachmentId && !embeddedIds.has(attachment.id) && !hiddenAttachmentIds.has(attachment.id)) || [];
   const offline = offlineDescriptor(article);
   const provenance = articleProvenance(article);
   const collectionRows = flattenedCollections(collections);

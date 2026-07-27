@@ -15,7 +15,9 @@ export function replaceUnlocalizedImage(content, descriptor) {
 
 export function isBrokenImportedArticle(article) {
   const body = `${article?.title || ''}\n${article?.content || ''}`;
-  return article?.metadata?.importState === 'needs-reimport' || (/mp\.weixin\.qq\.com/i.test(`${article?.source || ''} ${article?.url || ''}`) && /环境异常|去验证/.test(body));
+  return article?.metadata?.importState === 'needs-reimport'
+    || article?.metadata?.extractor === 'wechat-article-v1'
+    || (/mp\.weixin\.qq\.com/i.test(`${article?.source || ''} ${article?.url || ''}`) && /环境异常|去验证/.test(body));
 }
 
 export async function localizeImportedResources(database, article, imported, paths) {
@@ -28,6 +30,7 @@ export async function localizeImportedResources(database, article, imported, pat
   let localizedImageCount = 0;
   let content = imported.content;
   let leadAttachmentId = null;
+  const previousLeadAttachmentId = typeof article.metadata?.leadAttachmentId === 'string' ? article.metadata.leadAttachmentId : '';
 
   if (imported.metadata?.leadImage) {
     try {
@@ -71,12 +74,17 @@ export async function localizeImportedResources(database, article, imported, pat
   const expectedResources = inlineTotal + (imported.metadata?.leadImage ? 1 : 0);
   const offlineResourceStatus = failures.length === 0 ? 'complete' : localizedImageCount > 0 ? 'partial' : expectedResources > 0 ? 'text-only' : 'complete';
   const { inlineImages: _inlineImages, ...baseMetadata } = imported.metadata || {};
+  const hiddenAttachmentIds = [...new Set([
+    ...(Array.isArray(article.metadata?.hiddenAttachmentIds) ? article.metadata.hiddenAttachmentIds : []),
+    ...(previousLeadAttachmentId && previousLeadAttachmentId !== leadAttachmentId && (leadAttachmentId || !imported.metadata?.leadImage) ? [previousLeadAttachmentId] : [])
+  ].filter((id) => typeof id === 'string' && id && id !== leadAttachmentId))];
   return {
     content,
     metadata: {
       ...baseMetadata,
       leadImageLocalized: Boolean(leadAttachmentId) || !imported.metadata?.leadImage,
       leadAttachmentId,
+      hiddenAttachmentIds,
       embeddedAttachmentIds,
       localizedImageCount,
       localizedAttachmentCount: localizedAttachmentIds.size,

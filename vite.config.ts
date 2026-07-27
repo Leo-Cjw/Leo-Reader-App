@@ -14,7 +14,15 @@ export default defineConfig({
     port: 4311,
     strictPort: true,
     proxy: {
-      '/api': 'http://127.0.0.1:4312'
+      '/api': {
+        target: 'http://127.0.0.1:4312',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (request) => {
+            if (request.getHeader('origin')) request.setHeader('origin', 'http://127.0.0.1:4312');
+          });
+        }
+      }
     }
   }
 });

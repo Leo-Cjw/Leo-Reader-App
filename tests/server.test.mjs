@@ -98,6 +98,13 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
     semanticSearchPauseReasons: [],
     automaticBackupPauseReasons: []
   });
+  const blockedURLImport = await json(`${base}/api/import-jobs`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ kind: 'url', url: 'http://127.0.0.1/private' })
+  });
+  assert.equal(blockedURLImport.response.status, 400);
+  assert.deepEqual(blockedURLImport.body, { error: '不允许访问非公网网络地址' });
+  assert.deepEqual((await json(`${base}/api/import-jobs`)).body.jobs, []);
   await app.setBackgroundWorkState({ online: false, lowBattery: true });
   const constrainedHealth = await json(`${base}/api/health`);
   assert.equal(constrainedHealth.body.background.importsPaused, false);
@@ -109,7 +116,7 @@ test('HTTP API covers health, articles, updates, search and local AI', async (t)
   assert.deepEqual(constrainedHealth.body.background.automaticBackupPauseReasons, ['low-battery']);
   await app.setBackgroundWorkState({ online: true, lowBattery: false });
   const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(APP_VERSION, '1.0.0');
+  assert.equal(APP_VERSION, '1.0.1');
   assert.equal(packageMetadata.version, APP_VERSION);
 
   const dataHealth = await json(`${base}/api/data-health`, { method: 'POST' });

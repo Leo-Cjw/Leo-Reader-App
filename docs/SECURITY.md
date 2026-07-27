@@ -14,6 +14,7 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 
 - 仅允许 HTTP/HTTPS。
 - 每一跳解析全部 DNS 结果；任一结果属于环回、私网、链路本地、CGNAT、IPv6 ULA、保留地址或云元数据地址即拒绝。URL 中的用户名或密码也不被接受。
+- 仅在 macOS 上，HTTPS 域名的全部解析结果都落入 `198.18.0.0/15` 时，Reader 会额外确认该地址的系统路由接口为 `utun*`，以兼容透明代理的 Fake-IP 模式；直接输入该 IP、HTTP、混合 DNS 结果或非隧道路由仍一律拒绝。这不会放宽真实内网地址访问。
 - 实际 HTTP/HTTPS 连接只使用刚刚通过校验的具体公网 IP，并保留原域名完成 Host、TLS SNI 与证书身份验证；禁用跨请求连接复用。每次重定向重新解析并绑定，避免 DNS rebinding 在检查后把连接切换到内网。
 - 限制重定向次数；15 秒超时覆盖连接和完整响应体。gzip、deflate 与 Brotli 在解压后仍受 4 MB 正文或 12 MB 图片上限约束。
 - 代表图片和正文图片复用相同 SSRF 与跳转校验，单张限制为 12 MB、单篇本地化预算 48 MB，并同时核验 HTTP MIME 与 PNG/JPEG/WebP/GIF/AVIF/HEIC 文件签名。
@@ -219,4 +220,4 @@ npm run qa:share
 npm run qa:upgrade
 ```
 
-1.0.0 候选将依赖审计、自动测试、生产构建和最终包/数据兼容门禁记录在对应发行说明。新增受控并发回归确认 Keychain 已替换、非密钥设置仍暂停时，对外设置读取不会暴露混合状态，连接测试不会把新密钥发送到旧端点；旧网关请求数为 0，新网关只收到预期的新密钥。设置读取、连接测试和模型目录现在等待当前 AI 变更提交，运行中 AI 服务仍使用变更前的完整内存配置。0.63 的变更排序与补偿、0.62 的完整设置保存队列、既有 `0600` 权限、私有临时文件、原子 rename、默认关闭 opt-in 和 Keychain 不落盘边界不变。0.61 的退出更新入口 quiescing、0.60 的完整深度签名验证、0.59 的更新安装 single-flight、0.58 的服务退出 quiescing/single-flight，以及全部既有网络与恢复门禁继续执行。1.0.0 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。
+1.0.1 候选将依赖审计、自动测试、生产构建和最终包/数据兼容门禁记录在对应发行说明。新增受控并发回归确认 Keychain 已替换、非密钥设置仍暂停时，对外设置读取不会暴露混合状态，连接测试不会把新密钥发送到旧端点；旧网关请求数为 0，新网关只收到预期的新密钥。设置读取、连接测试和模型目录现在等待当前 AI 变更提交，运行中 AI 服务仍使用变更前的完整内存配置。0.63 的变更排序与补偿、0.62 的完整设置保存队列、既有 `0600` 权限、私有临时文件、原子 rename、默认关闭 opt-in 和 Keychain 不落盘边界不变。0.61 的退出更新入口 quiescing、0.60 的完整深度签名验证、0.59 的更新安装 single-flight、0.58 的服务退出 quiescing/single-flight，以及全部既有网络与恢复门禁继续执行。1.0.1 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。

@@ -34,10 +34,30 @@ test('public URL resolution rejects credentials and any mixed private DNS answer
     resolvePublicURL('https://rebind.test/article', {
       lookup: async () => [{ address: '93.184.216.34', family: 4 }, { address: '127.0.0.1', family: 4 }]
     }),
-    /私有网络/
+    /非公网/
   );
   await assert.rejects(assertPublicURL('https://user:secret@example.test/article', { lookup: publicLookup }), /用户名或密码/);
   assert.equal((await resolvePublicURL('https://[2606:4700:4700::1111]/dns-query')).addresses[0].family, 6);
+});
+
+test('HTTPS hostnames may use a benchmark Fake-IP only through a confirmed macOS tunnel', async () => {
+  const fakeLookup = async () => [{ address: '198.18.0.18', family: 4 }];
+  const tunneled = await resolvePublicURL('https://mp.weixin.qq.com/s/example', {
+    lookup: fakeLookup,
+    isTunnelAddress: async (address) => address === '198.18.0.18'
+  });
+  assert.deepEqual(tunneled.addresses, [{ address: '198.18.0.18', family: 4 }]);
+  await assert.rejects(resolvePublicURL('https://mp.weixin.qq.com/s/example', {
+    lookup: fakeLookup,
+    isTunnelAddress: async () => false
+  }), /非公网/);
+  await assert.rejects(resolvePublicURL('http://mp.weixin.qq.com/s/example', {
+    lookup: fakeLookup,
+    isTunnelAddress: async () => true
+  }), /非公网/);
+  await assert.rejects(resolvePublicURL('https://198.18.0.18/s/example', {
+    isTunnelAddress: async () => true
+  }), /非公网/);
 });
 
 test('pinned requests keep the original host and TLS identity while connecting only to the verified address', async () => {
@@ -173,12 +193,21 @@ test('WeChat extractor reads the dedicated article container and lazy images', (
   assert.equal(article.title, 'Loop Engineering 实践指南');
   assert.equal(article.source, '腾讯技术工程');
   assert.equal(article.author, '腾讯程序员');
-  assert.equal(article.metadata.extractor, 'wechat-article-v1');
+  assert.equal(article.metadata.extractor, 'wechat-article-v2');
   assert.equal(article.metadata.platform, 'wechat');
+  assert.equal(article.metadata.leadImage, null);
   assert.match(article.content, /## 自主循环系统/);
   assert.match(article.content, /!\[循环架构图\]\(__READER_LOCAL_IMAGE_0__\)/);
   assert.doesNotMatch(article.content, /隐藏噪声/);
   assert.deepEqual(article.metadata.inlineImages[0], { token: '__READER_LOCAL_IMAGE_0__', url: 'https://mmbiz.qpic.cn/body.png', alt: '循环架构图' });
+});
+
+test('WeChat extractor preserves nested tables and multiline code samples', () => {
+  const html = `<!doctype html><html><head><meta property="og:image" content="https://mmbiz.qpic.cn/cover.jpg"></head><body><h1 id="activity-name"><span class="js_title_inner">结构化微信正文</span></h1><a id="js_name">示例公众号</a><div id="js_content"><p>这是一段足够长的微信文章正文，用来验证表格和代码示例能够保持原有的结构，而不是在导入后散落成大量独立行。</p><table><thead><tr><th><section><span>维度</span></section></th><th><section><span>传统方式</span></section></th></tr></thead><tbody><tr><td><section><strong>状态管理</strong></section></td><td><section><span>人工维护 | 易出错</span></section></td></tr></tbody></table><pre><code><span>while (task.hasNext()) {</span><span><br></span><span>  await task.run()</span><span><br></span><span>}</span></code></pre><p>表格之后的正文也必须被完整保留，以确保提取结果达到正文长度要求并可继续阅读。</p></div></body></html>`;
+  const article = extractWeChatArticle(html, 'https://mp.weixin.qq.com/s/structured');
+  assert.match(article.content, /\| 维度 \| 传统方式 \|\n\| --- \| --- \|\n\| 状态管理 \| 人工维护 \\\| 易出错 \|/);
+  assert.match(article.content, /```\nwhile \(task\.hasNext\(\)\) \{\n  await task\.run\(\)\n\}\n```/);
+  assert.equal(article.metadata.leadImage, 'https://mmbiz.qpic.cn/cover.jpg');
 });
 
 test('WeChat verification pages are rejected and share URLs are canonicalized', () => {

@@ -88,6 +88,12 @@ function requiredString(value, name, max = 20_000) {
   return result;
 }
 
+async function requiredPublicURL(value) {
+  const input = requiredString(value, 'URL', 2048);
+  try { return (await assertPublicURL(input)).toString(); }
+  catch (error) { throw new HTTPError(400, error.message || 'URL 不可用'); }
+}
+
 const AI_LANGUAGES = new Set(['zh-CN', 'zh-TW', 'en', 'ja', 'ko', 'es', 'fr', 'de']);
 const AI_FORMATS = new Set(['brief', 'outline', 'essay', 'social']);
 const HIGHLIGHT_COLORS = new Set(['amber', 'green', 'blue', 'pink']);
@@ -350,7 +356,7 @@ export async function createReaderServer({
         const body = await readJSON(request);
         let article;
         if (body.mode === 'url') {
-          const publicURL = (await assertPublicURL(requiredString(body.url, 'URL', 2048))).toString();
+          const publicURL = await requiredPublicURL(body.url);
           article = await processImportJob(database, { kind: 'url', payload: { url: publicURL, collectionId: body.collection_id || 'inbox' } }, { stagingDir, filesDir });
         } else if (body.mode === 'markdown') {
           const content = requiredString(body.content, '正文', 500_000);
@@ -439,7 +445,7 @@ export async function createReaderServer({
       if (pathname === '/api/import-jobs' && method === 'POST') {
         const body = await readJSON(request);
         if (body.kind !== 'url') throw new HTTPError(400, '当前 JSON 导入任务仅支持 URL');
-        const publicURL = (await assertPublicURL(requiredString(body.url, 'URL', 2048))).toString();
+        const publicURL = await requiredPublicURL(body.url);
         const job = await database.createImportJob('url', { url: publicURL, collectionId: body.collection_id || 'inbox' });
         importWorker.poke();
         return sendJSON(response, 202, { job: publicImportJob(job) });
