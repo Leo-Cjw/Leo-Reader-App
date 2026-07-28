@@ -18,7 +18,7 @@ type SharedFileInfo = { token: string; name: string; size: number; mimeType: str
 type ExternalAddRequest = { kind: 'url'; url: string } | { kind: 'text'; text: string } | { kind: 'file'; token: string };
 const smartTypeOptions = [
   ['article', '网页'], ['rss', 'RSS'], ['youtube', 'YouTube'], ['x', 'X'], ['weibo', '微博'],
-  ['markdown', '笔记'], ['pdf', 'PDF'], ['image', '图片'], ['video', '视频'], ['attachment', '附件']
+  ['douyin', '抖音'], ['markdown', '笔记'], ['pdf', 'PDF'], ['image', '图片'], ['video', '视频'], ['audio', '音频'], ['attachment', '附件']
 ] as const;
 
 declare global {
@@ -818,6 +818,7 @@ function ReaderPane({ article, loadingTitle, collections, focusedCitation, onDis
           <header><span><strong>{attachment.file_name}</strong><small>{formatBytes(attachment.byte_size)} · 已保存在本机</small></span><a className="button" href={attachment.url} download={attachment.file_name}>导出</a></header>
           {attachment.mime_type.startsWith('image/') && <img src={attachment.url} alt={attachment.file_name}/>}
           {attachment.mime_type.startsWith('video/') && <video controls preload="metadata" src={attachment.url}></video>}
+          {attachment.mime_type.startsWith('audio/') && <audio controls preload="metadata" src={attachment.url}></audio>}
           {attachment.mime_type === 'application/pdf' && <object data={attachment.url} type="application/pdf" aria-label={attachment.file_name}><a href={attachment.url}>打开 PDF</a></object>}
         </section>)}</div> : null}
         {!readOnly && <p id="article-selection-help" className="sr-only">鼠标或触控板可直接选择文字。纯键盘使用时，请先按工具栏的“键盘选取”，再用方向键移动光标，按住 Shift 并配合方向键选择；Option 加方向键可逐词移动。按 Enter 创建高亮，按 Escape 退出。</p>}
@@ -921,6 +922,8 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
   const [spotlightSettings, setSpotlightSettings] = useState<SpotlightSettings | null>(null);
   const [semanticSearch, setSemanticSearch] = useState<SemanticSearchStatus | null>(null);
+  const [douyinStatus, setDouyinStatus] = useState<{ available: boolean; authenticated: boolean; desktopOnly?: boolean } | null>(null);
+  const [transcriptionModel, setTranscriptionModel] = useState<{ available: boolean; installed: boolean; downloading?: boolean; progress?: number; minimumSystemVersion?: string; systemSupported?: boolean } | null>(null);
   const [semanticModel, setSemanticModel] = useState('embeddinggemma');
   const [enabled, setEnabled] = useState(false);
   const [provider, setProvider] = useState<AIProviderPreset['id']>('reader-gateway');
@@ -929,7 +932,7 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
   const [models, setModels] = useState<AIModel[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [clearApiKey, setClearApiKey] = useState(false);
-  const [busy, setBusy] = useState<'load' | 'save' | 'test' | 'models' | 'reset' | 'notifications' | 'spotlight' | 'semantic-test' | 'semantic-enable' | 'semantic-disable' | null>('load');
+  const [busy, setBusy] = useState<'load' | 'save' | 'test' | 'models' | 'reset' | 'notifications' | 'spotlight' | 'semantic-test' | 'semantic-enable' | 'semantic-disable' | 'douyin-session' | 'transcription-model' | null>('load');
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [semanticResult, setSemanticResult] = useState<{ ok: boolean; message: string } | null>(null);
   useEffect(() => {
@@ -937,10 +940,13 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
       api.getAISettings(),
       notificationsAvailable ? api.getNotificationSettings() : Promise.resolve(null),
       notificationsAvailable ? api.getSpotlightSettings() : Promise.resolve(null),
-      api.getSemanticSearchSettings()
-    ]).then(([value, notifications, spotlight, semantic]) => {
+      api.getSemanticSearchSettings(),
+      api.getDouyinStatus(),
+      api.getTranscriptionModel()
+    ]).then(([value, notifications, spotlight, semantic, douyin, transcription]) => {
       setSettings(value); setEnabled(value.enabled); setProvider(value.provider); setEndpoint(value.endpoint); setModel(value.model); setNotificationSettings(notifications); setSpotlightSettings(spotlight);
       setSemanticSearch(semantic); setSemanticModel(semantic.model);
+      setDouyinStatus(douyin); setTranscriptionModel(transcription);
     }).catch((error) => notify(error instanceof Error ? error.message : '设置加载失败', 'error')).finally(() => setBusy(null));
   }, [notificationsAvailable, notify]);
   useEffect(() => {
@@ -1046,6 +1052,26 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
     } catch (error) { notify(error instanceof Error ? error.message : '本地语义索引删除失败', 'error'); }
     finally { setBusy(null); }
   };
+  const clearDouyinSession = async () => {
+    if (!window.confirm('彻底清除 Reader 的隔离抖音登录会话？正在等待登录的任务不会被删除。')) return;
+    setBusy('douyin-session');
+    try { setDouyinStatus(await api.clearDouyinSession()); notify('抖音隔离会话已清除'); }
+    catch (error) { notify(error instanceof Error ? error.message : '抖音会话清除失败', 'error'); }
+    finally { setBusy(null); }
+  };
+  const installTranscriptionModel = async () => {
+    setBusy('transcription-model');
+    try { setTranscriptionModel(await api.downloadTranscriptionModel()); notify('Whisper small 多语言模型已校验并安装'); }
+    catch (error) { notify(error instanceof Error ? error.message : '转写模型安装失败', 'error'); }
+    finally { setBusy(null); }
+  };
+  const removeTranscriptionModel = async () => {
+    if (!window.confirm('删除本机 Whisper small 模型？已生成的转写和 WebVTT 不受影响。')) return;
+    setBusy('transcription-model');
+    try { setTranscriptionModel(await api.removeTranscriptionModel()); notify('本地转写模型已删除'); }
+    catch (error) { notify(error instanceof Error ? error.message : '转写模型删除失败', 'error'); }
+    finally { setBusy(null); }
+  };
   const keychain = settings?.credentialBackend === 'macos-keychain';
   const credentialScopeChanged = Boolean(settings && (provider !== settings.provider || endpoint.trim() !== settings.endpoint));
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -1074,6 +1100,18 @@ function AISettingsModal({ notificationsAvailable, onClose, onConfigurationChang
               <label className="settings-toggle settings-notification-toggle"><input type="checkbox" checked={spotlightSettings.enabled} disabled={Boolean(busy) || (!spotlightSettings.available && !spotlightSettings.enabled)} onChange={(event) => void toggleSpotlight(event.target.checked)}/><span><strong>在 macOS Spotlight 中搜索</strong><small>默认关闭；开启后标题、摘要、标签和最多 20,000 字正文会进入本机受保护的系统索引。关闭会删除索引。</small></span><i aria-hidden="true"></i></label>
               <small className="spotlight-status">{spotlightSettings.state === 'indexing' ? `正在更新索引${spotlightSettings.pending ? ` · 待处理 ${spotlightSettings.pending}` : ''}` : spotlightSettings.enabled ? `索引已开启${spotlightSettings.indexedAt ? ` · ${formatMoment(spotlightSettings.indexedAt)}` : ''}` : spotlightSettings.available ? '未开启，不会向系统索引写入资料' : '当前 Reader 未检测到 Spotlight 组件'}</small>
               {spotlightSettings.warning && <p className="settings-warning">{spotlightSettings.warning}</p>}
+            </div>}
+            {douyinStatus && <div className="settings-notification-controls spotlight-controls">
+              <span className="spotlight-status"><strong>抖音隔离会话</strong> · {douyinStatus.authenticated ? '已登录' : douyinStatus.available ? '匿名访问' : '仅桌面版可用'}</span>
+              <small>Cookie 只保存在 `persist:reader-douyin` 会话，不进入资料库、设置、诊断、备份或导出。</small>
+              {douyinStatus.authenticated && <button type="button" className="button quiet-danger" disabled={Boolean(busy)} onClick={() => void clearDouyinSession()}>{busy === 'douyin-session' ? '正在清除…' : '彻底清除会话'}</button>}
+            </div>}
+            {transcriptionModel && <div className="settings-notification-controls spotlight-controls">
+              <span className="spotlight-status"><strong>本地转写模型</strong> · {transcriptionModel.systemSupported === false ? `需要 macOS ${transcriptionModel.minimumSystemVersion || '13.3'}+` : transcriptionModel.installed ? 'Whisper small 已安装' : transcriptionModel.available ? '未安装（约 466 MiB）' : 'Helper 不可用'}</span>
+              <small>仅在点击后从固定版本下载并校验 SHA-256；模型不进入安装包、备份或导出。</small>
+              {transcriptionModel.installed && transcriptionModel.systemSupported !== false
+                ? <button type="button" className="button quiet-danger" disabled={Boolean(busy)} onClick={() => void removeTranscriptionModel()}>{busy === 'transcription-model' ? '正在删除…' : '删除模型'}</button>
+                : transcriptionModel.available && <button type="button" className="button" disabled={Boolean(busy)} onClick={() => void installTranscriptionModel()}>{busy === 'transcription-model' ? '正在下载并校验…' : '安装模型'}</button>}
             </div>}
             {settings?.warning && <p className="settings-warning">{settings.warning}</p>}
           </aside>
@@ -1306,8 +1344,9 @@ function EditorModal({ article, onClose, onSave, onUploadImage, notify }: { arti
 }
 
 function AddModal({ collections, initialRequest, onClose, onCreated, onQueued, onImported, notify, onSourceCreated, onOpenConnectors }: { collections: Collection[]; initialRequest?: ExternalAddRequest; onClose: () => void; onCreated: (article: Article) => void; onQueued: (job: ImportJob) => void; onImported: () => Promise<void>; notify: (message: string, tone?: Toast['tone']) => void; onSourceCreated: (source: Source) => void; onOpenConnectors: () => void }) {
-  const [tab, setTab] = useState<'url' | 'attachment' | 'markdown' | 'feed' | 'package'>(initialRequest?.kind === 'text' ? 'markdown' : initialRequest?.kind === 'file' ? 'attachment' : 'url');
-  const [url, setURL] = useState(initialRequest?.kind === 'url' ? initialRequest.url : ''); const [title, setTitle] = useState(initialRequest?.kind === 'text' ? '分享的文本摘录' : ''); const [content, setContent] = useState(initialRequest?.kind === 'text' ? initialRequest.text : ''); const [file, setFile] = useState<File | null>(null); const [packageFile, setPackageFile] = useState<File | null>(null); const [packagePreview, setPackagePreview] = useState<PortableImportPreview | null>(null); const [packageSelection, setPackageSelection] = useState<Set<string>>(new Set()); const [collection, setCollection] = useState('inbox'); const [busy, setBusy] = useState(false);
+  const sharedTextIsDouyin = initialRequest?.kind === 'text' && /https:\/\/[^\s]*(?:douyin\.com|iesdouyin\.com)\//i.test(initialRequest.text);
+  const [tab, setTab] = useState<'url' | 'attachment' | 'markdown' | 'feed' | 'package'>(initialRequest?.kind === 'text' && !sharedTextIsDouyin ? 'markdown' : initialRequest?.kind === 'file' ? 'attachment' : 'url');
+  const [url, setURL] = useState(initialRequest?.kind === 'url' ? initialRequest.url : sharedTextIsDouyin ? initialRequest.text : ''); const [title, setTitle] = useState(initialRequest?.kind === 'text' && !sharedTextIsDouyin ? '分享的文本摘录' : ''); const [content, setContent] = useState(initialRequest?.kind === 'text' && !sharedTextIsDouyin ? initialRequest.text : ''); const [file, setFile] = useState<File | null>(null); const [packageFile, setPackageFile] = useState<File | null>(null); const [packagePreview, setPackagePreview] = useState<PortableImportPreview | null>(null); const [packageSelection, setPackageSelection] = useState<Set<string>>(new Set()); const [collection, setCollection] = useState('inbox'); const [busy, setBusy] = useState(false);
   const [sharedFile, setSharedFile] = useState<SharedFileInfo | null>(null); const [sharedFileLoading, setSharedFileLoading] = useState(initialRequest?.kind === 'file');
   const [sourceKind, setSourceKind] = useState<Source['kind']>('rss'); const [sourceInterval, setSourceInterval] = useState(60);
   useEffect(() => {
@@ -1318,9 +1357,14 @@ function AddModal({ collections, initialRequest, onClose, onCreated, onQueued, o
       return;
     }
     if (initialRequest.kind === 'text') {
-      setTab('markdown');
-      setTitle('分享的文本摘录');
-      setContent(initialRequest.text);
+      if (/https:\/\/[^\s]*(?:douyin\.com|iesdouyin\.com)\//i.test(initialRequest.text)) {
+        setTab('url');
+        setURL(initialRequest.text);
+      } else {
+        setTab('markdown');
+        setTitle('分享的文本摘录');
+        setContent(initialRequest.text);
+      }
       return;
     }
     let active = true;
@@ -1340,6 +1384,7 @@ function AddModal({ collections, initialRequest, onClose, onCreated, onQueued, o
     return () => { active = false; };
   }, [initialRequest, notify]);
   const isWeChatURL = /^https?:\/\/mp\.weixin\.qq\.com\//i.test(url.trim());
+  const isDouyinInput = /https:\/\/[^\s]*(?:douyin\.com|iesdouyin\.com)\//i.test(url);
   const close = async () => {
     if (packagePreview) await api.cancelMarkdownImport(packagePreview.id).catch(() => {});
     if (initialRequest?.kind === 'file') await window.readerDesktop?.discardSharedFile(initialRequest.token).catch(() => {});
@@ -1399,8 +1444,8 @@ function AddModal({ collections, initialRequest, onClose, onCreated, onQueued, o
     <header><div><span className="eyebrow">本地采集</span><h2>添加到 Reader</h2></div><button className="icon-button" type="button" aria-label="关闭添加窗口" disabled={busy} onClick={() => void close()}>×</button></header>
     <div className="modal-tabs" role="group" aria-label="添加内容类型">{([['url','网页 URL'],['attachment','附件'],['markdown','Markdown'],['package','Reader ZIP'],['feed','自动订阅']] as const).map(([value,label]) => <button type="button" key={value} aria-pressed={tab === value} className={tab === value ? 'active' : ''} disabled={busy} onClick={() => void changeTab(value)}>{label}</button>)}</div>
     <div className="modal-body">
-      {(tab === 'url' || tab === 'feed') && <label><span>{tab === 'feed' ? sourceKind === 'x' ? 'X 用户名或主页' : sourceKind === 'weibo' ? '微博数字 UID 或主页' : '订阅地址' : '网页地址'}</span><input autoFocus aria-label={tab === 'url' ? '网页地址' : undefined} type={tab === 'feed' && (sourceKind === 'x' || sourceKind === 'weibo') ? 'text' : 'url'} value={url} onChange={(event) => setURL(event.target.value)} placeholder={tab === 'feed' ? sourceKind === 'youtube' ? 'https://www.youtube.com/@channel' : sourceKind === 'x' ? '@XDevelopers' : sourceKind === 'weibo' ? '例如：1234567890' : 'https://example.com/feed.xml' : 'https://example.com/article'}/></label>}
-      {tab === 'attachment' && <FilePickerButton className="file-drop" ariaLabel={file ? `更换附件，当前为 ${file.name}` : sharedFile ? `更换分享附件，当前为 ${sharedFile.name}` : '选择 PDF、图片、视频或文本'} accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.mp4,.mov,.m4v,.webm,.txt,.md,.markdown" onFiles={(files) => setFile(files[0] || null)}><span className="file-drop-icon">{sharedFile && !file ? '↥' : '＋'}</span><strong>{file?.name || sharedFile?.name || (sharedFileLoading ? '正在检查分享文件…' : '选择 PDF、图片、视频或文本')}</strong><small>{file ? `${formatBytes(file.size)} · ${file.type || '未知类型'}` : sharedFile ? `${formatBytes(sharedFile.size)} · 来自 macOS 分享，确认前不会进入资料库` : '单个文件最大 100 MB，原文件和内容都只保存在本机。'}</small></FilePickerButton>}
+      {(tab === 'url' || tab === 'feed') && <label><span>{tab === 'feed' ? sourceKind === 'x' ? 'X 用户名或主页' : sourceKind === 'weibo' ? '微博数字 UID 或主页' : '订阅地址' : '网页地址或抖音分享口令'}</span>{tab === 'url' ? <textarea autoFocus aria-label="网页地址或抖音分享口令" value={url} maxLength={4096} onChange={(event) => setURL(event.target.value)} placeholder="粘贴网页 URL，或完整的抖音分享口令"></textarea> : <input type={sourceKind === 'x' || sourceKind === 'weibo' ? 'text' : 'url'} value={url} onChange={(event) => setURL(event.target.value)} placeholder={sourceKind === 'youtube' ? 'https://www.youtube.com/@channel' : sourceKind === 'x' ? '@XDevelopers' : sourceKind === 'weibo' ? '例如：1234567890' : 'https://example.com/feed.xml'}/>}</label>}
+      {tab === 'attachment' && <FilePickerButton className="file-drop" ariaLabel={file ? `更换附件，当前为 ${file.name}` : sharedFile ? `更换分享附件，当前为 ${sharedFile.name}` : '选择 PDF、图片、视频、音频或文本'} accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.mp4,.mov,.m4v,.webm,.mp3,.m4a,.aac,.wav,.txt,.md,.markdown" onFiles={(files) => setFile(files[0] || null)}><span className="file-drop-icon">{sharedFile && !file ? '↥' : '＋'}</span><strong>{file?.name || sharedFile?.name || (sharedFileLoading ? '正在检查分享文件…' : '选择 PDF、图片、视频、音频或文本')}</strong><small>{file ? `${formatBytes(file.size)} · ${file.type || '未知类型'}` : sharedFile ? `${formatBytes(sharedFile.size)} · 来自 macOS 分享，确认前不会进入资料库` : '单个文件最大 100 MB，原文件和内容都只保存在本机。'}</small></FilePickerButton>}
       {tab === 'package' && !packagePreview && <><FilePickerButton className="file-drop" ariaLabel={packageFile ? `更换 Reader Markdown ZIP，当前为 ${packageFile.name}` : '选择 Reader Markdown ZIP'} accept=".zip,application/zip" onFiles={(files) => setPackageFile(files[0] || null)}><span className="file-drop-icon">↥</span><strong>{packageFile ? packageFile.name : '选择 Reader Markdown ZIP'}</strong><small>{packageFile ? `${formatBytes(packageFile.size)} · 等待安全检查` : '只接受 Reader 导出的 ZIP，最大 2 GB；预览前不会写入资料库。'}</small></FilePickerButton><div className="privacy-note"><strong>导入与完整恢复严格分离</strong><span>Reader 会拒绝越界路径、未知文件、超限内容和附件哈希不符；检查通过后仍需逐篇确认，已有 ID 或原链接默认跳过。</span></div></>}
       {tab === 'package' && packagePreview && <div className="portable-import-review">
         <div className="portable-import-summary"><span><strong>{packagePreview.counts.articles}</strong><small>篇文章</small></span><span><strong>{packagePreview.counts.attachments}</strong><small>个附件</small></span><span><strong>{packagePreview.counts.highlights}</strong><small>条高亮</small></span><button className="button" type="button" onClick={() => setPackageSelection(allSelected ? new Set() : new Set(selectableIds))}>{allSelected ? '取消全选' : '选择可导入内容'}</button></div>
@@ -1414,7 +1459,7 @@ function AddModal({ collections, initialRequest, onClose, onCreated, onQueued, o
       {tab === 'feed' && <div className="source-create-grid"><label><span>来源类型</span><select value={sourceKind} onChange={(event) => setSourceKind(event.target.value as Source['kind'])}><option value="rss">RSS / Atom</option><option value="youtube">YouTube 频道</option><option value="x">X 用户</option><option value="weibo">微博用户</option></select></label><label><span>自动同步</span><select value={sourceInterval} onChange={(event) => setSourceInterval(Number(event.target.value))}><option value={15}>每 15 分钟</option><option value={30}>每 30 分钟</option><option value={60}>每小时</option><option value={360}>每 6 小时</option><option value={1440}>每天</option></select></label></div>}
       {tab === 'markdown' && <label><span>正文</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="支持 Markdown 文本；内容会直接写入本地 SQLite。"></textarea></label>}
       {tab !== 'feed' && (tab !== 'package' || packagePreview) && <label><span>保存到</span><select value={collection} onChange={(event) => setCollection(event.target.value)}>{collections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-      {tab === 'url' && <div className="privacy-note"><strong>{isWeChatURL ? '微信公众号专用导入' : '安全抓取'}</strong><span>{isWeChatURL ? 'Reader 会识别公众号标题、作者、正文和图片并保存到本机。若微信要求环境验证，本次任务会失败并可重试，不会把验证页保存成文章。' : 'Reader 会阻止本机、局域网和云元数据地址，最多读取 4 MB，并把正文与可下载图片保存到本机。'}</span></div>}
+      {tab === 'url' && <div className="privacy-note"><strong>{isDouyinInput ? '抖音离线导入' : isWeChatURL ? '微信公众号专用导入' : '安全抓取'}</strong><span>{isDouyinInput ? 'Reader 默认保存不超过 100 MB 的 1080p 带声视频（必要时降至 720p），或最多 30 张图片与背景音乐；字幕优先，否则使用你明确安装的本地转写模型。登录仅在隔离会话中进行。' : isWeChatURL ? 'Reader 会识别公众号标题、作者、正文和图片并保存到本机。若微信要求环境验证，本次任务会失败并可重试，不会把验证页保存成文章。' : 'Reader 会阻止本机、局域网和云元数据地址，最多读取 4 MB，并把正文与可下载图片保存到本机。'}</span></div>}
       {tab === 'feed' && <div className="privacy-note source-privacy"><strong>后台同步，本地入库</strong><span>{sourceKind === 'youtube' ? '支持频道主页、/channel/UC… 与官方 Feed 地址；新视频作为可整理的内容进入收件箱。' : sourceKind === 'x' ? '通过 X 官方 API 读取公开动态，使用 since_id 增量同步；Bearer Token 只保存在 macOS Keychain。' : sourceKind === 'weibo' ? '通过微博开放平台官方 CLI 读取用户时间线；Reader 复用 CLI 登录态，不接触或保存微博令牌。' : 'Reader 使用 ETag 与 Last-Modified 避免重复下载，失败时自动退避并保留可见状态。'}</span>{(sourceKind === 'x' || sourceKind === 'weibo') && <button type="button" className="button" onClick={onOpenConnectors}>配置社交连接器</button>}</div>}
     </div>
     <footer><button className="button" type="button" disabled={busy} onClick={() => void close()}>取消</button><button className="button primary" type="button" disabled={busy || (tab === 'attachment' && sharedFileLoading && !file) || (tab === 'package' && (!packagePreview ? !packageFile : packageSelection.size === 0))} onClick={() => void submit()}>{busy ? packagePreview ? '正在导入…' : '正在安全检查…' : tab === 'feed' ? '添加并同步' : tab === 'markdown' ? '保存到本机' : tab === 'package' ? packagePreview ? `导入 ${packageSelection.size} 篇` : '检查导入包' : '加入导入队列'}</button></footer>
@@ -1610,18 +1655,22 @@ function DuplicateManagerModal({ groups, busy, onClose, onRefresh, onResolve }: 
   </section></div>;
 }
 
-function ImportQueueModal({ jobs, background, busy, onClose, onRetry, onTogglePaused }: { jobs: ImportJob[]; background: BackgroundWorkState; busy: boolean; onClose: () => void; onRetry: (job: ImportJob) => void; onTogglePaused: () => void }) {
-  const statusLabel: Record<ImportJob['status'], string> = { pending: '等待中', running: '正在导入', completed: '已完成', failed: '失败' };
-  const activeCount = jobs.filter((job) => job.status === 'pending' || job.status === 'running').length;
+function ImportQueueModal({ jobs, background, busy, onClose, onRetry, onAction, onTogglePaused }: { jobs: ImportJob[]; background: BackgroundWorkState; busy: boolean; onClose: () => void; onRetry: (job: ImportJob) => void; onAction: (job: ImportJob, action: 'resume' | 'skip_transcription' | 'cancel') => void; onTogglePaused: () => void }) {
+  const statusLabel: Record<ImportJob['status'], string> = { pending: '等待中', running: '正在导入', awaiting_user: '等待你确认', completed: '已完成', failed: '失败', cancelled: '已取消' };
+  const phaseLabel: Record<string, string> = { parsing: '解析作品', waiting_login: '等待登录', downloading: '下载媒体', saving: '保存到本机', waiting_model: '等待转写模型', transcribing: '本地转写', indexing: '建立索引', complete: '完成' };
+  const activeCount = jobs.filter((job) => job.status === 'pending' || job.status === 'running' || job.status === 'awaiting_user').length;
   const pauseLabels: Record<string, string> = { user: '手动暂停', restore: '等待资料恢复', suspended: 'Mac 已休眠', 'system-constrained': '系统资源受限' };
   const pauseDescription = background.importPauseReasons.map((reason) => pauseLabels[reason] || reason).join('、');
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal queue-modal" role="dialog" aria-modal="true" aria-label="导入队列">
     <header><div><span className="eyebrow">可恢复任务</span><h2>导入队列</h2></div><button className="icon-button" type="button" aria-label="关闭导入队列" onClick={onClose}>×</button></header>
     <div className="queue-summary" aria-live="polite"><strong>{activeCount}</strong><span>{background.importsPaused ? `个任务等待处理。队列已暂停：${pauseDescription || '系统条件限制'}。` : '个任务正在处理。应用重启后，未完成任务会自动继续。'}</span><button className="button" type="button" aria-pressed={background.importUserPaused} disabled={busy} onClick={onTogglePaused}>{busy ? '正在更新…' : background.importUserPaused ? '继续队列' : '暂停队列'}</button></div>
     <div className="job-list">{jobs.length === 0 ? <div className="empty-state"><strong>队列为空</strong><span>添加网页或附件后，可以在这里查看处理进度。</span></div> : jobs.map((job) => <article className="job-row" key={job.id}>
-      <span className={`job-state ${job.status}`} aria-hidden="true">{job.status === 'completed' ? '✓' : job.status === 'failed' ? '!' : job.status === 'running' ? '↻' : '·'}</span>
-      <span className="job-copy"><strong>{job.kind === 'attachment' ? job.payload.fileName || '本地附件' : job.payload.url || '网页内容'}</strong><small>{statusLabel[job.status]} · {formatDate(job.created_at)}{job.attempts ? ` · 尝试 ${job.attempts} 次` : ''}</small>{job.error && <em>{job.error}</em>}</span>
+      <span className={`job-state ${job.status}`} aria-hidden="true">{job.status === 'completed' ? '✓' : job.status === 'failed' ? '!' : job.status === 'cancelled' ? '×' : job.status === 'running' ? '↻' : job.status === 'awaiting_user' ? '?' : '·'}</span>
+      <span className="job-copy"><strong>{job.kind === 'attachment' ? job.payload.fileName || '本地附件' : job.platform === 'douyin' ? `抖音作品 ${job.payload.awemeId || ''}` : job.payload.url || '网页内容'}</strong><small>{statusLabel[job.status]}{job.phase ? ` · ${phaseLabel[job.phase] || job.phase}` : ''}{job.status === 'running' ? ` · ${job.progress}%` : ''} · {formatDate(job.created_at)}{job.attempts ? ` · 尝试 ${job.attempts} 次` : ''}</small>{job.warning && <em>{job.warning}</em>}{job.error && <em>{job.error}</em>}</span>
       {job.status === 'failed' && <button className="button" type="button" onClick={() => onRetry(job)}>重试</button>}
+      {job.status === 'awaiting_user' && job.action_required === 'douyin_login' && <button className="button primary" type="button" onClick={() => onAction(job, 'resume')}>登录并继续</button>}
+      {job.status === 'awaiting_user' && job.action_required === 'install_transcription_model' && <><button className="button primary" type="button" onClick={() => onAction(job, 'resume')}>安装模型</button><button className="button" type="button" onClick={() => onAction(job, 'skip_transcription')}>暂不转写</button></>}
+      {(job.status === 'pending' || job.status === 'running' || job.status === 'awaiting_user') && <button className="button quiet-danger" type="button" onClick={() => onAction(job, 'cancel')}>取消</button>}
     </article>)}</div>
   </section></div>;
 }
@@ -1855,7 +1904,7 @@ function ReaderWorkspace() {
   }, [externalAddRequests]);
 
   const articleFilters = useMemo(() => ({
-    types: contentFilter === 'articles' ? ['article'] : contentFilter === 'feeds' ? ['rss', 'youtube', 'x', 'weibo'] : contentFilter === 'attachments' ? ['pdf', 'image', 'video', 'attachment'] : contentFilter === 'notes' ? ['markdown'] : undefined,
+    types: contentFilter === 'articles' ? ['article', 'douyin'] : contentFilter === 'feeds' ? ['rss', 'youtube', 'x', 'weibo'] : contentFilter === 'attachments' ? ['pdf', 'image', 'video', 'audio', 'attachment'] : contentFilter === 'notes' ? ['markdown'] : undefined,
     tag: tagFilter || undefined,
     mediaOnly: contentFilter === 'media'
   }), [contentFilter, tagFilter]);
@@ -2057,6 +2106,16 @@ function ReaderWorkspace() {
   const created = (article: Article) => { setArticles((current) => [toArticleSummary(article), ...current]); setSelected(article); setSelectedId(article.id); setView('inbox'); setCollectionId(null); setSmartCollectionId(null); void refreshChrome(); notify('内容已安全保存到本机'); };
   const queued = (job: ImportJob) => { jobStates.current.set(job.id, job.status); setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]); setQueueOpen(true); };
   const retryJob = async (job: ImportJob) => { try { const next = await api.retryImportJob(job.id); jobStates.current.set(next.id, next.status); setJobs((current) => current.map((item) => item.id === next.id ? next : item)); notify('任务已重新加入队列'); } catch (error) { notify(error instanceof Error ? error.message : '重试失败', 'error'); } };
+  const actOnJob = async (job: ImportJob, action: 'resume' | 'skip_transcription' | 'cancel') => {
+    try {
+      if (action === 'resume' && job.action_required === 'douyin_login') await api.loginDouyin();
+      if (action === 'resume' && job.action_required === 'install_transcription_model') await api.downloadTranscriptionModel();
+      const next = await api.actOnImportJob(job.id, action);
+      jobStates.current.set(next.id, next.status);
+      setJobs((current) => current.map((item) => item.id === next.id ? next : item));
+      notify(action === 'cancel' ? '任务已取消' : action === 'skip_transcription' ? '将保留媒体并跳过转写' : '任务已继续');
+    } catch (error) { notify(error instanceof Error ? error.message : '任务操作失败', 'error'); }
+  };
   const toggleImportQueue = async () => {
     setBusyImportQueue(true);
     try {
@@ -2135,7 +2194,7 @@ function ReaderWorkspace() {
   const updateSource = async (source: Source, patch: Partial<Pick<Source, 'enabled' | 'sync_interval_minutes'>>) => { setBusySource(source.id); try { const updated = await api.updateSource(source.id, patch); setSources((current) => current.map((item) => item.id === updated.id ? updated : item)); notify(patch.enabled === false ? '已暂停自动同步' : patch.enabled === true ? '自动同步已开启' : '同步频率已更新'); } catch (error) { notify(error instanceof Error ? error.message : '订阅设置保存失败', 'error'); await refreshChrome(); } finally { setBusySource(null); } };
   const deleteSource = async (source: Source) => { if (!window.confirm(`删除订阅“${source.title}”？已保存的文章会保留。`)) return; setBusySource(source.id); try { await api.deleteSource(source.id); setSources((current) => current.filter((item) => item.id !== source.id)); notify('订阅已删除，已保存文章仍在本机'); } catch (error) { notify(error instanceof Error ? error.message : '订阅删除失败', 'error'); } finally { setBusySource(null); } };
   const importOPML = async (file: File) => { setBusySource('opml'); try { const result = await api.importOPML(file); setSources(result.sources); notify(`OPML 导入完成：新增 ${result.imported}，跳过 ${result.duplicates}${result.failed ? `，失败 ${result.failed}` : ''}`); } catch (error) { notify(error instanceof Error ? error.message : 'OPML 导入失败', 'error'); } finally { setBusySource(null); } };
-  const activeJobCount = jobs.filter((job) => job.status === 'pending' || job.status === 'running').length;
+  const activeJobCount = jobs.filter((job) => job.status === 'pending' || job.status === 'running' || job.status === 'awaiting_user').length;
   const closeAddModal = () => {
     setAddOpen(false);
     setExternalAddRequests((current) => current.length ? current.slice(1) : current);
@@ -2177,7 +2236,7 @@ function ReaderWorkspace() {
     {exportOpen && selectedArticles.length > 0 && <ExportModal articles={selectedArticles} busy={busyExport} onClose={() => setExportOpen(false)} onExport={exportSelected}/>}
     {composeOpen && selectedArticles.length > 0 && <ComposeModal articles={selectedArticles} collections={collections} busy={busyCompose} onClose={() => setComposeOpen(false)} onCreate={(options) => void composeSelected(options)}/>}
     {duplicatesOpen && <DuplicateManagerModal groups={duplicateGroups} busy={busyDuplicates} onClose={() => setDuplicatesOpen(false)} onRefresh={() => void refreshDuplicates()} onResolve={resolveDuplicateGroup}/>}
-    {queueOpen && <ImportQueueModal jobs={jobs} background={backgroundWork} busy={busyImportQueue} onClose={() => setQueueOpen(false)} onRetry={(job) => void retryJob(job)} onTogglePaused={() => void toggleImportQueue()}/>}
+    {queueOpen && <ImportQueueModal jobs={jobs} background={backgroundWork} busy={busyImportQueue} onClose={() => setQueueOpen(false)} onRetry={(job) => void retryJob(job)} onAction={(job, action) => void actOnJob(job, action)} onTogglePaused={() => void toggleImportQueue()}/>}
     {safetyOpen && <DataSafetyModal backups={backups} automaticBackup={automaticBackup} migrationSnapshots={migrationSnapshots} health={dataHealth} pendingRestore={pendingRestore} busy={busySafety} onClose={() => setSafetyOpen(false)} onCheck={() => void checkLocalData()} onRepair={() => void repairLocalData()} onDiagnostics={openDiagnostics} onToggleAutomatic={(enabled) => void toggleAutomaticBackups(enabled)} onCreate={(passphrase) => void createLocalBackup(passphrase)} onScheduleRestore={(file, passphrase) => void scheduleLocalRestore(file, passphrase)} onScheduleSnapshotRestore={(snapshot) => void scheduleSnapshotRestore(snapshot)} onCancelRestore={() => void cancelLocalRestore()}/>}
     {diagnosticsOpen && <DiagnosticsModal diagnostics={diagnostics} busy={busyDiagnostics} onClose={() => setDiagnosticsOpen(false)} onRefresh={() => void refreshDiagnostics()} onClear={() => void clearDiagnostics()}/>}
     {settingsOpen && <AISettingsModal notificationsAvailable={isDesktop} onClose={() => setSettingsOpen(false)} onConfigurationChanged={() => setAIConfigurationVersion((value) => value + 1)} notify={notify}/>}

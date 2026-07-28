@@ -34,7 +34,8 @@ test('native bundle templates match the canonical package release identity', asy
   const metadata = releaseBundleMetadata(packageMetadata);
   for (const [plistPath, label] of [
     [path.join(projectRoot, 'native', 'share-extension', 'Info.plist'), 'Reader Share Extension'],
-    [path.join(projectRoot, 'native', 'spotlight-helper', 'Info.plist'), 'Reader Spotlight Helper']
+    [path.join(projectRoot, 'native', 'spotlight-helper', 'Info.plist'), 'Reader Spotlight Helper'],
+    [path.join(projectRoot, 'native', 'transcription-helper', 'Info.plist'), 'Reader Transcription Helper']
   ]) {
     const plist = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], { encoding: 'utf8' }));
     assert.doesNotThrow(() => assertBundleMetadata(plist, label, metadata));

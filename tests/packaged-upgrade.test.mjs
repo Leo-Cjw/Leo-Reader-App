@@ -6,6 +6,7 @@ import { copyFile, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ReaderDatabase } from '../src/server/db.mjs';
+import { SCHEMA_VERSION } from '../src/server/schema.mjs';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const fixtureRoot = path.join(projectRoot, 'tests', 'fixtures', 'upgrade-0.43');
@@ -100,7 +101,7 @@ test('frozen 0.43 packaged database remains self-consistent and auditable', asyn
   assert.doesNotMatch(JSON.stringify(settings), /"apiKey"\s*:|"bearer_token"\s*:|"password"\s*:|"secret"\s*:/i);
 });
 
-test('current Reader migrates the frozen schema v11 database to v12 without creating opt-in vectors', async (t) => {
+test('current Reader migrates the frozen schema v11 database to the current schema without creating opt-in vectors', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'reader-upgrade-v11-v12-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const databasePath = path.join(root, 'reader.sqlite3');
@@ -108,10 +109,10 @@ test('current Reader migrates the frozen schema v11 database to v12 without crea
   const database = await new ReaderDatabase(databasePath).initialize();
   assert.deepEqual(
     { from: database.lastMigrationSnapshot?.fromVersion, to: database.lastMigrationSnapshot?.toVersion },
-    { from: 11, to: 12 }
+    { from: 11, to: SCHEMA_VERSION }
   );
-  assert.equal((await database.one('SELECT max(version) AS version FROM schema_migrations;')).version, 12);
-  assert.equal((await database.one('SELECT count(*) AS count FROM schema_migration_audit;')).count, 5);
+  assert.equal((await database.one('SELECT max(version) AS version FROM schema_migrations;')).version, SCHEMA_VERSION);
+  assert.equal((await database.one('SELECT count(*) AS count FROM schema_migration_audit;')).count, 6);
   assert.equal((await database.getArticle(manifest.expected.article.id)).content, manifest.expected.article.content);
   assert.equal((await database.one('SELECT count(*) AS count FROM chunk_embeddings;')).count, 0);
   assert.equal((await database.one('SELECT count(*) AS count FROM chunk_embedding_buckets;')).count, 0);

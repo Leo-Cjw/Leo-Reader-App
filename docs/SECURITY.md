@@ -134,13 +134,13 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 
 ## macOS Share Extension
 
-- `.appex` 只声明严格匹配的单个网页 URL、单段文本或单个文件。URL 与文本继续受 2,048 字符/4,096 UTF-8 bytes、协议、凭据、控制字符和规范编码限制；文件只接受 PDF、PNG/JPEG/GIF/WebP/HEIC、MP4/MOV/M4V/WebM、Markdown 或纯文本的受控 UTI 映射，必须是非空普通文件且最多 100 MB。文件夹、符号链接、可执行格式和其他类型被拒绝。
+- `.appex` 只声明严格匹配的单个网页 URL、单段文本或单个文件。URL 与文本继续受 2,048 字符/4,096 UTF-8 bytes、协议、凭据、控制字符和规范编码限制；文件只接受 PDF、PNG/JPEG/GIF/WebP/HEIC、MP4/MOV/M4V/WebM、MP3/M4A/AAC/WAV、Markdown 或纯文本的受控 UTI 映射，必须是非空普通文件且最多 100 MB。文件夹、符号链接、可执行格式和其他类型被拒绝。
 - Apple 会在 `loadFileRepresentation` 回调返回时删除其临时副本。扩展因此在回调内复制到自身 `Caches/ReaderShareStaging`：目录 `0700`、载荷和描述 `0600`，随机 UUID v4 为文件名，描述文件固定记录版本、token、安全显示名、受控 MIME、字节数、SHA-256 和 ISO 创建时间并最后原子写入。扩展启动时清理超过 24 小时的成对暂存，打开 Reader 失败时删除本次副本。
 - 扩展签名仍只包含 App Sandbox entitlement，不申请网络、用户文件、App Group、Keychain、书签或硬件能力，也不读取 Reader 数据目录。URL 使用 `URLComponents`，文本使用无 padding 规范 Base64URL；文件深链只含随机 token，不含路径、名称、MIME、大小、摘要或内容。
 - Electron 主进程只从当前用户固定的扩展缓存目录解析 token。目录不能是符号链接；描述与载荷均以 `O_NOFOLLOW` 打开并要求普通私有文件，随后核对精确 schema、时间窗口、大小、SHA-256、文件名和类型。preload 再次校验 token 与返回元数据，只向受信任回环页面公开 inspect/import/discard，不公开路径或任意文件读取。
 - 用户先在系统分享菜单明确选择“存入 Reader”，随后还必须在 Reader 内核对名称和大小、选择资料夹并确认。确认前不创建 SQLite 记录或导入任务；确认时主进程从已验证文件描述符流式写入既有随机回环上传端点，服务端再次执行文件名、MIME、大小、图片签名和持久化队列校验。成功、取消或切换入口会删除暂存，传输失败可重试并最迟在 24 小时后清理。
 - Share Extension 不写诊断日志或共享历史，暂存不进入 Reader 备份、导出、设置或 SQLite。SHA-256、权限和 token 防止意外混淆、路径注入及低权限跨用户读取；它们不声称防御已经取得当前用户权限并可直接读取或修改 Reader 数据的进程。系统若没有启用扩展，用户需从分享菜单的“编辑扩展”手动启用；Reader 不调用 `pluginkit` 修改用户偏好。
-- 正式签名流水线关闭 entitlement 自动补全，为主程序使用仅含 V8 JIT 的显式权限；产物回读要求主程序、Share Extension 与 Spotlight helper 分别精确等于 `allow-jit`、App Sandbox 和空集合，拒绝额外 App Group 或硬件能力。扩展在父 App 重签后再次验证，避免深度签名静默剥离。
+- 正式签名流水线关闭 entitlement 自动补全，为主程序使用仅含 V8 JIT 的显式权限；产物回读要求主程序、Share Extension、Spotlight helper 与 Transcription helper 分别精确等于 `allow-jit`、App Sandbox、空集合和空集合，拒绝额外 App Group 或硬件能力。扩展在父 App 重签后再次验证，避免深度签名静默剥离。
 
 ## 应用更新
 
@@ -208,6 +208,17 @@ Reader 启动时把默认数据目录权限设为 `0700`，数据库及现有 WA
 - 暂停先阻止 worker 领取下一项，已经运行的单项任务完成后进入稳定暂停。应用重启会在本地服务开放前恢复暂停状态，pending/running 恢复规则仍由持久化队列负责。
 - 用户继续只清除 `user` 原因。资料恢复锁、Mac 睡眠或系统严重受限仍会保持队列暂停，不能通过控制端点绕过。
 
+## 抖音隔离会话、媒体与模型供应链
+
+- 抖音 Cookie 仅由 `persist:reader-douyin` 保存。SQLite、`settings.json`、公开任务对象、诊断、通知、备份和 Markdown 导出均不得出现 Cookie。
+- 登录必须由用户点击触发可见窗口。第三方窗口保持 sandbox/context isolation/nodeIntegration off，拒绝所有权限和新窗口；只允许 HTTPS 抖音域名导航。不读取密码、不注入凭据、不自动处理验证码。
+- 短链只观察 Chromium 的受信任抖音主导航。作品详情请求由隔离 Session 的 `webRequest` 观察，再用同一 Session/Cookie 回读；监听器在回读前移除，不逆向或持久化请求签名。页面公开章节可从同一渲染文档补采。签名详情/媒体 URL 只在单次任务内存中存在；任务恢复重新获取，不写日志。
+- 媒体下载逐跳拒绝 HTTP、用户信息、本机/局域网/云元数据地址、DNS 混合公网与私网结果、恶意重定向、超限正文、伪造 MIME 和错误签名。临时文件为 `0600`，成功后原子移动；失败或取消清理临时文件。
+- 视频候选全部失败、图文一张都未保存或签名校验失败时不创建空壳文章。部分图片或背景音乐失败允许完成，但文章与任务必须显示具体缺失数量和“部分离线”。
+- MP3、M4A、AAC 和 WAV 附件需要声明格式与魔数一致；播放器只访问本地 Range 端点，不把真实路径交给渲染器。
+- Whisper small 使用固定 revision、固定 URL、固定字节数和 SHA-256。下载必须由用户点击；临时文件不通过校验就删除。模型目录为 `0700`、模型和收据为 `0600`，且不进入应用包、备份或导出。
+- Transcription Helper 没有服务端口或联网 API，只接受 stdin JSON。主进程和 Helper 双重检查本地路径与普通文件；stdout、stderr、运行时间和分段数量有上限。Helper 通过 AVFoundation 读取既有媒体，不声明麦克风权限。固定官方 XCFramework 要求 macOS 13.3；旧系统在模型下载和进程启动前失败关闭。
+
 ## 发布前门禁
 
 ```bash
@@ -220,4 +231,4 @@ npm run qa:share
 npm run qa:upgrade
 ```
 
-1.0.1 候选将依赖审计、自动测试、生产构建和最终包/数据兼容门禁记录在对应发行说明。新增受控并发回归确认 Keychain 已替换、非密钥设置仍暂停时，对外设置读取不会暴露混合状态，连接测试不会把新密钥发送到旧端点；旧网关请求数为 0，新网关只收到预期的新密钥。设置读取、连接测试和模型目录现在等待当前 AI 变更提交，运行中 AI 服务仍使用变更前的完整内存配置。0.63 的变更排序与补偿、0.62 的完整设置保存队列、既有 `0600` 权限、私有临时文件、原子 rename、默认关闭 opt-in 和 Keychain 不落盘边界不变。0.61 的退出更新入口 quiescing、0.60 的完整深度签名验证、0.59 的更新安装 single-flight、0.58 的服务退出 quiescing/single-flight，以及全部既有网络与恢复门禁继续执行。1.0.1 仍需真实 Developer ID、公证、正式 GitHub Release、`autoUpdater` 端到端跨版本安装、Apple Silicon Gatekeeper、正式签名包系统通知/Spotlight/Share Extension、恢复提示人工点击、AppKit 原生 AX 复验和启用 VoiceOver 的完整人工听读；本机未安装 Ollama，因此发行结论不包含任何真实模型质量分数。
+1.1.0 候选把依赖审计、自动测试、生产构建、抖音真实作品和最终包/数据兼容门禁记录在独立交接。除既有安全回归外，新增 SSRF、DNS rebinding、恶意跳转、媒体超限、伪造 MIME、路径穿越、Cookie/签名 URL 脱敏、第三方窗口权限拒绝、模型哈希失败、Helper 输入/输出边界、任务取消与临时文件清理。Intel 主机上的最终 Universal App 已完成公开抖音作品、离线 Range、平台章节索引和既有打包门禁；依赖审计因仓库元数据外发策略未执行。1.1.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon 真机、`autoUpdater`、抖音登录/验证码/无章节本地模型转写、系统通知/Spotlight/Share Extension、AppKit 原生 AX 与 VoiceOver 人工验收；这些条件未满足前只能称为 ad-hoc Candidate。

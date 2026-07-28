@@ -78,7 +78,7 @@ schema v11 新增 `spotlight_outbox`，文章可索引字段、归档状态和�
 
 0.42.0 增加嵌入 `Contents/PlugIns` 的 macOS Share Extension；0.45.0 把 strict matching 激活规则从单个 `public.url` 扩展为单个 URL 或单段文本。Swift 构建分别面向 x86_64/arm64，再合并为 bundle ID 受宿主前缀约束的 Universal `.appex`。扩展以普通 `NSViewController` 提供短暂、可访问的交接状态，通过异步 `NSItemProvider` 优先读取 URL，否则读取纯文本；独立 Swift 校验器分别限制为最长 2,048 字符、无控制字符/用户名/密码的 HTTP(S) 地址，或最多 4,096 UTF-8 bytes、非空且不含禁止控制字符的文本，再构造唯一 `reader-local://add?url=...` 或规范 Base64URL `reader-local://add?text=...` 并交给 `NSWorkspace`。扩展不联网、不读写文件、不访问 SQLite、Keychain、UserDefaults 或 App Group；系统选择扩展是第一次用户动作，Reader 既有添加窗口仍是最终写入确认。
 
-最终签名不再依赖无差别 `codesign --deep` 保存扩展权限：流水线先处理全部嵌套代码，再用只含 `com.apple.security.app-sandbox` 的 entitlement 重新签名 `.appex`，最后带主程序最小 `allow-jit` entitlement 重签宿主并执行深度严格验证。Developer ID 路径禁用自动 entitlement 补全并按文件选择权限，Spotlight helper 使用空权限，Share Extension 精确使用 sandbox，Electron helper 保留各自运行所需默认项；构建门禁回读并要求三者权限集合精确相等，拒绝额外 App Group 或未使用的硬件权限。
+最终签名不再依赖无差别 `codesign --deep` 保存扩展权限：流水线先处理全部嵌套代码，再用只含 `com.apple.security.app-sandbox` 的 entitlement 重新签名 `.appex`，最后带主程序最小 `allow-jit` entitlement 重签宿主并执行深度严格验证。Developer ID 路径禁用自动 entitlement 补全并按文件选择权限，Spotlight helper 与 Transcription helper 使用空权限，Share Extension 精确使用 sandbox，Electron helper 保留各自运行所需默认项；构建门禁回读主程序和三个原生子 bundle 的精确权限集合，拒绝额外 App Group 或未使用的硬件权限。
 
 0.47.0 把 strict matching 扩展到单个文件。Apple 的 `NSItemProvider.loadFileRepresentation` 临时副本会在回调返回时删除，因此扩展在回调内把受支持的 PDF、PNG/JPEG/GIF/WebP/HEIC、MP4/MOV/M4V/WebM、Markdown 或纯文本复制到自己的 `Caches/ReaderShareStaging`。目录/文件权限固定为 `0700/0600`，文件非空且最多 100 MB；随机 UUID v4 对应一个 `.payload` 和最后原子写入的固定 schema `.json`，记录受控文件名、MIME、精确字节数、SHA-256 与创建时间。扩展启动时删除超过 24 小时的成对暂存，打开 Reader 失败时立即删除本次副本。
 
@@ -256,7 +256,7 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 0.50.0 保持该最终包门禁默认关闭且不连接 Ollama；源码和 HTTP 测试新增内置探针输入、聚合质量等级、低质量可见提示、低置信位多桶确定性、近邻召回提升和 1,500 候选上限覆盖。发行验证不会把 fixture 结果冒充真实 Ollama 模型分数。
 
-发行流水线分别构建 x86_64 与 arm64 应用，再用项目内的流式 Mach-O 合并工具生成通用主程序、Helper 与 Share Extension；两套 `@napi-rs/canvas` 原生模块按架构保留在独立包路径，由运行时选择。Electron 压缩包必须匹配依赖自带的官方 SHA-256 清单。合并后按代码类型应用最小 entitlement、执行深度严格验证，并生成带“应用程序”快捷方式且通过 `hdiutil verify` 的压缩 DMG。
+发行流水线分别构建 x86_64 与 arm64 应用，再用项目内的流式 Mach-O 合并工具生成通用主程序、Spotlight helper、Transcription helper 与 Share Extension；两套 `@napi-rs/canvas` 原生模块按架构保留在独立包路径，由运行时选择。Electron 压缩包与 whisper.cpp XCFramework 必须分别匹配项目固定的官方 SHA-256。合并后按代码类型应用最小 entitlement、执行深度严格验证，并生成带“应用程序”快捷方式且通过 `hdiutil verify` 的压缩 DMG。
 
 0.27.0 在桌面主进程集中监听 Electron 的 suspend/resume、网络在线状态、macOS 电源与热状态。电池电量只通过只读的 `/usr/bin/pmset -g batt` 获取，不写系统设置：断网或电池供电且不高于 20% 时只暂停自动来源调度，本地附件导入与用户主动同步保持可用；睡眠、严重/临界热状态或 CPU 被系统限制到 50% 以下时暂停导入队列与自动同步。服务端把这些条件与待恢复写锁合并为单一串行策略，只有全部原因解除后才恢复对应 worker，避免唤醒或网络恢复绕过资料库恢复锁。当前脱敏状态通过 `/api/health` 提供，并在订阅中心显示面向用户的暂停原因。
 
@@ -266,7 +266,7 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 0.57.0 在 DMG/更新 ZIP 完成全部既有验证后生成 format v1 机器可读发行清单与标准 SHA-256 sidecar。清单只使用产物 basename，固定记录单一产品/版本/构建号、schema、appId、平台/Universal 架构、Electron、签名等级、40 位 Git 提交、已跟踪改动状态，以及产物字节数和流式 SHA-256；不记录时间、本机路径、用户、签名 identity、Keychain 或公证 profile。写入先落到同目录临时名，再原子替换最终文件，清单最后写入作为集合提交点；随后重新读取每个产物和 sidecar 自校验。Developer ID 公证模式要求源码没有已跟踪改动且 DMG/更新 ZIP 同时存在，否则在形成清单前 fail closed；ad-hoc 模式只声明 DMG，并拒绝同版本残留更新 ZIP。未跟踪的本机工具目录不进入源码状态，也不会泄露进清单。
 
-0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。0.53 把 `package.json` 的 `version` 与 Electron Builder 实际消费的正整数 `build.buildVersion` 设为 macOS 三个 bundle 的唯一发行身份：Share Extension 和 Spotlight helper 在临时构建副本签名前自动盖印这两个值，不修改源码模板；Universal 合并后再从主 App、Share Extension 与 Spotlight helper 的真实 `Info.plist` 回读并要求 `CFBundleShortVersionString`/`CFBundleVersion` 完全一致，漂移会在签名、DMG 和发布之前 fail closed。源码测试也要求两个原生模板与当前发行身份一致，便于审阅和避免下次版本升级遗漏。
+0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。0.53 把 `package.json` 的 `version` 与 Electron Builder 实际消费的正整数 `build.buildVersion` 设为原有三个 bundle 的唯一发行身份；1.1.0 将同一门禁扩展到新增 Transcription helper。原生子 bundle 在临时构建副本签名前自动盖印这两个值，不修改源码模板；Universal 合并后再从主 App、Share Extension、Spotlight helper 与 Transcription helper 的真实 `Info.plist` 回读并要求 `CFBundleShortVersionString`/`CFBundleVersion` 完全一致，漂移会在签名、DMG 和发布之前 fail closed。源码测试也要求三个原生模板与当前发行身份一致。
 
 当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
 
@@ -274,6 +274,20 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 - Share Extension 已完成单网页 URL、最多 4 KiB 选中文本或单个 100 MB 受支持文件的沙箱化、确认式系统交接；文件使用扩展私有缓存和不透明 token，不依赖易失临时 URL、路径深链、App Group 或安全作用域书签。Spotlight 已完成默认关闭的本机索引与深链闭环，仍需在 Developer ID、公证包和 Apple Silicon 真机验证系统结果点击；系统通知与 Share Extension 的真实系统菜单、Finder/照片来源也仍需在正式签名包上完成最终可用性验收。
 
 当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron 与 Canvas 切片完成官方哈希、Mach-O 架构及签名结构验证，仍应在 Apple Silicon 真机上补运行验收。
+
+## 1.1.0 抖音与本地转写边界
+
+抖音入口先从不超过 4096 字符的输入中提取唯一可信 HTTPS 链接。短链只在 Electron 注入的 `DouyinImportService` 中解析；源码 Server 不加载 Electron，也不尝试用普通 HTTP 模拟浏览器，而是返回“仅桌面版支持”。解析结果规范为 `https://www.douyin.com/video/<aweme_id>`，数据库唯一 URL 因而不受短链和跟踪参数影响。
+
+桌面适配器使用 `persist:reader-douyin`，与主窗口的默认 session 完全分离。匿名页面优先；详情捕获失败且页面要求登录时，任务进入 `awaiting_user / waiting_login`。只有用户点击后才创建可见登录窗口。短链通过受信任 Chromium 主导航观察作品 ID；详情页的真实请求由隔离 Session 的 `webRequest` 观察，同一 Session 立即回读响应，监听器在回读前移除。详情没有章节时只从同页已渲染文本补采公开时间戳章节；接口无法读取时可从公开元数据和播放器 DOM 形成可诊断后备，但带声视频仍必须来自通过音轨检查的详情候选。适配器不实现签名算法、不读取密码、不自动处理验证码。关闭窗口只结束这次交互；设置中的“彻底清除会话”才会删除该 partition 的 Cookie 与缓存。
+
+媒体地址只存在于一次导入调用的内存中。下载逐跳执行公网 DNS、绑定目标 IP、HTTPS、重定向、大小、MIME 和文件签名检查；视频单文件上限 100 MB，图片单张 30 MB、单篇图文 300 MB。字节先写入 `0600` 私有临时文件，以内容 SHA-256 命名后原子移动到 `data/files`。任务载荷、公开 API 和诊断不包含 Cookie、签名 URL 或磁盘路径。
+
+schema v13 为 `import_jobs` 增加 `platform`、`phase`、`progress`、`warning`、`action_required`，并加入 `awaiting_user` 与 `cancelled`。阶段固定为解析、等待登录、下载、保存、等待模型、转写、索引和完成。重启把 `running` 恢复为 `pending`；抖音媒体地址不会持久化，因此恢复时必须重新捕获作品详情。已下载媒体在文章元数据中标记 `waiting-transcription`，转写重试不依赖旧签名地址。
+
+`Reader Transcription Helper` 是无网络入口的 Universal 原生进程。主进程只通过 stdin 发送 version 1 的受限 JSON，且媒体必须位于 `data/files`、模型必须位于独立模型目录。Helper 使用 AVFoundation 解码为 16 kHz 单声道 Float32，由固定 whisper.cpp v1.9.1 XCFramework 执行推理；不依赖 FFmpeg，也不申请麦克风权限。该官方 framework 的最低部署版本是 macOS 13.3，主应用在较旧系统上明确报告本地转写不可用，不下载模型或尝试启动 Helper。输出只包含有界时间戳分段。主进程生成 WebVTT、更新 Markdown，再沿用文章编辑路径重建分块、FTS 和已启用的语义索引。
+
+模型供应链与应用发行分离：多语言 `ggml-small.bin` 仅在用户点击后从固定 Hugging Face revision 下载，校验固定字节数与 SHA-256 后原子安装。模型不进入 App、Markdown ZIP 或完整备份。
 
 ## 附件读取
 

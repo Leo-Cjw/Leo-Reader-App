@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { normalizeSmartCollectionRule, ReaderDatabase } from '../src/server/db.mjs';
 import { createReaderServer } from '../src/server/server.mjs';
+import { SCHEMA_VERSION } from '../src/server/schema.mjs';
 
 async function json(url, init) {
   const response = await fetch(url, init);
@@ -98,7 +99,7 @@ test('smart collections persist rules, count live matches and keep manual folder
 
   const reopened = await new ReaderDatabase(db.path).initialize();
   assert.equal(reopened.lastMigrationSnapshot, null);
-  assert.equal((await reopened.one('SELECT max(version) AS version FROM schema_migrations;')).version, 12);
+  assert.equal((await reopened.one('SELECT max(version) AS version FROM schema_migrations;')).version, SCHEMA_VERSION);
   assert.deepEqual((await reopened.listSmartCollections()).map((item) => item.name), ['最近要处理', '收藏且未读']);
   assert.equal((await reopened.deleteSmartCollection(broad.id)).name, '最近要处理');
   assert.equal((await reopened.listSmartCollections()).length, 1);

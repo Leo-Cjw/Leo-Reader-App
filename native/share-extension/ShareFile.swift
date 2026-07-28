@@ -33,6 +33,10 @@ enum ReaderShareFile {
         FileType(identifier: "com.apple.quicktime-movie", mimeType: "video/quicktime", fileExtension: "mov"),
         FileType(identifier: "com.apple.m4v-video", mimeType: "video/x-m4v", fileExtension: "m4v"),
         FileType(identifier: "org.webmproject.webm", mimeType: "video/webm", fileExtension: "webm"),
+        FileType(identifier: "public.mp3", mimeType: "audio/mpeg", fileExtension: "mp3"),
+        FileType(identifier: "public.mpeg-4-audio", mimeType: "audio/mp4", fileExtension: "m4a"),
+        FileType(identifier: "public.aac-audio", mimeType: "audio/aac", fileExtension: "aac"),
+        FileType(identifier: "com.microsoft.waveform-audio", mimeType: "audio/wav", fileExtension: "wav"),
         FileType(identifier: "net.daringfireball.markdown", mimeType: "text/markdown", fileExtension: "md"),
         FileType(identifier: "public.plain-text", mimeType: "text/plain", fileExtension: "txt")
     ]

@@ -8,10 +8,12 @@ export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 export const MAX_EDITOR_IMAGE_BYTES = 20 * 1024 * 1024;
 
 const textTypes = new Set(['text/plain', 'text/markdown', 'text/x-markdown']);
-const supportedExtensions = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.heic', '.mp4', '.mov', '.m4v', '.webm', '.txt', '.md', '.markdown']);
+const supportedExtensions = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.heic', '.mp4', '.mov', '.m4v', '.webm', '.mp3', '.m4a', '.aac', '.wav', '.txt', '.md', '.markdown']);
 const supportedImageTypes = /^image\/(png|jpe?g|webp|gif|avif|heic)$/;
+const supportedAudioTypes = new Set(['audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/x-m4a', 'audio/aac', 'audio/wav', 'audio/x-wav']);
 const imageExtensions = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif', 'image/avif': '.avif', 'image/heic': '.heic' };
 const imageTypesByExtension = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.avif': 'image/avif', '.heic': 'image/heic' };
+const audioTypesByExtension = { '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav' };
 
 export function sanitizeFileName(value) {
   const cleaned = path.basename(String(value || 'attachment'))
@@ -22,11 +24,37 @@ export function sanitizeFileName(value) {
 }
 
 export function validateAttachmentType(fileName, mimeType) {
-  const normalized = String(mimeType || 'application/octet-stream').split(';')[0].trim().toLowerCase();
   const extension = path.extname(fileName).toLowerCase();
-  const supported = normalized === 'application/pdf' || supportedImageTypes.test(normalized) || normalized.startsWith('video/') || textTypes.has(normalized) || (normalized === 'application/octet-stream' && supportedExtensions.has(extension));
+  const declared = String(mimeType || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+  const normalized = declared === 'application/octet-stream' && audioTypesByExtension[extension] ? audioTypesByExtension[extension] : declared;
+  const supported = normalized === 'application/pdf' || supportedImageTypes.test(normalized) || normalized.startsWith('video/') || supportedAudioTypes.has(normalized) || textTypes.has(normalized) || (normalized === 'application/octet-stream' && supportedExtensions.has(extension));
   if (!supported) throw Object.assign(new Error('暂不支持该附件格式'), { status: 415 });
   return normalized;
+}
+
+export function validateAudioSignature(bytes, mimeType) {
+  const data = Buffer.from(bytes || []);
+  if (mimeType === 'audio/mpeg' || mimeType === 'audio/mp3') {
+    return data.subarray(0, 3).toString('ascii') === 'ID3' || (data[0] === 0xff && (data[1] & 0xe0) === 0xe0);
+  }
+  if (mimeType === 'audio/mp4' || mimeType === 'audio/x-m4a') return data.length >= 12 && data.subarray(4, 8).toString('ascii') === 'ftyp';
+  if (mimeType === 'audio/aac') return data.length >= 2 && data[0] === 0xff && (data[1] & 0xf6) === 0xf0;
+  if (mimeType === 'audio/wav' || mimeType === 'audio/x-wav') return data.length >= 12 && data.subarray(0, 4).toString('ascii') === 'RIFF' && data.subarray(8, 12).toString('ascii') === 'WAVE';
+  return false;
+}
+
+async function validateStagedMediaSignature(filePath, mimeType) {
+  if (!supportedAudioTypes.has(mimeType)) return;
+  const handle = await open(filePath, 'r');
+  try {
+    const header = Buffer.alloc(16);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    if (!validateAudioSignature(header.subarray(0, bytesRead), mimeType)) {
+      throw Object.assign(new Error('音频内容与 MIME 类型不一致'), { status: 415 });
+    }
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function stageAttachment(request, { stagingDir, fileName, mimeType, maxBytes = MAX_UPLOAD_BYTES }) {
@@ -54,6 +82,12 @@ export async function stageAttachment(request, { stagingDir, fileName, mimeType,
     await unlink(tempPath).catch(() => {});
     throw Object.assign(new Error('附件为空'), { status: 400 });
   }
+  try {
+    await validateStagedMediaSignature(tempPath, safeType);
+  } catch (error) {
+    await unlink(tempPath).catch(() => {});
+    throw error;
+  }
   return { tempPath, fileName: safeName, mimeType: safeType, byteSize, sha256: hash.digest('hex') };
 }
 
@@ -72,6 +106,7 @@ function articleType(mimeType) {
   if (mimeType === 'application/pdf') return 'pdf';
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
   if (textTypes.has(mimeType)) return 'markdown';
   return 'attachment';
 }
@@ -99,12 +134,13 @@ export async function importStagedAttachment(database, payload, { stagingDir, fi
   const stagedExists = await pathExists(tempPath);
   const storedExists = await pathExists(destination);
   if (!stagedExists && !storedExists) throw new Error('附件暂存文件不存在');
+  if (stagedExists) await validateStagedMediaSignature(tempPath, payload.mimeType);
   const content = await extractText(stagedExists ? tempPath : destination, payload.mimeType);
   if (stagedExists) {
     if (storedExists) await unlink(tempPath);
     else await rename(tempPath, destination);
   }
-  const fallbackExcerpt = payload.mimeType === 'application/pdf' ? '本地 PDF 文档' : payload.mimeType.startsWith('image/') ? '本地图片附件' : payload.mimeType.startsWith('video/') ? '本地视频附件' : '本地附件';
+  const fallbackExcerpt = payload.mimeType === 'application/pdf' ? '本地 PDF 文档' : payload.mimeType.startsWith('image/') ? '本地图片附件' : payload.mimeType.startsWith('video/') ? '本地视频附件' : payload.mimeType.startsWith('audio/') ? '本地音频附件' : '本地附件';
   const excerpt = plainTextExcerpt(content).slice(0, 220) || fallbackExcerpt;
   const articleId = `attachment-${payload.sha256}`;
   let article = await database.getArticle(articleId);

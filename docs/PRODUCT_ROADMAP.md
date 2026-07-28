@@ -1,11 +1,16 @@
 # 成熟产品路线图
 
-## 当前基线：Reader for Mac 1.0.1 Candidate
+## 当前目标：Reader for Mac 1.1.0 Candidate
 
-已完成可运行的 local-first 主链路：本地 SQLite、数据迁移、正文高亮与批注、文章/目录/标签、收藏与阅读状态、URL/RSS/YouTube/X/微博/Markdown 采集、全文搜索、阅读器、明暗主题和 AI 工作台。1.0.1 候选在 1.0.0 的稳定基线上补齐微信文章的表格/代码块语义保留、受控 macOS 透明代理兼容和新版应用图标；Node.js 24 的最小 macOS CI 继续在每次 `main` 推送和面向 `main` 的 pull request 执行确定性安装、生产依赖审计、自动测试和生产构建。Schema 继续保持 v12，设置格式继续为 version 1。全部 14 个顶层模态 AX、Share 文件与 0.43 冻结资料库升级门禁继续执行；CI 不打包、不签名、不公证、不发布。正式发行仍需真实 Apple 凭据和真机验收。
+1.1.0 的成功定义是抖音作品离线媒体完整、正文与转写可检索、任务可恢复、平台边界准确，而不是增加平台数量。版本身份固定为 1.1.0（build 110、schema v13）；设置格式继续为 version 1，Reader Markdown ZIP 继续为 v3。
 
 ## M2：完整内容采集（进行中）
 
+- [1.1.0 收口] 抖音分享口令/链接、稳定作品 ID、隔离会话、显式登录和结构变化诊断。
+- [1.1.0 收口] 带声 MP4 1080p→720p 回退、最多 30 图、图文背景音乐、部分离线提示和零空壳文章。
+- [1.1.0 收口] 平台章节→本地 Whisper small→等待用户安装的转写顺序，Markdown/WebVTT 与全文/语义索引更新。
+- [1.1.0 收口] MP3、M4A、AAC、WAV 上传、播放、筛选、导出、备份与恢复。
+- [1.1.0 收口] schema v13 的 `awaiting_user`、阶段/进度/警告/操作、重启恢复、转写单独继续与取消。
 - [已完成] PDF、图片、音视频和文本附件导入，文件哈希幂等与原文件保留。
 - [已完成] 持久化 URL/附件导入队列、失败重试和应用重启恢复。
 - [已完成] 用户可在队列窗口暂停或继续；偏好跨重启保持，当前任务完成后停止领取下一项，继续操作不能绕过资料恢复、睡眠或系统资源限制。
@@ -24,11 +29,18 @@
 
 验收标准：所有导入任务可暂停、重试、追踪错误；应用离线重启后任务状态不丢失。
 
+### M2 下一阶段：阅读型核心
+
+- 微信公众号内嵌音视频的专用边界与回归。
+- CSDN、掘金和知乎专用正文适配。
+- 上述平台在专用解析和真实回归完成前继续保持“专用部分支持”或“通用网页尽力导入”，不回填到 1.1.0。
+- 小红书明确不在当前路线。
+
 ## M3：原生 macOS 发行
 
 - [部分完成] Electron 外壳、单实例、原生窗口/菜单、Dock 生命周期、系统另存为，以及附件、编辑器图片、Reader ZIP、OPML 与备份恢复的系统文件选择器均已完成；0.37 增加渲染界面崩溃后的原生恢复与安全退出，0.42 实现单网页 URL 的沙箱化 Share Extension，0.45 增加最多 4 KiB 选中文本，0.47 增加单个 100 MB 受支持文件的确认式附件交接。真实 Finder/照片等系统来源仍需在正式签名、公证包验收。
 - [部分完成] 渲染器沙箱、CSP、权限拒绝、Keychain、通用架构、ad-hoc 签名、DMG，以及只允许 Developer ID 正式包使用的自动更新均已完成；0.44 已把最终候选直接打开 0.43 资料库、继续写入并重启复核设为阻断门禁，0.45 加入最终包 Share 第二实例与零资料库预写入门禁，0.46 要求全部 14 个顶层模态框通过最终包 AX/焦点闭环，0.47 再验证分享文件确认/取消、队列零预写入与暂存清理。hardened runtime、App/DMG 公证和可验证更新 ZIP 流水线已接入，仍需真实证书、公证凭据、正式 GitHub Release、`autoUpdater` 端到端安装与 Apple Silicon 真机升级验收。
-- [已完成] `package.json` 单一营销版本/递增构建号驱动主 App、Share Extension 与 Spotlight helper；原生副本签名前自动盖印，Universal 合并后回读三个 `Info.plist` 并在身份漂移时中止发行。
+- [已完成] `package.json` 单一营销版本/递增构建号驱动主 App、Share Extension、Spotlight helper 与 Transcription helper；原生副本签名前自动盖印，Universal 合并后回读四个 `Info.plist` 并在身份漂移时中止发行。
 - [已完成] DMG 与正式更新 ZIP 生成机器可读 format v1 发行清单和标准 SHA-256 sidecar；原子写入后重新哈希复验，清单不携带本机路径或凭据，正式公证模式拒绝已跟踪的未提交源码。
 - [已完成] 默认随机回环 API 的精确 Host/Origin/Fetch Metadata 校验，在路由和请求体读取前拒绝 DNS rebinding 与浏览器跨站请求，并保留同机内部调用兼容。
 - [已完成] 无账号 HTTP 服务固定只接受 `127.0.0.1` 监听地址；非回环环境覆盖在触碰用户数据前失败，最终候选包也在恶意 `READER_HOST` 下回读实际随机回环 origin。
@@ -85,4 +97,4 @@
 
 ## 优先顺序
 
-下一迭代建议取得 Apple Developer ID，运行已接入的 App/DMG 公证流水线，发布首个同时携带 universal 更新 ZIP、发行清单和两份 SHA-256 sidecar 的正式 GitHub Release，并在 Intel 与 Apple Silicon 真机完成 Gatekeeper、0.43→1.0.0 `autoUpdater` 安装、系统通知、Spotlight 结果点击，以及 Safari/Finder/照片来源的 Share Extension 和资料库不丢失验收。代码内继续完成启用 VoiceOver 的人工听读；在装有推荐 Ollama 模型的机器上扩充并记录真实中英文检索基准，当前 9 句探针只作为选型提示，不替代代表性资料集。随后推进国际化与可选端到端加密多设备同步。
+1.1.0 的公开抖音真实作品、Intel 主机 Universal Candidate、0.43→1.1.0 升级和既有打包门禁已完成；下一功能阶段进入微信/CSDN/掘金/知乎的阅读型核心。正式发行仍需取得 Apple Developer ID，运行 App/DMG 公证流水线，发布携带 universal 更新 ZIP、发行清单和 SHA-256 sidecar 的 GitHub Release，并在 Apple Silicon 真机补做 Gatekeeper、升级、抖音登录/无章节本地模型转写、系统通知、Spotlight 与 Share Extension 验收。

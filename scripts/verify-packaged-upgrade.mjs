@@ -5,6 +5,7 @@ import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { launchPackagedReader, packagedReaderApp, projectRoot } from './lib/packaged-reader-qa.mjs';
+import { SCHEMA_VERSION } from '../src/server/schema.mjs';
 
 const appPath = packagedReaderApp(process.argv[2]);
 const fixtureRoot = path.resolve(process.argv[3] || path.join(projectRoot, 'tests', 'fixtures', 'upgrade-0.43'));
@@ -71,7 +72,7 @@ async function verifyFixtureFiles() {
 async function verifyPreservedState(client, { afterRestart = false } = {}) {
   const health = await request(client, '/api/health');
   assert.equal(health.version, packageMetadata.version);
-  assert.equal(health.schemaVersion, 12);
+  assert.equal(health.schemaVersion, SCHEMA_VERSION);
   assert.equal(health.background.importUserPaused, true);
   assert.equal(health.background.importsPaused, true);
 
@@ -219,7 +220,7 @@ try {
 
   console.log(`Reader ${packageMetadata.version} 最终包跨版本升级门禁通过`);
   console.log(`source=${manifest.createdBy.appVersion} schema v${manifest.createdBy.schemaVersion}`);
-  console.log(`target=${packageMetadata.version} schema v12`);
+  console.log(`target=${packageMetadata.version} schema v${SCHEMA_VERSION}`);
   console.log('preserved=article, folders, tags, highlight, revisions, smart folder, pending import, settings, attachment');
   console.log('post-upgrade write and restart=true');
   console.log('semantic index=default-off, derived vectors=0');
