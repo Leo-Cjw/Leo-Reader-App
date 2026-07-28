@@ -119,6 +119,8 @@ run('npm', ['run', 'build']);
 run('npm', ['run', 'icon:mac']);
 run('npm', ['run', 'spotlight:mac']);
 run('npm', ['run', 'share:mac']);
+run('npm', ['run', 'transcription:dependency']);
+run('npm', ['run', 'transcription:mac']);
 
 // electron-builder 会把同名 zip 所在目录当作 electronDist。每个目录只放一个已校验压缩包。
 const x64Dist = await replaceWithKnownZip(x64Zip, 'x64');

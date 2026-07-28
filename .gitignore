@@ -5,6 +5,7 @@ data/
 dist/
 release/
 build/
+vendor/whisper-v1.9.1/
 coverage/
 *.tsbuildinfo
 *.log

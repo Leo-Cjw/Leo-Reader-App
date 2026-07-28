@@ -125,9 +125,11 @@ test('desktop URL, text and file handoffs wait for the renderer and still requir
   assert.match(app, /const \[externalAddRequests, setExternalAddRequests\] = useState<ExternalAddRequest\[\]>\(\[\]\)/);
   assert.match(app, /window\.readerDesktop\?\.onAddRequest/);
   assert.match(app, /initialRequest=\{externalAddRequests\[0\]\}/);
-  assert.match(app, /initialRequest\?\.kind === 'file' \? 'attachment' : 'url'/);
-  assert.match(app, /initialRequest\?\.kind === 'text' \? '分享的文本摘录' : ''/);
-  assert.match(app, /initialRequest\?\.kind === 'text' \? initialRequest\.text : ''/);
+  assert.match(app, /const sharedTextIsDouyin = initialRequest\?\.kind === 'text'/);
+  assert.match(app, /initialRequest\?\.kind === 'text' && !sharedTextIsDouyin \? 'markdown'/);
+  assert.match(app, /sharedTextIsDouyin \? initialRequest\.text : ''/);
+  assert.match(app, /initialRequest\?\.kind === 'text' && !sharedTextIsDouyin \? '分享的文本摘录' : ''/);
+  assert.match(app, /initialRequest\?\.kind === 'text' && !sharedTextIsDouyin \? initialRequest\.text : ''/);
   assert.match(app, /inspectSharedFile\(initialRequest\.token\)/);
   assert.match(app, /importSharedFile\(initialRequest\.token, collection\)/);
   assert.match(app, /discardSharedFile\(initialRequest\.token\)/);
@@ -224,8 +226,13 @@ test('desktop package keeps Electron sandbox boundaries and a restrictive CSP', 
   assert.match(accessibilityGate, /temporary data isolated=true/);
 
   assert.deepEqual(packageJSON.build.protocols, [{ name: 'Reader URL', schemes: ['reader-local'], role: 'Viewer' }]);
-  assert.deepEqual(packageJSON.build.extraResources, [{ from: 'build/Reader Spotlight Helper.app', to: 'Reader Spotlight Helper.app' }]);
+  assert.deepEqual(packageJSON.build.extraResources, [
+    { from: 'build/Reader Spotlight Helper.app', to: 'Reader Spotlight Helper.app' },
+    { from: 'build/Reader Transcription Helper.app', to: 'Reader Transcription Helper.app' }
+  ]);
   assert.match(packageJSON.scripts['desktop:pack:x64'], /spotlight:mac/);
+  assert.match(packageJSON.scripts['desktop:pack:x64'], /transcription:dependency/);
+  assert.match(packageJSON.scripts['desktop:pack:x64'], /transcription:mac/);
   assert.match(release, /spotlight:mac/);
   assert.match(afterPack, /NSUserActivityTypes/);
   assert.match(afterPack, /com\.apple\.corespotlightitem/);
@@ -402,7 +409,7 @@ test('file imports use visible keyboard buttons without exposing desktop paths',
   assert.match(app, /inputRef\.current\?\.click\(\)/);
   assert.match(app, /className="native-file-input" type="file" hidden/);
   assert.match(app, /if \(files\.length\) onFiles\(files\);\s+event\.currentTarget\.value = '';/);
-  for (const label of ['上传文章图片', '选择 PDF、图片、视频或文本', '选择 Reader Markdown ZIP', '导入 OPML 文件', '选择 Reader 备份']) {
+  for (const label of ['上传文章图片', '选择 PDF、图片、视频、音频或文本', '选择 Reader Markdown ZIP', '导入 OPML 文件', '选择 Reader 备份']) {
     assert.match(app, new RegExp(label));
   }
   assert.doesNotMatch(app, /<label className="(?:file-drop|editor-image-upload|source-import|restore-file)"/);

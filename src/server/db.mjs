@@ -18,7 +18,7 @@ import {
 
 const SQLITE_BINARY = process.env.READER_SQLITE_BINARY || '/usr/bin/sqlite3';
 const HIGHLIGHT_COLORS = new Set(['amber', 'green', 'blue', 'pink']);
-const SMART_COLLECTION_TYPES = new Set(['article', 'rss', 'youtube', 'x', 'weibo', 'markdown', 'pdf', 'image', 'video', 'attachment']);
+const SMART_COLLECTION_TYPES = new Set(['article', 'rss', 'youtube', 'x', 'weibo', 'markdown', 'pdf', 'image', 'video', 'audio', 'douyin', 'attachment']);
 const MIGRATION_SNAPSHOT_PATTERN = /^reader-before-schema-v(\d+)-to-v(\d+)-(\d{4}-\d{2}-\d{2}T[0-9-]+Z)-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.sqlite3$/i;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -255,7 +255,7 @@ export class ReaderDatabase {
     this.lastMigrationSnapshot = migration.snapshot;
     if (migration.fromVersion < SCHEMA_VERSION) await this.execute(schemaSQL);
     this.appliedMigrations = await applyPendingMigrations(this, migration.fromVersion);
-    await this.execute("UPDATE import_jobs SET status='pending', updated_at=datetime('now') WHERE status='running';");
+    await this.execute("UPDATE import_jobs SET status='pending', phase=CASE WHEN platform='douyin' THEN 'parsing' ELSE phase END, progress=0, updated_at=datetime('now') WHERE status='running';");
     await this.seed();
     await this.backfillArticleRevisions();
     await this.backfillArticleChunks();
@@ -872,7 +872,7 @@ export class ReaderDatabase {
     const normalizedTypes = [...new Set((Array.isArray(types) ? types : String(types || '').split(',')).map((type) => String(type).trim()).filter(Boolean))].slice(0, 20);
     if (normalizedTypes.length) where.push(`a.type IN (${normalizedTypes.map(sqlValue).join(',')})`);
     if (tag) where.push(`EXISTS (SELECT 1 FROM article_tags filter_at JOIN tags filter_t ON filter_t.id=filter_at.tag_id WHERE filter_at.article_id=a.id AND filter_t.name=${sqlValue(tag)})`);
-    if (mediaOnly) where.push(`EXISTS (SELECT 1 FROM attachments media_attachment WHERE media_attachment.article_id=a.id AND (media_attachment.mime_type LIKE 'image/%' OR media_attachment.mime_type LIKE 'video/%' OR media_attachment.mime_type='application/pdf'))`);
+    if (mediaOnly) where.push(`EXISTS (SELECT 1 FROM attachments media_attachment WHERE media_attachment.article_id=a.id AND (media_attachment.mime_type LIKE 'image/%' OR media_attachment.mime_type LIKE 'video/%' OR media_attachment.mime_type LIKE 'audio/%' OR media_attachment.mime_type='application/pdf'))`);
     const joins = [];
     if (query.trim()) {
       const tokens = query.trim().split(/\s+/).filter(Boolean);
@@ -1356,10 +1356,12 @@ export class ReaderDatabase {
     return await this.one(`SELECT * FROM attachments WHERE id=${sqlValue(id)};`);
   }
 
-  async createImportJob(kind, payload) {
+  async createImportJob(kind, payload, { platform = kind === 'attachment' ? 'local' : 'web', phase = null } = {}) {
     const id = randomUUID();
     const timestamp = now();
-    await this.execute(`INSERT INTO import_jobs(id,kind,status,payload_json,created_at,updated_at) VALUES (${sqlValue(id)},${sqlValue(kind)},'pending',${sqlValue(JSON.stringify(payload))},${sqlValue(timestamp)},${sqlValue(timestamp)});`);
+    await this.execute(`INSERT INTO import_jobs(id,kind,status,platform,phase,progress,payload_json,created_at,updated_at) VALUES (${[
+      id, kind, 'pending', platform, phase, 0, JSON.stringify(payload), timestamp, timestamp
+    ].map(sqlValue).join(',')});`);
     return await this.getImportJob(id);
   }
 
@@ -1376,25 +1378,66 @@ export class ReaderDatabase {
     const job = await this.one("SELECT * FROM import_jobs WHERE status='pending' ORDER BY created_at LIMIT 1;");
     if (!job) return null;
     const timestamp = now();
-    await this.execute(`UPDATE import_jobs SET status='running', attempts=attempts+1, started_at=${sqlValue(timestamp)}, updated_at=${sqlValue(timestamp)}, error=NULL WHERE id=${sqlValue(job.id)} AND status='pending';`);
+    await this.execute(`UPDATE import_jobs SET status='running', attempts=attempts+1, started_at=coalesce(started_at,${sqlValue(timestamp)}), updated_at=${sqlValue(timestamp)}, error=NULL, action_required=NULL WHERE id=${sqlValue(job.id)} AND status='pending';`);
     return await this.getImportJob(job.id);
   }
 
-  async completeImportJob(id, articleId) {
+  async updateImportJobProgress(id, { phase, progress, warning = undefined } = {}) {
+    const assignments = [`updated_at=${sqlValue(now())}`];
+    if (phase !== undefined) assignments.push(`phase=${sqlValue(phase)}`);
+    if (progress !== undefined) {
+      const safeProgress = Math.min(Math.max(Math.round(Number(progress) || 0), 0), 100);
+      assignments.push(`progress=${safeProgress}`);
+    }
+    if (warning !== undefined) assignments.push(`warning=${sqlValue(warning ? String(warning).slice(0, 1000) : null)}`);
+    await this.execute(`UPDATE import_jobs SET ${assignments.join(',')} WHERE id=${sqlValue(id)} AND status='running';`);
+    return await this.getImportJob(id);
+  }
+
+  async awaitImportJob(id, { phase, actionRequired, warning = null, error = null } = {}) {
     const timestamp = now();
-    await this.execute(`UPDATE import_jobs SET status='completed', result_article_id=${sqlValue(articleId)}, finished_at=${sqlValue(timestamp)}, updated_at=${sqlValue(timestamp)}, error=NULL WHERE id=${sqlValue(id)};`);
+    await this.execute(`UPDATE import_jobs SET status='awaiting_user',phase=${sqlValue(phase || 'waiting_login')},action_required=${sqlValue(String(actionRequired || 'resume').slice(0, 80))},warning=${sqlValue(warning ? String(warning).slice(0, 1000) : null)},error=${sqlValue(error ? String(error).slice(0, 2000) : null)},updated_at=${sqlValue(timestamp)},finished_at=NULL WHERE id=${sqlValue(id)} AND status='running';`);
+    return await this.getImportJob(id);
+  }
+
+  async completeImportJob(id, articleId, { warning = null } = {}) {
+    const timestamp = now();
+    await this.execute(`UPDATE import_jobs SET status='completed',phase='complete',progress=100,warning=coalesce(${sqlValue(warning)},warning),action_required=NULL,result_article_id=${sqlValue(articleId)},finished_at=${sqlValue(timestamp)},updated_at=${sqlValue(timestamp)},error=NULL WHERE id=${sqlValue(id)} AND status IN ('pending','running');`);
     return await this.getImportJob(id);
   }
 
   async failImportJob(id, error) {
     const timestamp = now();
-    await this.execute(`UPDATE import_jobs SET status='failed', error=${sqlValue(String(error || '导入失败').slice(0, 2000))}, finished_at=${sqlValue(timestamp)}, updated_at=${sqlValue(timestamp)} WHERE id=${sqlValue(id)};`);
+    await this.execute(`UPDATE import_jobs SET status='failed',action_required=NULL,error=${sqlValue(String(error || '导入失败').slice(0, 2000))},finished_at=${sqlValue(timestamp)},updated_at=${sqlValue(timestamp)} WHERE id=${sqlValue(id)} AND status='running';`);
     return await this.getImportJob(id);
   }
 
   async retryImportJob(id) {
     const timestamp = now();
-    await this.execute(`UPDATE import_jobs SET status='pending', error=NULL, result_article_id=NULL, started_at=NULL, finished_at=NULL, updated_at=${sqlValue(timestamp)} WHERE id=${sqlValue(id)} AND status='failed';`);
+    await this.execute(`UPDATE import_jobs SET status='pending',phase=CASE WHEN platform='douyin' THEN 'parsing' ELSE phase END,progress=0,warning=NULL,action_required=NULL,error=NULL,result_article_id=NULL,started_at=NULL,finished_at=NULL,updated_at=${sqlValue(timestamp)} WHERE id=${sqlValue(id)} AND status='failed';`);
     return await this.getImportJob(id);
+  }
+
+  async actOnImportJob(id, action) {
+    const job = await this.getImportJob(id);
+    if (!job) return null;
+    const timestamp = now();
+    if (action === 'cancel') {
+      if (!['pending', 'running', 'awaiting_user'].includes(job.status)) return job;
+      await this.execute(`UPDATE import_jobs SET status='cancelled',phase='complete',action_required=NULL,error=NULL,finished_at=${sqlValue(timestamp)},updated_at=${sqlValue(timestamp)} WHERE id=${sqlValue(id)};`);
+      return await this.getImportJob(id);
+    }
+    if (action === 'resume') {
+      if (job.status !== 'awaiting_user') return job;
+      await this.execute(`UPDATE import_jobs SET status='pending',phase=CASE WHEN platform='douyin' THEN 'parsing' ELSE phase END,progress=0,action_required=NULL,error=NULL,finished_at=NULL,updated_at=${sqlValue(timestamp)} WHERE id=${sqlValue(id)};`);
+      return await this.getImportJob(id);
+    }
+    if (action === 'skip_transcription') {
+      if (job.status !== 'awaiting_user' || job.action_required !== 'install_transcription_model') return job;
+      const payload = { ...job.payload, skipTranscription: true };
+      await this.execute(`UPDATE import_jobs SET status='pending',phase='saving',action_required=NULL,error=NULL,payload_json=${sqlValue(JSON.stringify(payload))},finished_at=NULL,updated_at=${sqlValue(timestamp)} WHERE id=${sqlValue(id)};`);
+      return await this.getImportJob(id);
+    }
+    throw Object.assign(new Error('不支持的导入任务操作'), { status: 400 });
   }
 }

@@ -233,7 +233,7 @@ export function requestPinnedAddress(url, target, {
 }
 
 async function requestPublicTarget(target, options) {
-  const deadline = Date.now() + REQUEST_TIMEOUT_MS;
+  const deadline = Date.now() + (options.timeoutMs || REQUEST_TIMEOUT_MS);
   let lastError;
   for (const address of target.addresses) {
     try {
@@ -314,6 +314,72 @@ export async function safeFetchImage(value) {
     return { bytes, url: target.url.toString(), contentType };
   }
   throw new Error('图片重定向次数过多');
+}
+
+export async function safeFetchMedia(value, { maxBytes = 100 * 1024 * 1024 } = {}) {
+  let target = await resolvePublicURL(value);
+  if (target.url.protocol !== 'https:') throw new Error('媒体下载仅允许 HTTPS');
+  for (let redirect = 0; redirect < 5; redirect += 1) {
+    const response = await requestPublicTarget(target, {
+      headers: browserHeaders('video/mp4,audio/*,image/avif,image/webp,image/png,image/jpeg,*/*;q=0.5', target.url, {
+        referer: 'https://www.douyin.com/'
+      }),
+      maxBytes,
+      label: '媒体文件',
+      timeoutMs: 60_000
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = responseHeader(response.headers, 'location');
+      if (!location) throw new Error('媒体重定向缺少目标地址');
+      target = await resolvePublicURL(new URL(location, target.url).toString());
+      if (target.url.protocol !== 'https:') throw new Error('媒体重定向只能使用 HTTPS');
+      continue;
+    }
+    if (response.status < 200 || response.status >= 300) throw new Error(`媒体服务器返回 ${response.status}`);
+    const contentType = responseHeader(response.headers, 'content-type').split(';')[0].trim().toLowerCase();
+    const bytes = response.bytes;
+    const isImage = /^image\/(png|jpe?g|webp|gif|avif|heic)$/.test(contentType) && validateImageSignature(bytes, contentType);
+    const isMP4 = (contentType === 'video/mp4' || contentType === 'audio/mp4' || contentType === 'audio/x-m4a')
+      && bytes.length >= 12 && bytes.subarray(4, 8).toString('ascii') === 'ftyp';
+    const isMP3 = (contentType === 'audio/mpeg' || contentType === 'audio/mp3')
+      && (bytes.subarray(0, 3).toString('ascii') === 'ID3' || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0));
+    const isAAC = contentType === 'audio/aac' && bytes[0] === 0xff && (bytes[1] & 0xf6) === 0xf0;
+    const isWAV = (contentType === 'audio/wav' || contentType === 'audio/x-wav')
+      && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WAVE';
+    if (!isImage && !isMP4 && !isMP3 && !isAAC && !isWAV) throw new Error('媒体内容、MIME 类型或文件签名不受支持');
+    return { bytes, contentType };
+  }
+  throw new Error('媒体重定向次数过多');
+}
+
+export async function safeFetchCaption(value, { maxBytes = 2 * 1024 * 1024 } = {}) {
+  let target = await resolvePublicURL(value);
+  if (target.url.protocol !== 'https:') throw new Error('字幕下载仅允许 HTTPS');
+  for (let redirect = 0; redirect < 5; redirect += 1) {
+    const response = await requestPublicTarget(target, {
+      headers: browserHeaders('text/vtt,application/json,text/plain,application/x-subrip;q=0.9', target.url, {
+        referer: 'https://www.douyin.com/'
+      }),
+      maxBytes,
+      label: '字幕文件',
+      timeoutMs: 30_000
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = responseHeader(response.headers, 'location');
+      if (!location) throw new Error('字幕重定向缺少目标地址');
+      target = await resolvePublicURL(new URL(location, target.url).toString());
+      if (target.url.protocol !== 'https:') throw new Error('字幕重定向只能使用 HTTPS');
+      continue;
+    }
+    if (response.status < 200 || response.status >= 300) throw new Error(`字幕服务器返回 ${response.status}`);
+    const contentType = responseHeader(response.headers, 'content-type').split(';')[0].trim().toLowerCase();
+    if (!['text/vtt', 'application/json', 'text/plain', 'application/x-subrip', 'text/srt'].includes(contentType)) {
+      throw new Error('字幕 MIME 类型不受支持');
+    }
+    if (response.bytes.includes(0)) throw new Error('字幕内容不是受支持的文本');
+    return { text: response.bytes.toString('utf8'), contentType };
+  }
+  throw new Error('字幕重定向次数过多');
 }
 
 export function validateImageSignature(bytes, contentType) {

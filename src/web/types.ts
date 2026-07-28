@@ -216,8 +216,13 @@ export interface Attachment {
 export interface ImportJob {
   id: string;
   kind: 'url' | 'attachment';
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  payload: { url?: string; fileName?: string; mimeType?: string; byteSize?: number; collectionId?: string };
+  status: 'pending' | 'running' | 'awaiting_user' | 'completed' | 'failed' | 'cancelled';
+  platform: 'web' | 'local' | 'douyin' | string;
+  phase: 'parsing' | 'waiting_login' | 'downloading' | 'saving' | 'waiting_model' | 'transcribing' | 'indexing' | 'complete' | string | null;
+  progress: number;
+  warning: string | null;
+  action_required: 'douyin_login' | 'install_transcription_model' | 'retry_transcription' | string | null;
+  payload: { url?: string; awemeId?: string; fileName?: string; mimeType?: string; byteSize?: number; collectionId?: string };
   result_article_id: string | null;
   error: string | null;
   attempts: number;

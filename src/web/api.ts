@@ -47,8 +47,8 @@ export const api = {
   async importURL(url: string, collectionId?: string) {
     return (await request<{ article: Article }>('/api/articles', { method: 'POST', body: JSON.stringify({ mode: 'url', url, collection_id: collectionId }) })).article;
   },
-  async createURLImport(url: string, collectionId?: string) {
-    return (await request<{ job: ImportJob }>('/api/import-jobs', { method: 'POST', body: JSON.stringify({ kind: 'url', url, collection_id: collectionId }) })).job;
+  async createURLImport(input: string, collectionId?: string) {
+    return (await request<{ job: ImportJob }>('/api/import-jobs', { method: 'POST', body: JSON.stringify({ kind: 'url', input, collection_id: collectionId }) })).job;
   },
   async uploadAttachment(file: File, collectionId?: string) {
     const params = new URLSearchParams();
@@ -76,6 +76,27 @@ export const api = {
   },
   async retryImportJob(id: string) {
     return (await request<{ job: ImportJob }>(`/api/import-jobs/${encodeURIComponent(id)}/retry`, { method: 'POST' })).job;
+  },
+  async actOnImportJob(id: string, action: 'resume' | 'skip_transcription' | 'cancel') {
+    return (await request<{ job: ImportJob }>(`/api/import-jobs/${encodeURIComponent(id)}/actions`, { method: 'POST', body: JSON.stringify({ action }) })).job;
+  },
+  async getDouyinStatus() {
+    return (await request<{ platform: { available: boolean; authenticated: boolean; desktopOnly?: boolean } }>('/api/platforms/douyin')).platform;
+  },
+  async loginDouyin() {
+    return (await request<{ platform: { available: boolean; authenticated: boolean } }>('/api/platforms/douyin/login', { method: 'POST' })).platform;
+  },
+  async clearDouyinSession() {
+    return (await request<{ platform: { available: boolean; authenticated: boolean } }>('/api/platforms/douyin/session', { method: 'DELETE' })).platform;
+  },
+  async getTranscriptionModel() {
+    return (await request<{ model: { available: boolean; installed: boolean; downloading?: boolean; progress?: number } }>('/api/transcription/model')).model;
+  },
+  async downloadTranscriptionModel() {
+    return (await request<{ model: { available: boolean; installed: boolean; downloading?: boolean; progress?: number } }>('/api/transcription/model/download', { method: 'POST' })).model;
+  },
+  async removeTranscriptionModel() {
+    return (await request<{ model: { available: boolean; installed: boolean } }>('/api/transcription/model', { method: 'DELETE' })).model;
   },
   async updateImportQueueState(paused: boolean) {
     return (await request<{ background: BackgroundWorkState }>('/api/import-jobs/state', { method: 'PUT', body: JSON.stringify({ paused }) })).background;

@@ -14,6 +14,8 @@ const x64AppPath = path.resolve(process.env.READER_X64_APP || path.join(projectR
 const arm64AppPath = path.resolve(process.env.READER_ARM64_APP || path.join(projectRoot, 'release', 'mac-arm64', 'Reader.app'));
 const outAppPath = path.resolve(process.env.READER_UNIVERSAL_APP || path.join(projectRoot, 'release', 'mac-universal', 'Reader.app'));
 const spotlightHelperApp = path.join(outAppPath, 'Contents', 'Resources', 'Reader Spotlight Helper.app');
+const transcriptionHelperApp = path.join(outAppPath, 'Contents', 'Resources', 'Reader Transcription Helper.app');
+const transcriptionFramework = path.join(transcriptionHelperApp, 'Contents', 'Frameworks', 'whisper.framework');
 const shareExtensionApp = path.join(outAppPath, 'Contents', 'PlugIns', 'Reader Share Extension.appex');
 const packageMetadata = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
 const releaseMetadata = releaseBundleMetadata(packageMetadata);
@@ -48,6 +50,7 @@ await makeUniversalApp({
 for (const [bundlePath, label] of [
   [outAppPath, 'Reader'],
   [spotlightHelperApp, 'Reader Spotlight Helper'],
+  [transcriptionHelperApp, 'Reader Transcription Helper'],
   [shareExtensionApp, 'Reader Share Extension']
 ]) {
   assertBundleMetadata(readBundlePlist(path.join(bundlePath, 'Contents', 'Info.plist')), label, releaseMetadata);
@@ -58,7 +61,15 @@ let signature = 'unsigned';
 if (developerIdentity) {
   execFileSync('/usr/bin/codesign', [
     '--force', '--sign', developerIdentity, '--options', 'runtime', '--timestamp',
+    transcriptionFramework
+  ], { stdio: 'inherit' });
+  execFileSync('/usr/bin/codesign', [
+    '--force', '--sign', developerIdentity, '--options', 'runtime', '--timestamp',
     '--entitlements', emptyEntitlements, spotlightHelperApp
+  ], { stdio: 'inherit' });
+  execFileSync('/usr/bin/codesign', [
+    '--force', '--sign', developerIdentity, '--options', 'runtime', '--timestamp',
+    '--entitlements', emptyEntitlements, transcriptionHelperApp
   ], { stdio: 'inherit' });
   await signAsync({
     app: outAppPath,
@@ -73,6 +84,9 @@ if (developerIdentity) {
       if (filePath.endsWith(`${path.sep}Reader Spotlight Helper.app`)) {
         return { entitlements: emptyEntitlements };
       }
+      if (filePath.endsWith(`${path.sep}Reader Transcription Helper.app`)) {
+        return { entitlements: emptyEntitlements };
+      }
       if (path.resolve(filePath) === outAppPath) {
         return { entitlements: mainEntitlements };
       }
@@ -81,10 +95,20 @@ if (developerIdentity) {
   });
   signature = 'Developer ID';
 } else if (process.env.READER_SKIP_ADHOC_SIGN !== '1') {
+  // Sign the Electron tree once, then reseal custom leaves and their parents
+  // from the deepest bundle outward. makeUniversalApp can rewrite a framework
+  // slice after the source helper was signed, so signing only with --deep is
+  // not a deterministic final seal.
+  execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', outAppPath], { stdio: 'inherit' });
+  execFileSync('/usr/bin/codesign', [
+    '--force', '--sign', '-', transcriptionFramework
+  ], { stdio: 'inherit' });
   execFileSync('/usr/bin/codesign', [
     '--force', '--sign', '-', '--entitlements', emptyEntitlements, spotlightHelperApp
   ], { stdio: 'inherit' });
-  execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', outAppPath], { stdio: 'inherit' });
+  execFileSync('/usr/bin/codesign', [
+    '--force', '--sign', '-', '--entitlements', emptyEntitlements, transcriptionHelperApp
+  ], { stdio: 'inherit' });
   execFileSync('/usr/bin/codesign', [
     '--force', '--sign', '-', '--entitlements', shareEntitlements,
     path.join(outAppPath, 'Contents', 'PlugIns', 'Reader Share Extension.appex')
@@ -97,6 +121,8 @@ if (developerIdentity) {
 if (signature !== 'unsigned') {
   execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=1', outAppPath], { stdio: 'inherit' });
   execFileSync('/usr/bin/codesign', ['--verify', '--strict', '--verbose=1', spotlightHelperApp], { stdio: 'inherit' });
+  execFileSync('/usr/bin/codesign', ['--verify', '--strict', '--verbose=1', transcriptionFramework], { stdio: 'inherit' });
+  execFileSync('/usr/bin/codesign', ['--verify', '--strict', '--verbose=1', transcriptionHelperApp], { stdio: 'inherit' });
 }
 
 const executable = path.join(outAppPath, 'Contents', 'MacOS', 'Reader');
@@ -128,6 +154,18 @@ if (spotlightArchitectures.join(',') !== 'arm64,x86_64') {
   throw new Error(`Spotlight helper 不是通用架构：${spotlightArchitectures.join(', ')}`);
 }
 
+const transcriptionHelper = path.join(
+  transcriptionHelperApp,
+  'Contents',
+  'MacOS',
+  'Reader Transcription Helper'
+);
+await access(transcriptionHelper);
+const transcriptionArchitectures = execFileSync(lipoCommand, ['-archs', transcriptionHelper], { encoding: 'utf8' }).trim().split(/\s+/).sort();
+if (transcriptionArchitectures.join(',') !== 'arm64,x86_64') {
+  throw new Error(`Transcription helper 不是通用架构：${transcriptionArchitectures.join(', ')}`);
+}
+
 const shareExtension = shareExtensionApp;
 const shareExecutable = path.join(shareExtension, 'Contents', 'MacOS', 'Reader Share Extension');
 await access(shareExecutable);
@@ -148,11 +186,16 @@ if (signature !== 'unsigned') {
   if (Object.keys(spotlightEntitlements).length) {
     throw new Error('Spotlight helper 不应包含 entitlement');
   }
+  const transcriptionEntitlements = signedEntitlements(transcriptionHelperApp);
+  if (Object.keys(transcriptionEntitlements).length) {
+    throw new Error('Transcription helper 不应包含 entitlement');
+  }
 }
 
 console.log(outAppPath);
 console.log(`architectures=${architectures.join(',')}`);
 console.log(`spotlightArchitectures=${spotlightArchitectures.join(',')}`);
+console.log(`transcriptionArchitectures=${transcriptionArchitectures.join(',')}`);
 console.log(`shareArchitectures=${shareArchitectures.join(',')}`);
 console.log(`bundleVersion=${releaseMetadata.version} (${releaseMetadata.buildVersion})`);
 console.log(`signature=${signature}`);

@@ -213,7 +213,7 @@ try {
       if (!dialog) return null;
       return {
         activeTab: [...dialog.querySelectorAll('.modal-tabs button')].find((button) => button.getAttribute('aria-pressed') === 'true')?.textContent?.trim() || '',
-        url: dialog.querySelector('input[aria-label="网页地址"]')?.value || ''
+        url: dialog.querySelector('textarea[aria-label="网页地址或抖音分享口令"]')?.value || ''
       };
     })()`);
     return state?.activeTab === '网页 URL' ? state : null;

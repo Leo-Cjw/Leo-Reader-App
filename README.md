@@ -1,4 +1,4 @@
-# Reader for Mac 1.0.1 Candidate
+# Reader for Mac 1.1.0 Candidate
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-1.0.1-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，最低 macOS 12。本候选包仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-1.1.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，主应用最低 macOS 12；固定的 whisper.cpp v1.9.1 官方 XCFramework 要求 macOS 13.3，因此 macOS 12/13.0–13.2 可使用平台字幕和其余 Reader 能力，但不能运行本地 Whisper 转写。本候选包仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
 
 Mac App 的资料库独立位于：
 
@@ -44,7 +44,7 @@ Vite 开发界面位于 `http://127.0.0.1:4311`，并把 `/api` 代理到 4312 �
 npm run desktop:pack
 ```
 
-该命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块、嵌套 Spotlight helper 与 Share Extension 架构和 entitlement，并执行签名验证。最终 App 必须依次通过完整 Chromium AX 树与全部 14 个顶层模态框焦点闭环、第二实例驱动的 Share 文本/文件/URL 交接、文件确认/取消清理与资料库确认前零写入门禁，以及从 0.43 冻结资料库读取、继续写入、重启和完整性复核，才会生成并校验 DMG。输出位于 `release/mac-universal/Reader.app`、`release/Reader-<version>-universal.dmg`、同名 `.sha256` sidecar 与 `release/Reader-<version>-release.json`。机器可读清单记录版本、构建号、schema、Electron、签名等级、源码提交、是否包含已跟踪改动及产物字节数/SHA-256，不包含本机路径、用户名、证书名或凭据。未提供正式发行凭据时保留 ad-hoc 模式，并主动删除同版本残留的更新 ZIP。
+流水线会取得固定的 whisper.cpp v1.9.1 XCFramework，并在解压前校验项目锁定的 SHA-256；运行时使用的 Whisper 模型不在这里下载，也不进入 App。发行命令固定使用当前 Electron 版本，分别获取并核对官方 SHA-256 的 x64/arm64 包，构建两套 App，合并通用 Mach-O，检查 Canvas 原生模块、Spotlight helper、Transcription helper 与 Share Extension 的架构和 entitlement，并执行签名验证。最终 App 必须依次通过完整 Chromium AX 树与全部 14 个顶层模态框焦点闭环、第二实例驱动的 Share 文本/文件/URL 交接、文件确认/取消清理与资料库确认前零写入门禁，以及从 0.43 冻结资料库读取、继续写入、重启和完整性复核，才会生成并校验 DMG。输出位于 `release/mac-universal/Reader.app`、`release/Reader-<version>-universal.dmg`、同名 `.sha256` sidecar 与 `release/Reader-<version>-release.json`。机器可读清单记录版本、构建号、schema、Electron、签名等级、源码提交、是否包含已跟踪改动及产物字节数/SHA-256，不包含本机路径、用户名、证书名或凭据。未提供正式发行凭据时保留 ad-hoc 模式，并主动删除同版本残留的更新 ZIP。
 
 在产物目录可独立复验 DMG：
 
@@ -67,13 +67,26 @@ npm run desktop:pack
 
 ## 已实现能力
 
-- URL 导入：先写入持久化任务队列，再在一次性权限受限解析进程中用 Mozilla Readability 抽取标题、作者、摘要和正文，转换为 GFM Markdown；代表图片和最多 16 张正文图片通过安全下载、文件签名检查与哈希去重后保存在本机。
+平台能力以 [平台支持矩阵](docs/PLATFORM_SUPPORT.md) 为唯一事实源：
+
+| 平台 | Reader 1.1.0 |
+| --- | --- |
+| 抖音 | 桌面版完整支持视频、最多 30 图、背景音乐、平台字幕/章节与本地转写；受限内容与验证码自动化不支持 |
+| 微信公众号 | 专用部分支持正文、表格、代码和图片；内嵌音视频不保证 |
+| CSDN、掘金、知乎、头条 | 通用网页尽力导入，不承诺稳定专用支持 |
+| RSS / Atom | 完整订阅 |
+| YouTube、X、微博 | 仅频道/账号订阅，不代表任意单条媒体离线 |
+| B站、小宇宙 | 可能提取文本或元数据，不支持离线媒体 |
+| 小红书 | 不支持且不在当前路线 |
+
+- 抖音导入：接受作品链接或最多 4096 字符的分享口令，规范到作品 ID 后在独立 Chromium 会话中读取详情；视频优先保存不超过 100 MB 的 1080p 带声 H.264 MP4（必要时 720p），图文最多保存 30 张图片和背景音乐。平台字幕/章节优先，否则在 macOS 13.3+ 使用用户明确安装的本地 Whisper small，生成可搜索 Markdown 与 WebVTT。
+- 通用网页导入：先写入持久化任务队列，再在一次性权限受限解析进程中用 Mozilla Readability 抽取标题、作者、摘要和正文，转换为 GFM Markdown；代表图片和最多 16 张正文图片通过安全下载、文件签名检查与哈希去重后保存在本机。通用网页属于尽力导入，不等同于平台正式支持。
 - 外部保存入口：打包 App 接受互斥的网页 URL、最多 4 KiB Base64URL 文本或 Share Extension 生成的随机文件 token。浏览器、快捷指令或系统扩展唤起 Reader 时，主进程与 preload 都会重新检查动作、唯一参数、长度和内容边界；文件深链不携带真实路径、文件名、MIME、摘要或内容。冷启动和运行中第二次唤起均受支持，用户确认前不会创建任务、联网或写入资料库。
-- 系统分享扩展：安装后可从 Safari、Finder 及其他提供网页 URL、选中文本、PDF、图片、视频、Markdown 或纯文本文件的 Mac App 选择“存入 Reader”。独立 Universal `.appex` 仍只有 App Sandbox entitlement，不联网、不访问资料库、Keychain、App Group 或用户任意路径；文件先复制到扩展私有缓存，以 0700/0600 权限、随机 token、100 MB 上限、SHA-256 和 24 小时 TTL 暂存，再由 Reader 显示名称与大小并要求选择资料夹确认。确认后复用既有附件队列，取消或成功后立即清理；失败时保留到重试或过期。若系统分享菜单未显示，可在分享菜单的“编辑扩展”中启用“存入 Reader”。
+- 系统分享扩展：安装后可从 Safari、Finder 及其他提供网页 URL、选中文本、PDF、图片、视频、MP3/M4A/AAC/WAV、Markdown 或纯文本文件的 Mac App 选择“存入 Reader”。独立 Universal `.appex` 仍只有 App Sandbox entitlement，不联网、不访问资料库、Keychain、App Group 或用户任意路径；文件先复制到扩展私有缓存，以 0700/0600 权限、随机 token、100 MB 上限、SHA-256 和 24 小时 TTL 暂存，再由 Reader 显示名称与大小并要求选择资料夹确认。确认后复用既有附件队列，取消或成功后立即清理；失败时保留到重试或过期。若系统分享菜单未显示，可在分享菜单的“编辑扩展”中启用“存入 Reader”。
 - 网络采集：每次请求和重定向都拒绝本机、局域网及云元数据地址；实际 TCP 连接固定到已验证的公网 IP，同时保留原域名进行 Host/TLS 校验，避免 DNS rebinding 绕过。
 - 微信公众号：使用专用解析器识别账号、作者、标题、正文与延迟加载图片；微信验证页不会入库。旧版本误存的验证页会自动恢复原链接，重新导入时保留历史版本并原地修复。
 - 离线完整度：阅读页明确显示离线完整、部分离线或仅正文离线；下载失败的图片降级为可点击在线链接，不会在阅读时静默发起远程图片请求。
-- 附件：支持 PDF、图片、视频、Markdown 和文本；单文件最大 100 MB，使用 SHA-256 幂等入库。
+- 附件：支持 PDF、图片、视频、MP3/M4A/AAC/WAV、Markdown 和文本；单文件最大 100 MB，使用 SHA-256 幂等入库。音频在阅读页使用本地播放器，并参与媒体筛选、导出、备份与恢复。
 - PDF：在一次性解析进程中使用本地 PDF.js 抽取文字并加入全文索引，原文件保留在本机。
 - 媒体缩略图：图片和 PDF 首次展示时在权限受限解析进程中生成 640×360 WebP 缓存并按内容哈希复用；视频由本地媒体端点解码首帧。缩略图可随时重建，不进入备份。
 - Markdown：任意文章都能进入双栏编辑器；可选择或拖入多张图片，图片经过签名校验、SHA-256 去重后挂在原文章并插入光标处。停笔 1.4 秒自动保存，实时预览不执行原始 HTML。
@@ -116,6 +129,7 @@ npm run desktop:pack
 - 完整备份：`data/backups/`（0.52 起新建备份带权限为 `0600` 的本机创建时验证凭据；凭据不进入备份包）
 - 升级前数据库快照：`data/migration-backups/`
 - 可再生缩略图：`data/thumbnails/`
+- 本地转写模型：`models/transcription/`（用户明确安装；不进入 App、备份或导出）
 - 待恢复暂存：`data/restore/`
 - 本地运行日志：`data/logs/`（目录 `0700`、文件 `0600`；有限轮转，不进入备份或导出）
 - 非敏感运行时设置：`data/settings.json`（权限 `0600`；保存 AI 提供商、端点、模型、本地语义检索模型与 opt-in，以及导入队列暂停、通知、Spotlight 与自动恢复点 opt-in；不保存 API 密钥或备份口令，也不进入备份或导出）
@@ -211,6 +225,9 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/import-jobs/upload`：流式上传附件并创建任务。
 - `GET /api/import-jobs/:id`：读取任务状态。
 - `POST /api/import-jobs/:id/retry`：重试失败任务。
+- `POST /api/import-jobs/:id/actions`：继续等待任务、保留媒体并跳过转写，或取消任务。
+- `GET/POST/DELETE /api/platforms/douyin[/login|/session]`：读取隔离会话状态、显式打开登录窗口或彻底清除会话。
+- `GET/POST/DELETE /api/transcription/model[/download]`：读取、显式安装或删除固定 Whisper small 模型。
 - `GET /api/attachments/:id/content`：读取附件，支持字节范围请求。
 - `GET/POST /api/collections`：列出树形资料夹或创建资料夹。
 - `PATCH/DELETE /api/collections/:id`：改名、移动或安全删除资料夹子树。
@@ -239,4 +256,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-1.0.1 候选变更见 [docs/RELEASE_NOTES_1.0.1.md](docs/RELEASE_NOTES_1.0.1.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+1.1.0 候选变更见 [docs/RELEASE_NOTES_1.1.0.md](docs/RELEASE_NOTES_1.1.0.md)，平台边界见 [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

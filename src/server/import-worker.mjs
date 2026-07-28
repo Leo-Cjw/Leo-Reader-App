@@ -1,5 +1,6 @@
 import { importURL } from './importers.mjs';
 import { importStagedAttachment, localizeRemoteImage, storeRemoteImage } from './attachments.mjs';
+import { desktopOnlyDouyinError } from './douyin.mjs';
 
 const MAX_LOCALIZED_IMAGE_BYTES = 48 * 1024 * 1024;
 
@@ -95,8 +96,18 @@ export async function localizeImportedResources(database, article, imported, pat
   };
 }
 
-export async function processImportJob(database, job, paths) {
+export async function processImportJob(database, job, paths, { douyinService = null } = {}) {
   if (job.kind === 'url') {
+    if (job.platform === 'douyin') {
+      if (!douyinService) throw desktopOnlyDouyinError();
+      await database.updateImportJobProgress(job.id, { phase: 'parsing', progress: 5 });
+      return await douyinService.importWork(job, {
+        database,
+        paths,
+        updateProgress: (progress) => database.updateImportJobProgress(job.id, progress),
+        isCancelled: async () => (await database.getImportJob(job.id))?.status === 'cancelled'
+      });
+    }
     const imported = await importURL(job.payload.url);
     let article;
     let created = false;
@@ -138,7 +149,7 @@ export async function processImportJob(database, job, paths) {
   throw new Error(`未知导入任务类型：${job.kind}`);
 }
 
-export function createImportWorker(database, paths, { idleIntervalMs = 4000, initiallyPaused = false, onBatchFinished = null } = {}) {
+export function createImportWorker(database, paths, { idleIntervalMs = 4000, initiallyPaused = false, onBatchFinished = null, douyinService = null } = {}) {
   let active = false;
   let paused = Boolean(initiallyPaused);
   let stopped = false;
@@ -166,12 +177,20 @@ export function createImportWorker(database, paths, { idleIntervalMs = 4000, ini
           if (!job) break;
           processed += 1;
           try {
-            const article = await processImportJob(database, job, paths);
+            const article = await processImportJob(database, job, paths, { douyinService });
             await database.completeImportJob(job.id, article.id);
             completed += 1;
           } catch (error) {
-            await database.failImportJob(job.id, error instanceof Error ? error.message : String(error));
-            failed += 1;
+            if (error?.actionRequired) {
+              await database.awaitImportJob(job.id, {
+                phase: error.actionRequired === 'douyin_login' ? 'waiting_login' : 'waiting_model',
+                actionRequired: error.actionRequired,
+                error: error instanceof Error ? error.message : String(error)
+              });
+            } else {
+              await database.failImportJob(job.id, error instanceof Error ? error.message : String(error));
+              failed += 1;
+            }
           }
         }
       } catch (error) {

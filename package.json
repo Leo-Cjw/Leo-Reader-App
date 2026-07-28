@@ -1,6 +1,6 @@
 {
   "name": "reader-local-first",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A private, local-first reading and knowledge workspace for macOS.",
   "author": "Reader",
   "private": true,
@@ -18,18 +18,21 @@
     "audit:dependencies": "node scripts/audit-dependencies.mjs",
     "qa:loopback": "node scripts/verify-packaged-loopback.mjs",
     "qa:accessibility": "node scripts/verify-packaged-accessibility.mjs",
+    "qa:douyin": "node scripts/verify-packaged-douyin.mjs",
     "qa:share": "node scripts/verify-packaged-share.mjs",
     "qa:upgrade": "node scripts/verify-packaged-upgrade.mjs",
     "benchmark:library": "node scripts/benchmark-library.mjs",
     "benchmark:rag": "node scripts/benchmark-rag.mjs",
     "icon:mac": "node scripts/build-mac-icon.mjs",
     "desktop": "npm run build && electron .",
-    "desktop:pack:x64": "npm run build && npm run icon:mac && npm run spotlight:mac && npm run share:mac && electron-builder --mac dir --x64",
+    "desktop:pack:x64": "npm run build && npm run icon:mac && npm run spotlight:mac && npm run share:mac && npm run transcription:dependency && npm run transcription:mac && electron-builder --mac dir --x64",
     "desktop:pack": "node scripts/build-mac-release.mjs",
     "desktop:dmg": "node scripts/build-mac-dmg.mjs",
     "release:manifest": "node scripts/build-release-manifest.mjs",
     "spotlight:mac": "node scripts/build-spotlight-helper.mjs",
-    "share:mac": "node scripts/build-share-extension.mjs"
+    "share:mac": "node scripts/build-share-extension.mjs",
+    "transcription:dependency": "node scripts/fetch-whisper-xcframework.mjs",
+    "transcription:mac": "node scripts/build-transcription-helper.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -59,7 +62,7 @@
     "ws": "8.21.1"
   },
   "build": {
-    "buildVersion": "101",
+    "buildVersion": "110",
     "appId": "com.reader.localfirst",
     "productName": "Reader",
     "asar": true,
@@ -76,6 +79,10 @@
       {
         "from": "build/Reader Spotlight Helper.app",
         "to": "Reader Spotlight Helper.app"
+      },
+      {
+        "from": "build/Reader Transcription Helper.app",
+        "to": "Reader Transcription Helper.app"
       }
     ],
     "directories": {

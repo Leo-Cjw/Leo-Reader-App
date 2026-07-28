@@ -27,6 +27,7 @@ import { createBackgroundWorkPolicy } from './background-work.mjs';
 import { createSpotlightService } from './spotlight.mjs';
 import { createSemanticSearchService } from './semantic-search.mjs';
 import { createAutomaticBackupService } from './automatic-backups.mjs';
+import { desktopOnlyDouyinError, extractDouyinURL } from './douyin.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -154,6 +155,11 @@ function publicImportJob(job) {
   if (!job) return job;
   const payload = { ...(job.payload || {}) };
   delete payload.tempPath;
+  delete payload.cookies;
+  delete payload.mediaURLs;
+  delete payload.signedURLs;
+  delete payload.localMediaPath;
+  delete payload.modelPath;
   return { ...job, payload };
 }
 
@@ -206,7 +212,9 @@ export async function createReaderServer({
   spotlightHelperPath = '',
   spotlightService = null,
   embeddingClient = null,
-  semanticSearchService = null
+  semanticSearchService = null,
+  douyinService = null,
+  transcriptionService = null
 } = {}) {
   if (host !== '127.0.0.1') throw new TypeError('Reader 仅允许监听 127.0.0.1');
   const dataRoot = path.join(rootDir, 'data');
@@ -261,6 +269,7 @@ export async function createReaderServer({
   const importQueueSettings = runtimeSettingsStore.getImportQueue();
   const importWorker = createImportWorker(database, { stagingDir, filesDir }, {
     initiallyPaused: importQueueSettings.paused,
+    douyinService,
     onBatchFinished: (summary) => {
       if (!runtimeSettingsStore.getNotifications().enabled || typeof onImportBatchFinished !== 'function') return;
       return onImportBatchFinished(summary);
@@ -445,8 +454,27 @@ export async function createReaderServer({
       if (pathname === '/api/import-jobs' && method === 'POST') {
         const body = await readJSON(request);
         if (body.kind !== 'url') throw new HTTPError(400, '当前 JSON 导入任务仅支持 URL');
-        const publicURL = await requiredPublicURL(body.url);
-        const job = await database.createImportJob('url', { url: publicURL, collectionId: body.collection_id || 'inbox' });
+        const input = requiredString(body.input ?? body.url, 'URL 或分享口令', 4096);
+        let job;
+        try {
+          const douyinURL = extractDouyinURL(input);
+          if (!douyinService) throw desktopOnlyDouyinError();
+          const prepared = await douyinService.prepareInput(douyinURL);
+          job = await database.createImportJob('url', {
+            url: prepared.canonicalURL,
+            awemeId: prepared.awemeId,
+            collectionId: body.collection_id || 'inbox'
+          }, { platform: 'douyin', phase: 'parsing' });
+        } catch (error) {
+          const mentionsDouyin = /(?:^|[./])(?:douyin\.com|iesdouyin\.com)(?:[/:]|$)/i.test(input);
+          if (mentionsDouyin || error?.code === 'invalid_input' && !/^https?:\/\//i.test(input)) {
+            const wrapped = new HTTPError(error.status || 400, error.message || '抖音分享口令无效');
+            wrapped.expected = Boolean(error.expected);
+            throw wrapped;
+          }
+          const publicURL = await requiredPublicURL(body.url ?? input);
+          job = await database.createImportJob('url', { url: publicURL, collectionId: body.collection_id || 'inbox' });
+        }
         importWorker.poke();
         return sendJSON(response, 202, { job: publicImportJob(job) });
       }
@@ -475,6 +503,41 @@ export async function createReaderServer({
         if (!job) throw new HTTPError(404, '失败的导入任务不存在');
         importWorker.poke();
         return sendJSON(response, 202, { job: publicImportJob(job) });
+      }
+
+      const jobActionMatch = pathname.match(/^\/api\/import-jobs\/([^/]+)\/actions$/);
+      if (jobActionMatch && method === 'POST') {
+        const body = await readJSON(request);
+        if (!['resume', 'skip_transcription', 'cancel'].includes(body.action)) throw new HTTPError(400, '不支持的导入任务操作');
+        const job = await database.actOnImportJob(jobActionMatch[1], body.action);
+        if (!job) throw new HTTPError(404, '导入任务不存在');
+        if (job.status === 'pending') importWorker.poke();
+        return sendJSON(response, 202, { job: publicImportJob(job) });
+      }
+
+      if (pathname === '/api/platforms/douyin' && method === 'GET') {
+        const state = douyinService ? await douyinService.status() : { available: false, desktopOnly: true, authenticated: false };
+        return sendJSON(response, 200, { platform: state });
+      }
+      if (pathname === '/api/platforms/douyin/login' && method === 'POST') {
+        if (!douyinService) throw desktopOnlyDouyinError();
+        return sendJSON(response, 200, { platform: await douyinService.login() });
+      }
+      if (pathname === '/api/platforms/douyin/session' && method === 'DELETE') {
+        if (!douyinService) throw desktopOnlyDouyinError();
+        return sendJSON(response, 200, { platform: await douyinService.clearSession() });
+      }
+
+      if (pathname === '/api/transcription/model' && method === 'GET') {
+        return sendJSON(response, 200, { model: transcriptionService ? await transcriptionService.status() : { available: false, installed: false, desktopOnly: true } });
+      }
+      if (pathname === '/api/transcription/model/download' && method === 'POST') {
+        if (!transcriptionService) throw Object.assign(new Error('本地转写模型仅在 Reader 桌面版中管理'), { status: 501, expected: true });
+        return sendJSON(response, 202, { model: await transcriptionService.downloadModel() });
+      }
+      if (pathname === '/api/transcription/model' && method === 'DELETE') {
+        if (!transcriptionService) throw Object.assign(new Error('本地转写模型仅在 Reader 桌面版中管理'), { status: 501, expected: true });
+        return sendJSON(response, 200, { model: await transcriptionService.removeModel() });
       }
 
       const articleImageMatch = pathname.match(/^\/api\/articles\/([^/]+)\/attachments$/);

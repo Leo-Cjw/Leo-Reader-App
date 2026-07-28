@@ -7,6 +7,8 @@ import { createRendererRecoveryController } from './renderer-recovery.mjs';
 import { createImportNotificationController, createSourceSyncNotificationController } from './notifications.mjs';
 import { createSharedFileManager, standardShareStagingRoot } from './shared-files.mjs';
 import { createUpdateController } from './updates.mjs';
+import { DouyinImportService } from './douyin-service.mjs';
+import { TranscriptionService } from './transcription-service.mjs';
 
 app.enableSandbox();
 app.setName('Reader');
@@ -322,6 +324,16 @@ async function createWindow() {
 async function startReader() {
   if (app.isPackaged && process.env.READER_RELEASE_QA !== '1') app.setAsDefaultProtocolClient(READER_PROTOCOL_SCHEME);
   const dataRoot = resolveDesktopDataRoot(app.getPath('userData'), process.env.READER_DESKTOP_DATA_ROOT || '');
+  const transcriptionHelperPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'Reader Transcription Helper.app', 'Contents', 'MacOS', 'Reader Transcription Helper')
+    : path.join(app.getAppPath(), 'build', 'Reader Transcription Helper.app', 'Contents', 'MacOS', 'Reader Transcription Helper');
+  const transcriptionService = new TranscriptionService({
+    rootDir: dataRoot,
+    helperPath: transcriptionHelperPath,
+    systemVersion: process.getSystemVersion(),
+    fetchImpl: (...args) => net.fetch(...args)
+  });
+  const douyinService = new DouyinImportService({ BrowserWindow, session, transcriptionService });
   readerServer = await createReaderServer({
     rootDir: dataRoot,
     webRoot: path.join(app.getAppPath(), 'dist'),
@@ -331,6 +343,8 @@ async function startReader() {
     spotlightHelperPath: app.isPackaged
       ? path.join(process.resourcesPath, 'Reader Spotlight Helper.app', 'Contents', 'MacOS', 'Reader Spotlight Helper')
       : '',
+    douyinService,
+    transcriptionService,
     onImportBatchFinished: (summary) => importNotificationController.show(summary),
     onSourceSyncBatchFinished: (summary) => sourceSyncNotificationController.show(summary)
   });

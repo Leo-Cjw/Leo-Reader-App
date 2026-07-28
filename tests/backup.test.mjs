@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
 import { listMigrationSnapshots, ReaderDatabase, resolveMigrationSnapshot } from '../src/server/db.mjs';
-import { schemaSQL } from '../src/server/schema.mjs';
+import { SCHEMA_VERSION, schemaSQL } from '../src/server/schema.mjs';
 import { applyPendingRestore, createBackup, getPendingRestore, listBackups, pruneAutomaticBackups, resolveBackup, scheduleMigrationSnapshotRestore, scheduleRestore, validateBackupEntryPath, validateBackupPassphrase, verifyPlainBackupArchive } from '../src/server/backup.mjs';
 
 test('backup entry paths reject traversal, absolute paths and unknown files', () => {
@@ -151,7 +151,7 @@ test('migration snapshot restore preserves files, backs up current data and remi
       hasPrivatePath: Boolean(marker.pendingDir),
       hash: /^[0-9a-f]{64}$/.test(marker.databaseSha256)
     },
-    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 8, to: 12, hasPrivatePath: true, hash: true }
+    { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 8, to: SCHEMA_VERSION, hasPrivatePath: true, hash: true }
   );
   assert.equal((await stat(path.join(marker.pendingDir, 'migration-snapshot.sqlite3'))).mode & 0o777, 0o600);
   const safetyBackup = await resolveBackup(root, marker.safetyBackupId);
@@ -164,7 +164,7 @@ test('migration snapshot restore preserves files, backs up current data and remi
     { kind: 'migration_snapshot', snapshotId: snapshot.id, from: 8, safetyBackupId: marker.safetyBackupId }
   );
   const restored = await new ReaderDatabase(dbPath).initialize();
-  assert.equal((await restored.one('SELECT max(version) AS version FROM schema_migrations;')).version, 12);
+  assert.equal((await restored.one('SELECT max(version) AS version FROM schema_migrations;')).version, SCHEMA_VERSION);
   assert.equal((await restored.getArticle('before-upgrade')).content, '需要从迁移快照保留的正文');
   assert.equal(await restored.getArticle('after-upgrade'), null);
   assert.equal(await readFile(path.join(filesDir, 'preserved.bin'), 'utf8'), 'attachment-bytes-stay-in-place');
@@ -199,7 +199,7 @@ test('migration snapshot restore rejects incompatible or changed snapshots befor
         to_schema_version: 12
       }
     }),
-    /来源无效|更新版本|schema v12/
+    /来源无效|更新版本|schema v13/
   );
   assert.equal(await getPendingRestore(root), null);
   assert.equal((await listBackups(root)).length, 0);

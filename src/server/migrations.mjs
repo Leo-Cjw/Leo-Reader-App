@@ -191,12 +191,56 @@ const v12Migration = {
 };
 v12Migration.checksum = migrationChecksum(v12Migration.signature);
 
+const v13Migration = {
+  version: 13,
+  name: 'v13-resumable-platform-imports',
+  signature: 'reader-schema-v13-resumable-platform-imports:1',
+  async buildSQL() {
+    return `
+      CREATE TABLE import_jobs_v13 (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('url','attachment')),
+        status TEXT NOT NULL CHECK (status IN ('pending','running','awaiting_user','completed','failed','cancelled')),
+        platform TEXT NOT NULL DEFAULT 'web' CHECK (length(platform) BETWEEN 1 AND 40),
+        phase TEXT,
+        progress INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
+        warning TEXT,
+        action_required TEXT,
+        payload_json TEXT NOT NULL,
+        result_article_id TEXT REFERENCES articles(id) ON DELETE SET NULL,
+        error TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+      );
+      INSERT INTO import_jobs_v13(
+        id,kind,status,platform,phase,progress,payload_json,result_article_id,error,attempts,
+        created_at,updated_at,started_at,finished_at
+      )
+      SELECT
+        id,kind,status,CASE WHEN kind='attachment' THEN 'local' ELSE 'web' END,
+        CASE status WHEN 'completed' THEN 'complete' WHEN 'running' THEN 'parsing' ELSE NULL END,
+        CASE status WHEN 'completed' THEN 100 ELSE 0 END,payload_json,result_article_id,error,attempts,
+        created_at,updated_at,started_at,finished_at
+      FROM import_jobs;
+      DROP TABLE import_jobs;
+      ALTER TABLE import_jobs_v13 RENAME TO import_jobs;
+      CREATE INDEX idx_import_jobs_status ON import_jobs(status, created_at);
+      CREATE INDEX idx_import_jobs_platform ON import_jobs(platform, created_at DESC);
+    `;
+  }
+};
+v13Migration.checksum = migrationChecksum(v13Migration.signature);
+
 export const MIGRATION_REGISTRY = Object.freeze([
   Object.freeze(v8Migration),
   Object.freeze(v9Migration),
   Object.freeze(v10Migration),
   Object.freeze(v11Migration),
-  Object.freeze(v12Migration)
+  Object.freeze(v12Migration),
+  Object.freeze(v13Migration)
 ]);
 
 function validateMigrationRegistry() {

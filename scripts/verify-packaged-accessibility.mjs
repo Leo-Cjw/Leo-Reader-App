@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { launchPackagedReader, packagedReaderApp, waitFor } from './lib/packaged-reader-qa.mjs';
+import { SCHEMA_VERSION } from '../src/server/schema.mjs';
 
 const appPath = packagedReaderApp(process.argv[2]);
 const interactiveRoles = new Set([
@@ -142,7 +143,7 @@ try {
   await client.call('Accessibility.enable');
   const health = await client.value("fetch('/api/health').then((response) => response.json())");
   assert.equal(health.ok, true);
-  assert.equal(health.schemaVersion, 12);
+  assert.equal(health.schemaVersion, SCHEMA_VERSION);
 
   const ids = await client.value(`(() => {
     const values = [...document.querySelectorAll('[id]')].map((element) => element.id);
