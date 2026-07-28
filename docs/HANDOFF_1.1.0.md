@@ -21,7 +21,7 @@
 - 可恢复任务阶段、等待用户、继续/跳过转写/取消。
 - 固定供应链的 Whisper small 模型管理、AVFoundation + whisper.cpp Helper 接口、Markdown/WebVTT 转写与索引更新。
 - 主应用仍支持 macOS 12；固定官方 whisper.cpp v1.9.1 XCFramework 的本地转写边界为 macOS 13.3+，旧系统不会下载模型或启动 Helper。
-- 平台矩阵、架构、安全、路线图、发行说明和一致性门禁。
+- 平台矩阵、平台导入 SOP、架构、安全、路线图、发行说明和一致性门禁。
 
 ## 验证记录
 

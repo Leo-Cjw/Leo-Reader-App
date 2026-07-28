@@ -28,21 +28,27 @@ test('Reader 1.1.0 version, build, schema and four bundle identities stay consis
   assert.match(universal, /transcriptionArchitectures/);
 });
 
-test('README links the canonical platform matrix and never promotes best-effort platforms to formal support', async () => {
-  const [readme, platforms, roadmap, releaseNotes] = await Promise.all([
+test('README and import SOP link the canonical platform matrix without promoting best-effort platforms', async () => {
+  const [readme, platforms, importSOP, roadmap, releaseNotes] = await Promise.all([
     readFile(path.join(root, 'README.md'), 'utf8'),
     readFile(path.join(root, 'docs/PLATFORM_SUPPORT.md'), 'utf8'),
+    readFile(path.join(root, 'docs/IMPORT_SOP.md'), 'utf8'),
     readFile(path.join(root, 'docs/PRODUCT_ROADMAP.md'), 'utf8'),
     readFile(path.join(root, 'docs/RELEASE_NOTES_1.1.0.md'), 'utf8')
   ]);
   assert.match(readme, /\[平台支持矩阵\]\(docs\/PLATFORM_SUPPORT\.md\)/);
+  assert.match(readme, /\[平台导入 SOP\]\(docs\/IMPORT_SOP\.md\)/);
+  assert.match(importSOP, /\[PLATFORM_SUPPORT\.md\]\(PLATFORM_SUPPORT\.md\)/);
   assert.match(platforms, /\| 抖音 \| 完整支持 \|/);
   assert.match(platforms, /\| 微信公众号 \| 专用部分支持 \|/);
-  for (const platform of ['CSDN', '掘金', '知乎', '今日头条']) {
+  for (const platform of ['CSDN', '掘金', '知乎', '今日头条', 'B站', '小宇宙']) {
     assert.match(platforms, new RegExp(`\\| ${platform} \\| 通用网页尽力导入 \\|`));
+    assert.match(importSOP, new RegExp(platform));
   }
+  for (const platform of ['RSS / Atom', 'YouTube', 'X', '微博']) assert.match(importSOP, new RegExp(platform.replace(' / ', ' \\/ ')));
   assert.match(platforms, /\| 小红书 \| 不支持 \|/);
+  assert.match(importSOP, /小红书当前明确不支持/);
   assert.match(roadmap, /1\.1\.0（build 110、schema v13）/);
   assert.match(releaseNotes, /Reader 1\.1\.0（build 110，SQLite schema v13）/);
-  assert.doesNotMatch(readme, /CSDN、掘金、知乎、头条\s*\|\s*完整支持/);
+  assert.doesNotMatch(`${readme}\n${importSOP}`, /(?:CSDN|掘金|知乎|今日头条|B站|小宇宙)[^\n|]*\|\s*完整支持/);
 });

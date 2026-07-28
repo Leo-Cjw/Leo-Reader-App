@@ -67,17 +67,24 @@ npm run desktop:pack
 
 ## 已实现能力
 
-平台能力以 [平台支持矩阵](docs/PLATFORM_SUPPORT.md) 为唯一事实源：
+平台能力以 [平台支持矩阵](docs/PLATFORM_SUPPORT.md) 为唯一事实源；具体导入、验收和异常处理见 [平台导入 SOP](docs/IMPORT_SOP.md)：
 
-| 平台 | Reader 1.1.0 |
-| --- | --- |
-| 抖音 | 桌面版完整支持视频、最多 30 图、背景音乐、平台字幕/章节与本地转写；受限内容与验证码自动化不支持 |
-| 微信公众号 | 专用部分支持正文、表格、代码和图片；内嵌音视频不保证 |
-| CSDN、掘金、知乎、头条 | 通用网页尽力导入，不承诺稳定专用支持 |
-| RSS / Atom | 完整订阅 |
-| YouTube、X、微博 | 仅频道/账号订阅，不代表任意单条媒体离线 |
-| B站、小宇宙 | 可能提取文本或元数据，不支持离线媒体 |
-| 小红书 | 不支持且不在当前路线 |
+| 平台 | 状态 | Reader 1.1.0 边界 |
+| --- | --- | --- |
+| 抖音 | 完整支持 | 桌面版保存视频、最多 30 图、背景音乐、平台字幕/章节与本地转写；受限内容与验证码自动化不支持 |
+| 微信公众号 | 专用部分支持 | 正文、表格、代码和图片；内嵌音视频不保证 |
+| CSDN | 通用网页尽力导入 | 公开正文和可下载图片；动态页面、登录墙或反爬可能失败 |
+| 掘金 | 通用网页尽力导入 | 公开正文和可下载图片；动态页面或访问限制可能失败 |
+| 知乎 | 通用网页尽力导入 | 公开静态正文可能成功；动态或登录页面不承诺 |
+| 今日头条 | 通用网页尽力导入 | 公开静态正文或元数据可能成功；媒体不承诺 |
+| B站 | 通用网页尽力导入 | 可能提取公开文本或元数据，不支持离线视频/音频 |
+| 小宇宙 | 通用网页尽力导入 | 可能提取公开文本或元数据，不支持离线音频 |
+| 其他公开网页 | 通用网页尽力导入 | Readability 正文和最多 16 张正文图片；动态或受限页面可能失败 |
+| RSS / Atom | 完整支持 | 增量订阅、自动同步和 OPML；内容以 Feed 为准 |
+| YouTube | 仅订阅 | 频道 Feed 条目和元数据，不支持单视频离线下载 |
+| X | 仅订阅 | 官方 API 账号时间线；需要用户自己的开发者权限 |
+| 微博 | 仅订阅 | 官方 CLI 账号时间线；需要 CLI 登录 |
+| 小红书 | 不支持 | 不在当前路线，不建立登录、抓取或媒体导入流程 |
 
 - 抖音导入：接受作品链接或最多 4096 字符的分享口令，规范到作品 ID 后在独立 Chromium 会话中读取详情；视频优先保存不超过 100 MB 的 1080p 带声 H.264 MP4（必要时 720p），图文最多保存 30 张图片和背景音乐。平台字幕/章节优先，否则在 macOS 13.3+ 使用用户明确安装的本地 Whisper small，生成可搜索 Markdown 与 WebVTT。
 - 通用网页导入：先写入持久化任务队列，再在一次性权限受限解析进程中用 Mozilla Readability 抽取标题、作者、摘要和正文，转换为 GFM Markdown；代表图片和最多 16 张正文图片通过安全下载、文件签名检查与哈希去重后保存在本机。通用网页属于尽力导入，不等同于平台正式支持。
@@ -256,4 +263,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-1.1.0 候选变更见 [docs/RELEASE_NOTES_1.1.0.md](docs/RELEASE_NOTES_1.1.0.md)，平台边界见 [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+1.1.0 候选变更见 [docs/RELEASE_NOTES_1.1.0.md](docs/RELEASE_NOTES_1.1.0.md)，平台边界见 [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md)，操作流程见 [docs/IMPORT_SOP.md](docs/IMPORT_SOP.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

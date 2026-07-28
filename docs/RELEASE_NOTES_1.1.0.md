@@ -13,7 +13,7 @@ Reader 1.1.0（build 110，SQLite schema v13）聚焦抖音作品的高质量离
 - 转写写回 Markdown、生成 WebVTT，并重建分块、全文索引和已启用的语义索引。
 - Share Extension 中包含抖音链接的短文本进入 URL 导入确认页；其他文本仍作为 Markdown，确认前保持零写入。
 
-平台边界以 [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) 为准。
+平台边界以 [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) 为准；导入、验收和异常处理步骤见 [IMPORT_SOP.md](IMPORT_SOP.md)。
 
 ## 数据与兼容性
 
