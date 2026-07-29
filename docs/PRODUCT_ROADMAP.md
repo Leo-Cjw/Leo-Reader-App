@@ -1,6 +1,6 @@
 # 成熟产品路线图
 
-## 当前目标：Reader for Mac 1.1.1 Candidate
+## 当前版本：Reader for Mac 1.1.1 正式版
 
 1.1.0 完成了抖音高质量导入的主体能力；1.1.1 收口真实本地 Whisper、实时进度和可复现平台回归。当前版本身份为 1.1.1（build 111、schema v13）；设置格式继续为 version 1，Reader Markdown ZIP 继续为 v3。
 
@@ -39,7 +39,7 @@
 ## M3：原生 macOS 发行
 
 - [部分完成] Electron 外壳、单实例、原生窗口/菜单、Dock 生命周期、系统另存为，以及附件、编辑器图片、Reader ZIP、OPML 与备份恢复的系统文件选择器均已完成；0.37 增加渲染界面崩溃后的原生恢复与安全退出，0.42 实现单网页 URL 的沙箱化 Share Extension，0.45 增加最多 4 KiB 选中文本，0.47 增加单个 100 MB 受支持文件的确认式附件交接。真实 Finder/照片等系统来源仍需在正式签名、公证包验收。
-- [部分完成] 渲染器沙箱、CSP、权限拒绝、Keychain、通用架构、ad-hoc 签名、DMG，以及只允许 Developer ID 正式包使用的自动更新均已完成；0.44 已把最终候选直接打开 0.43 资料库、继续写入并重启复核设为阻断门禁，0.45 加入最终包 Share 第二实例与零资料库预写入门禁，0.46 要求全部 14 个顶层模态框通过最终包 AX/焦点闭环，0.47 再验证分享文件确认/取消、队列零预写入与暂存清理。hardened runtime、App/DMG 公证和可验证更新 ZIP 流水线已接入；Apple Silicon 真机由产品决策移出本版门禁，正式发行仍需真实证书、公证凭据与 `autoUpdater` 端到端安装。
+- [部分完成] 渲染器沙箱、CSP、权限拒绝、Keychain、通用架构、ad-hoc 签名、DMG，以及只允许 Developer ID 签名包使用的自动更新均已完成；0.44 已把最终候选直接打开 0.43 资料库、继续写入并重启复核设为阻断门禁，0.45 加入最终包 Share 第二实例与零资料库预写入门禁，0.46 要求全部 14 个顶层模态框通过最终包 AX/焦点闭环，0.47 再验证分享文件确认/取消、队列零预写入与暂存清理。hardened runtime、App/DMG 公证和可验证更新 ZIP 流水线已接入；Apple Silicon 真机由产品决策移出本版门禁，Apple Developer 分发与自动更新仍需真实证书、公证凭据与 `autoUpdater` 端到端安装。
 - [已完成] `package.json` 单一营销版本/递增构建号驱动主 App、Share Extension、Spotlight helper 与 Transcription helper；原生副本签名前自动盖印，Universal 合并后回读四个 `Info.plist` 并在身份漂移时中止发行。
 - [已完成] DMG 与正式更新 ZIP 生成机器可读 format v1 发行清单和标准 SHA-256 sidecar；原子写入后重新哈希复验，清单不携带本机路径或凭据，正式公证模式拒绝已跟踪的未提交源码。
 - [已完成] 默认随机回环 API 的精确 Host/Origin/Fetch Metadata 校验，在路由和请求体读取前拒绝 DNS rebinding 与浏览器跨站请求，并保留同机内部调用兼容。
@@ -97,4 +97,4 @@
 
 ## 优先顺序
 
-1.1.1 已在 Intel 真机完成公开抖音视频、10 图与背景音乐、平台章节、真实本地 Whisper、实时进度、全文/RAG 索引和 Universal 静态架构验证；下一功能阶段进入微信/CSDN/掘金/知乎的阅读型核心。Apple Silicon 真机不作为本版目标。正式发行仍需取得 Apple Developer ID 并运行 App/DMG 公证与 `autoUpdater` 安装流水线；没有凭据时只能发布 ad-hoc Candidate。
+1.1.1 已作为项目正式版收口，并在 Intel 真机完成公开抖音视频、10 图与背景音乐、平台章节、真实本地 Whisper、实时进度、全文/RAG 索引和 Universal 静态架构验证；下一功能阶段进入微信/CSDN/掘金/知乎的阅读型核心。Apple Silicon 真机不作为本版目标。本正式版使用 ad-hoc、未公证 DMG 且不启用自动更新；未来启用 Apple Developer 分发和 `autoUpdater` 时仍需证书、公证凭据与端到端安装验证。

@@ -1,4 +1,4 @@
-# Reader for Mac 1.1.1 Candidate
+# Reader for Mac 1.1.1 正式版
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-1.1.1-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物包含 Apple Silicon 与 Intel 架构，主应用最低 macOS 12；固定的 whisper.cpp v1.9.1 官方 XCFramework 要求 macOS 13.3，因此 macOS 12/13.0–13.2 可使用平台字幕和其余 Reader 能力，但不能运行本地 Whisper 转写。本候选包仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。1.1.1 的运行验收以 Intel 真机为准，Apple Silicon 仅完成静态 Universal 架构和签名结构检查，不列入本版真机门禁。
+打开 `Reader-1.1.1-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物包含 Apple Silicon 与 Intel 架构，主应用最低 macOS 12；固定的 whisper.cpp v1.9.1 官方 XCFramework 要求 macOS 13.3，因此 macOS 12/13.0–13.2 可使用平台字幕和其余 Reader 能力，但不能运行本地 Whisper 转写。本正式版采用 ad-hoc 签名、未经 Apple 公证且不会连接自动更新服务；这些是分发技术状态，不改变 Reader 将 1.1.1 作为正式版本发布。跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。1.1.1 的运行验收以 Intel 真机为准，Apple Silicon 仅完成静态 Universal 架构和签名结构检查，不列入本版真机门禁。
 
 Mac App 的资料库独立位于：
 
@@ -53,7 +53,7 @@ cd release
 shasum -a 256 -c Reader-<version>-universal.dmg.sha256
 ```
 
-流水线已预留正式发行入口。先用 `xcrun notarytool store-credentials` 把公证凭据写入 Keychain，再提供证书名称和凭据配置名：
+流水线已预留 Apple Developer 签名、公证与自动更新入口。先用 `xcrun notarytool store-credentials` 把公证凭据写入 Keychain，再提供证书名称和凭据配置名：
 
 ```bash
 READER_MAC_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
@@ -61,7 +61,7 @@ READER_NOTARY_KEYCHAIN_PROFILE="reader-notary" \
 npm run desktop:pack
 ```
 
-此模式使用 hardened runtime 逐项签名通用 App，先公证并验证 App，再生成 `Reader-<version>-darwin-universal.zip` 和 DMG，最后公证并验证 DMG。更新 ZIP 只会从已通过 Developer ID、App 公证票据和解压后签名复检的 App 生成；正式清单要求源码无已跟踪改动，同时记录并复验 DMG、更新 ZIP 及两份 sidecar。凭据不写入项目、命令参数或产物，`READER_NOTARY_KEYCHAIN` 可选指定非默认 Keychain。发布更新时需在公开 GitHub 仓库创建语义版本 Release，并同时上传该 universal ZIP。当前本地交付因没有 Developer ID 证书与公证配置，仍是 ad-hoc/未公证版本。
+此模式使用 hardened runtime 逐项签名通用 App，先公证并验证 App，再生成 `Reader-<version>-darwin-universal.zip` 和 DMG，最后公证并验证 DMG。更新 ZIP 只会从已通过 Developer ID、App 公证票据和解压后签名复检的 App 生成；Developer ID 公证模式要求源码无已跟踪改动，同时记录并复验 DMG、更新 ZIP 及两份 sidecar。凭据不写入项目、命令参数或产物，`READER_NOTARY_KEYCHAIN` 可选指定非默认 Keychain。发布自动更新时需在公开 GitHub 仓库创建语义版本 Release，并同时上传该 universal ZIP。当前 1.1.1 正式版没有 Developer ID 证书与公证配置，因此使用 ad-hoc/未公证 DMG 分发且不启用自动更新。
 
 正式签名版本在 Reader 菜单提供“检查更新…”，启动一分钟后及此后每六小时自动检查公开 Release。发现更新后由 Electron 下载，只有用户确认“重启并安装”才会安全停止后台任务并安装。运行时会重新检查当前 App 的 Developer ID authority 与 Team Identifier；源码、开发、ad-hoc 或签名异常的包不会设置更新地址，也不会联系更新服务。
 
@@ -263,4 +263,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-1.1.1 候选变更见 [docs/RELEASE_NOTES_1.1.1.md](docs/RELEASE_NOTES_1.1.1.md)，平台边界见 [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md)，操作流程见 [docs/IMPORT_SOP.md](docs/IMPORT_SOP.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+1.1.1 正式版变更见 [docs/RELEASE_NOTES_1.1.1.md](docs/RELEASE_NOTES_1.1.1.md)，平台边界见 [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md)，操作流程见 [docs/IMPORT_SOP.md](docs/IMPORT_SOP.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

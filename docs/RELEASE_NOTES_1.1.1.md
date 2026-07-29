@@ -1,6 +1,6 @@
-# Reader 1.1.1 Candidate
+# Reader 1.1.1 正式版
 
-Reader 1.1.1（build 111，SQLite schema v13）是 1.1.0 抖音高质量导入的可靠性收口版本。平台能力边界不扩张；重点是让无平台字幕的作品能够真正完成本地 Whisper、持续显示进度，并用可复现的公开视频和图文素材阻断回归。
+Reader 1.1.1（build 111，SQLite schema v13）是 1.1.0 抖音高质量导入的正式可靠性收口版本。平台能力边界不扩张；重点是让无平台字幕的作品能够真正完成本地 Whisper、持续显示进度，并用可复现的公开视频和图文素材阻断回归。本项目的正式版本允许使用 ad-hoc、未公证 DMG 分发；Apple 签名等级与 Reader 发行级别分别记录。
 
 ## 主要变化
 
@@ -18,10 +18,10 @@ Reader 1.1.1（build 111，SQLite schema v13）是 1.1.0 抖音高质量导入�
 - 同一公开视频强制本地 Whisper：固定模型校验通过；CPU/Accelerate 推理约 95 秒，产生 108 个非空时间戳分段和 9,556 bytes WebVTT；Markdown、全文搜索与本地 RAG 分块均命中。
 - 依赖审计：生产依赖 0 个已知漏洞；构建树仅保留发行脚本精确放行的既有 Electron 打包公告。
 
-最终自动测试数量、生产构建、Universal Candidate、DMG/清单哈希和打包门禁记录在 [HANDOFF_1.1.1.md](HANDOFF_1.1.1.md)。
+最终自动测试数量、生产构建、Universal DMG、清单哈希和打包门禁记录在 [HANDOFF_1.1.1.md](HANDOFF_1.1.1.md)。
 
 ## 发行边界
 
 - 本版本不新增微信、CSDN、掘金、知乎或小红书解析能力，平台承诺以 [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) 为准。
 - Apple Silicon 真机由产品决策移出本版门禁；arm64 只做官方依赖哈希、Mach-O Universal 架构和签名结构检查，不描述为真机运行验收。
-- 当前机器没有有效 Developer ID Application 身份和公证 Keychain profile。没有这些外部凭据时只能生成 ad-hoc Candidate，不生成可执行自动更新 ZIP，也不能称为已公证正式公开发行。
+- 当前机器没有有效 Developer ID Application 身份和公证 Keychain profile，因此本正式版以 ad-hoc、未公证 Universal DMG 分发，不生成可执行自动更新 ZIP，也不宣称经过 Apple 公证。

@@ -51,9 +51,15 @@ test('README and import SOP link the canonical platform matrix without promoting
   assert.match(importSOP, /小红书当前明确不支持/);
   assert.match(roadmap, /1\.1\.1（build 111、schema v13）/);
   assert.match(releaseNotes, /Reader 1\.1\.1（build 111，SQLite schema v13）/);
+  assert.match(readme, /^# Reader for Mac 1\.1\.1 正式版/m);
+  assert.match(releaseNotes, /^# Reader 1\.1\.1 正式版/m);
+  assert.match(roadmap, /^## 当前版本：Reader for Mac 1\.1\.1 正式版/m);
   assert.match(handoff, /营销版本：1\.1\.1/);
   assert.match(handoff, /构建号：111/);
   assert.match(handoff, /SQLite schema：v13/);
+  assert.match(handoff, /发行级别：项目正式版/);
+  assert.match(handoff, /分发技术状态：ad-hoc、未公证、自动更新关闭/);
   assert.match(handoff, /Apple Silicon 真机由产品决策移出本版门禁/);
+  assert.doesNotMatch(`${readme}\n${releaseNotes}\n${roadmap}\n${handoff}`, /1\.1\.1 (?:Candidate|候选)|只能发布 ad-hoc Candidate|只能生成 ad-hoc Candidate/);
   assert.doesNotMatch(`${readme}\n${importSOP}`, /(?:CSDN|掘金|知乎|今日头条|B站|小宇宙)[^\n|]*\|\s*完整支持/);
 });
