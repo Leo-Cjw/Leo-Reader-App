@@ -266,12 +266,12 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 0.57.0 在 DMG/更新 ZIP 完成全部既有验证后生成 format v1 机器可读发行清单与标准 SHA-256 sidecar。清单只使用产物 basename，固定记录单一产品/版本/构建号、schema、appId、平台/Universal 架构、Electron、签名等级、40 位 Git 提交、已跟踪改动状态，以及产物字节数和流式 SHA-256；不记录时间、本机路径、用户、签名 identity、Keychain 或公证 profile。写入先落到同目录临时名，再原子替换最终文件，清单最后写入作为集合提交点；随后重新读取每个产物和 sidecar 自校验。Developer ID 公证模式要求源码没有已跟踪改动且 DMG/更新 ZIP 同时存在，否则在形成清单前 fail closed；ad-hoc 模式只声明 DMG，并拒绝同版本残留更新 ZIP。未跟踪的本机工具目录不进入源码状态，也不会泄露进清单。
 
-0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式正式发行入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。0.53 把 `package.json` 的 `version` 与 Electron Builder 实际消费的正整数 `build.buildVersion` 设为原有三个 bundle 的唯一发行身份；1.1.0 将同一门禁扩展到新增 Transcription helper。原生子 bundle 在临时构建副本签名前自动盖印这两个值，不修改源码模板；Universal 合并后再从主 App、Share Extension、Spotlight helper 与 Transcription helper 的真实 `Info.plist` 回读并要求 `CFBundleShortVersionString`/`CFBundleVersion` 完全一致，漂移会在签名、DMG 和发布之前 fail closed。源码测试也要求三个原生模板与当前发行身份一致。
+0.18 延续 Intel/Apple Silicon 通用 DMG 流水线，并提供基于 `@electron/osx-sign` 与 Apple `notarytool` 的条件式 Apple Developer 分发入口：配置 Developer ID 身份与 Keychain 公证 profile 后，流水线启用 hardened runtime、提交 DMG、装订并验证公证票据。0.53 把 `package.json` 的 `version` 与 Electron Builder 实际消费的正整数 `build.buildVersion` 设为原有三个 bundle 的唯一发行身份；1.1.0 将同一门禁扩展到新增 Transcription helper。原生子 bundle 在临时构建副本签名前自动盖印这两个值，不修改源码模板；Universal 合并后再从主 App、Share Extension、Spotlight helper 与 Transcription helper 的真实 `Info.plist` 回读并要求 `CFBundleShortVersionString`/`CFBundleVersion` 完全一致，漂移会在签名、DMG 和发布之前 fail closed。源码测试也要求三个原生模板与当前发行身份一致。
 
-当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
+当前机器没有相应证书与凭据，因此 1.1.1 项目正式版使用 ad-hoc、未公证 DMG 分发。若要启用 Apple Developer 分发和自动更新，仍需：
 
-- 取得真实 Apple Developer ID 与公证凭据，发布首个正式 GitHub Release，并完成跨版本自动升级演练。
-- Share Extension 已完成单网页 URL、最多 4 KiB 选中文本或单个 100 MB 受支持文件的沙箱化、确认式系统交接；文件使用扩展私有缓存和不透明 token，不依赖易失临时 URL、路径深链、App Group 或安全作用域书签。Spotlight 已完成默认关闭的本机索引与深链闭环；系统通知、Spotlight 和 Share Extension 的正式分发可用性仍需在 Developer ID、公证包上验收。
+- 取得真实 Apple Developer ID 与公证凭据，发布包含 Universal 更新 ZIP 的 GitHub Release，并完成跨版本自动升级演练。
+- Share Extension 已完成单网页 URL、最多 4 KiB 选中文本或单个 100 MB 受支持文件的沙箱化、确认式系统交接；文件使用扩展私有缓存和不透明 token，不依赖易失临时 URL、路径深链、App Group 或安全作用域书签。Spotlight 已完成默认关闭的本机索引与深链闭环；系统通知、Spotlight 和 Share Extension 的 Apple Developer 分发可用性仍需在签名、公证包上验收。
 
 当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron、Canvas 与三个原生 helper 完成官方哈希、Mach-O 架构及签名结构验证。Apple Silicon 真机由产品决策移出 1.1.1 门禁，这一限制必须在发行说明中明确，不得把静态架构检查描述为真机运行验收。
 

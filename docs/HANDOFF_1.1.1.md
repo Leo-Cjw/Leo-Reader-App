@@ -7,6 +7,8 @@
 - 营销版本：1.1.1
 - 构建号：111
 - SQLite schema：v13
+- 发行级别：项目正式版
+- 分发技术状态：ad-hoc、未公证、自动更新关闭
 - settings：v1
 - Reader Markdown ZIP：v3
 - 分支：`codex/1.1.1-1.1.0-completion`
@@ -38,7 +40,7 @@
   - 登录/验证码要求进入 `awaiting_user / waiting_login`，私密/删除/不可用进入失败，均不创建空壳文章；
   - schema v12→v13 单独迁移通过，旧任务 payload 与 pending 状态保留，并产生 v12 安全快照。
 
-## Universal Candidate
+## Universal 正式版交付
 
 - 主 App、Share Extension、Spotlight helper、Transcription helper 与嵌套 `whisper.framework` 均为 `arm64,x86_64`。
 - 主 App、Share Extension、Spotlight helper 与 Transcription helper 全部回读为 `1.1.1 (111)`。
@@ -88,13 +90,13 @@ Apple Silicon 真机由产品决策移出本版门禁。arm64 结果只代表固
   - `trackedChanges: false`；
   - DMG 字节数与 SHA-256 复验一致。
 
-## 外部发行条件
+## Apple 签名、公证与自动更新条件
 
 本机 `security find-identity -v -p codesigning` 返回 0 个有效身份，且没有可用的公证 Keychain profile。因此流水线按设计：
 
 - 不生成 `Reader-1.1.1-darwin-universal.zip`；
 - 不配置或联系自动更新服务；
 - 不执行 App/DMG 公证与 stapling；
-- 只生成 ad-hoc Candidate。
+- 只生成本正式版使用的 ad-hoc Universal DMG。
 
-要成为正式公开发行，仍需由外部提供 Developer ID Application 身份和公证 profile，然后从干净提交重跑 `npm run desktop:pack`，确认清单为 `signature: developer-id-notarized`、同时包含 DMG 与 universal 更新 ZIP，再完成一次真实跨版本 `autoUpdater` 下载、用户确认和重启安装。没有这些凭据时不得把本候选称为已公证正式版本。
+如需启用 Apple Developer 签名、公证和自动更新，仍需由外部提供 Developer ID Application 身份和公证 profile，然后从干净提交重跑 `npm run desktop:pack`，确认清单为 `signature: developer-id-notarized`、同时包含 DMG 与 universal 更新 ZIP，再完成一次真实跨版本 `autoUpdater` 下载、用户确认和重启安装。没有这些凭据时不得把本正式版描述为“Apple 已公证”或“支持自动更新”，但不影响其项目正式版身份。
