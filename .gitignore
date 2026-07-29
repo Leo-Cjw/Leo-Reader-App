@@ -7,6 +7,7 @@ release/
 build/
 vendor/whisper-v1.9.1/
 coverage/
+graphify-out/
 *.tsbuildinfo
 *.log
 *.dmg
