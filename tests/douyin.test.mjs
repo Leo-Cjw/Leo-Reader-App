@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { canonicalDouyinURL, extractDouyinAwemeId, extractDouyinURL, normalizeDouyinDetail, selectDouyinVideoCandidates } from '../src/server/douyin.mjs';
@@ -86,7 +86,7 @@ test('platform WebVTT and JSON captions normalize to timestamped searchable segm
 test('isolated Douyin windows use the Chromium branch without exposing the Electron product token', () => {
   let configuredUserAgent = '';
   const isolatedSession = {
-    getUserAgent: () => 'Mozilla/5.0 Chrome/142.0.0.0 Electron/41.7.1 Reader/1.1.0',
+    getUserAgent: () => 'Mozilla/5.0 Chrome/142.0.0.0 Electron/41.7.1 Reader/1.1.1',
     setPermissionRequestHandler() {}
   };
   class BrowserWindow {
@@ -194,6 +194,57 @@ test('schema v13 import jobs expose resumable phases, awaiting-user actions and 
   const cancelled = await database.actOnImportJob(job.id, 'cancel');
   assert.equal(cancelled.status, 'cancelled');
   assert.equal((await database.completeImportJob(job.id, 'ignored')).status, 'cancelled');
+});
+
+test('local transcription maps helper progress and keeps empty results retryable', async (t) => {
+  const root = await temporaryRoot(t, 'reader-douyin-transcription-');
+  const filesDir = path.join(root, 'files');
+  const stagingDir = path.join(root, 'imports');
+  const database = await new ReaderDatabase(path.join(root, 'reader.sqlite3')).initialize();
+  const article = await database.createArticle({
+    id: `douyin-${awemeId}`,
+    url: canonicalDouyinURL(awemeId),
+    title: '等待本地转写',
+    source: '抖音',
+    type: 'douyin',
+    content: '作品说明',
+    metadata: { importState: 'waiting-transcription' }
+  });
+  await mkdir(filesDir, { recursive: true });
+  await writeFile(path.join(filesDir, 'media.mp4'), 'local media');
+  await database.createAttachment({
+    articleId: article.id,
+    fileName: 'media.mp4',
+    storageName: 'media.mp4',
+    mimeType: 'video/mp4',
+    byteSize: 11,
+    sha256: 'a'.repeat(64)
+  });
+  const progress = [];
+  const service = new DouyinImportService({
+    BrowserWindow: class {},
+    session: {},
+    transcriptionService: {
+      async status() { return { installed: true }; },
+      async transcribe(_mediaPath, options) {
+        options.onProgress(20);
+        options.onProgress(80);
+        return [];
+      }
+    }
+  });
+  await assert.rejects(service.finishTranscription(
+    await database.getArticle(article.id),
+    { payload: {} },
+    {
+      database,
+      paths: { filesDir, stagingDir },
+      updateProgress: async (value) => { progress.push(value); }
+    }
+  ), /没有生成可搜索/);
+  assert.deepEqual(progress.map((item) => item.progress), [78, 81, 90]);
+  assert.equal((await database.getArticle(article.id)).metadata.importState, 'waiting-transcription');
+  assert.deepEqual(await readdir(stagingDir).catch(() => []), []);
 });
 
 test('source server rejects Douyin explicitly while an injected desktop adapter queues canonical ids', async (t) => {

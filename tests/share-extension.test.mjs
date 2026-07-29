@@ -104,8 +104,8 @@ test('mac packaging embeds, signs and verifies a Universal Share Extension witho
     '-convert', 'json', '-o', '-', path.join(projectRoot, 'native', 'entitlements.mac.plist')
   ], { encoding: 'utf8' }));
 
-  assert.equal(packageJSON.version, '1.1.0');
-  assert.equal(packageJSON.build.buildVersion, '110');
+  assert.equal(packageJSON.version, '1.1.1');
+  assert.equal(packageJSON.build.buildVersion, '111');
   assert.equal(packageJSON.scripts['share:mac'], 'node scripts/build-share-extension.mjs');
   assert.match(packageJSON.scripts['desktop:pack:x64'], /share:mac/);
   assert.deepEqual(appEntitlements, { 'com.apple.security.cs.allow-jit': true });
