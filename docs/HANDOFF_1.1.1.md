@@ -26,10 +26,16 @@
 
 ## 自动测试、构建与依赖
 
-- `npm test`：186/186 通过。
+- `npm test`：189/189 通过。
 - `npm run build`：TypeScript 与 Vite 生产构建通过。
 - `npm run audit:dependencies`：生产依赖 0 个已知漏洞；构建依赖只保留脚本精确允许的 `GHSA-mh99-v99m-4gvg`，直接受影响工具为 `@electron/universal` 与 `electron-builder`。
 - `npm run desktop:pack`：在 Intel 主机完成。由于当前完整 Xcode 尚未接受 license，使用 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk` 选择兼容 SDK；这不改变产物最低系统版本或签名等级。
+- 计划项精确回归：
+  - 两条不同短链规范为同一作品 ID，只捕获和保存一次；
+  - 31 图详情只保存前 30 图，独立背景音乐保存为音频附件；
+  - 单图与背景音乐失败允许完成，但明确记录缺失数量和“部分离线”；
+  - 登录/验证码要求进入 `awaiting_user / waiting_login`，私密/删除/不可用进入失败，均不创建空壳文章；
+  - schema v12→v13 单独迁移通过，旧任务 payload 与 pending 状态保留，并产生 v12 安全快照。
 
 ## Universal Candidate
 

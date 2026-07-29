@@ -184,6 +184,105 @@ test('desktop adapter refreshes expired 1080p details, falls back to playable 72
   assert.deepEqual(await readdir(path.join(root, 'imports')), []);
 });
 
+test('different short links deduplicate one 30-image work with independent background music', async (t) => {
+  const root = await temporaryRoot(t, 'reader-douyin-images-');
+  const database = await new ReaderDatabase(path.join(root, 'reader.sqlite3')).initialize();
+  const payload = {
+    aweme_detail: {
+      aweme_id: awemeId,
+      desc: '三十图长图文',
+      author: { nickname: '图文作者' },
+      images: Array.from({ length: 31 }, (_, index) => ({
+        width: 1080,
+        height: 1440,
+        url_list: [`https://cdn.example/image-${index}.jpg`]
+      })),
+      music: {
+        title: '图文背景音乐',
+        play_url: { url_list: ['https://cdn.example/music.m4a'] }
+      },
+      chapter_list: [{ start_time_ms: 0, end_time_ms: 2_000, text: '图文平台章节' }]
+    }
+  };
+  let captures = 0;
+  const service = new DouyinImportService({
+    BrowserWindow: class {},
+    session: {},
+    fetchMedia: async (url) => url.endsWith('/music.m4a')
+      ? { bytes: Buffer.from('m4a background music'), contentType: 'audio/mp4' }
+      : { bytes: Buffer.from([0xff, 0xd8, 0xff, Number(url.match(/(\d+)\.jpg$/)?.[1] || 0), 0xff, 0xd9]), contentType: 'image/jpeg' }
+  });
+  service.resolveWorkURL = async () => ({ awemeId, canonicalURL: canonicalDouyinURL(awemeId) });
+  service.captureDetail = async () => { captures += 1; return payload; };
+  const firstInput = await service.prepareInput('https://v.douyin.com/short-one/');
+  const secondInput = await service.prepareInput('https://v.douyin.com/short-two/');
+  assert.deepEqual(firstInput, secondInput);
+  const context = {
+    database,
+    paths: { stagingDir: path.join(root, 'imports'), filesDir: path.join(root, 'files') },
+    updateProgress: async () => {},
+    isCancelled: async () => false
+  };
+  const first = await service.importWork({
+    id: 'job-images-first',
+    payload: { url: firstInput.canonicalURL, awemeId: firstInput.awemeId, collectionId: 'inbox' }
+  }, context);
+  const duplicate = await service.importWork({
+    id: 'job-images-duplicate',
+    payload: { url: secondInput.canonicalURL, awemeId: secondInput.awemeId, collectionId: 'inbox' }
+  }, context);
+  assert.equal(duplicate.id, first.id);
+  assert.equal(captures, 1);
+  assert.equal(first.metadata.imageCount, 30);
+  assert.equal(first.metadata.backgroundMusicSaved, true);
+  assert.equal(first.metadata.offlineResourceStatus, 'complete');
+  assert.equal(first.attachments.filter((item) => item.mime_type === 'image/jpeg').length, 30);
+  assert.equal(first.attachments.filter((item) => item.mime_type === 'audio/mp4').length, 1);
+  assert.equal(Number((await database.one(`SELECT count(*) AS count FROM articles WHERE url='${canonicalDouyinURL(awemeId)}';`)).count), 1);
+  assert.deepEqual(await readdir(path.join(root, 'imports')), []);
+});
+
+test('image and music failures complete as an explicit partial-offline article', async (t) => {
+  const root = await temporaryRoot(t, 'reader-douyin-partial-images-');
+  const database = await new ReaderDatabase(path.join(root, 'reader.sqlite3')).initialize();
+  const service = new DouyinImportService({
+    BrowserWindow: class {},
+    session: {},
+    fetchMedia: async (url) => {
+      if (url.includes('missing') || url.includes('music')) throw new Error('模拟媒体下载失败');
+      return { bytes: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), contentType: 'image/jpeg' };
+    }
+  });
+  service.captureDetail = async () => ({
+    aweme_detail: {
+      aweme_id: awemeId,
+      desc: '部分离线图文',
+      images: [
+        { url_list: ['https://cdn.example/saved.jpg'] },
+        { url_list: ['https://cdn.example/missing.jpg'] }
+      ],
+      music: { title: '缺失背景音乐', play_url: { url_list: ['https://cdn.example/music.m4a'] } },
+      chapter_list: [{ start_time_ms: 0, text: '平台章节' }]
+    }
+  });
+  const progress = [];
+  const article = await service.importWork({
+    id: 'job-images-partial',
+    payload: { url: canonicalDouyinURL(awemeId), awemeId, collectionId: 'inbox' }
+  }, {
+    database,
+    paths: { stagingDir: path.join(root, 'imports'), filesDir: path.join(root, 'files') },
+    updateProgress: async (value) => { progress.push(value); },
+    isCancelled: async () => false
+  });
+  assert.equal(article.metadata.imageCount, 1);
+  assert.equal(article.metadata.missingImageCount, 1);
+  assert.equal(article.metadata.backgroundMusicSaved, false);
+  assert.equal(article.metadata.offlineResourceStatus, 'partial');
+  assert.match(progress.find((item) => item.warning)?.warning || '', /缺少 1 张图片.*背景音乐未保存/);
+  assert.equal(article.attachments.length, 1);
+});
+
 test('schema v13 import jobs expose resumable phases, awaiting-user actions and cancellation', async (t) => {
   const root = await temporaryRoot(t, 'reader-douyin-jobs-');
   const database = await new ReaderDatabase(path.join(root, 'reader.sqlite3')).initialize();
