@@ -29,12 +29,13 @@ test('Reader 1.1.1 version, build, schema and four bundle identities stay consis
 });
 
 test('README and import SOP link the canonical platform matrix without promoting best-effort platforms', async () => {
-  const [readme, platforms, importSOP, roadmap, releaseNotes] = await Promise.all([
+  const [readme, platforms, importSOP, roadmap, releaseNotes, handoff] = await Promise.all([
     readFile(path.join(root, 'README.md'), 'utf8'),
     readFile(path.join(root, 'docs/PLATFORM_SUPPORT.md'), 'utf8'),
     readFile(path.join(root, 'docs/IMPORT_SOP.md'), 'utf8'),
     readFile(path.join(root, 'docs/PRODUCT_ROADMAP.md'), 'utf8'),
-    readFile(path.join(root, 'docs/RELEASE_NOTES_1.1.1.md'), 'utf8')
+    readFile(path.join(root, 'docs/RELEASE_NOTES_1.1.1.md'), 'utf8'),
+    readFile(path.join(root, 'docs/HANDOFF_1.1.1.md'), 'utf8')
   ]);
   assert.match(readme, /\[平台支持矩阵\]\(docs\/PLATFORM_SUPPORT\.md\)/);
   assert.match(readme, /\[平台导入 SOP\]\(docs\/IMPORT_SOP\.md\)/);
@@ -50,5 +51,9 @@ test('README and import SOP link the canonical platform matrix without promoting
   assert.match(importSOP, /小红书当前明确不支持/);
   assert.match(roadmap, /1\.1\.1（build 111、schema v13）/);
   assert.match(releaseNotes, /Reader 1\.1\.1（build 111，SQLite schema v13）/);
+  assert.match(handoff, /营销版本：1\.1\.1/);
+  assert.match(handoff, /构建号：111/);
+  assert.match(handoff, /SQLite schema：v13/);
+  assert.match(handoff, /Apple Silicon 真机由产品决策移出本版门禁/);
   assert.doesNotMatch(`${readme}\n${importSOP}`, /(?:CSDN|掘金|知乎|今日头条|B站|小宇宙)[^\n|]*\|\s*完整支持/);
 });

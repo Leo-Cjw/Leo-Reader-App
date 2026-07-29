@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { canonicalDouyinURL, extractDouyinAwemeId, extractDouyinURL, normalizeDouyinDetail, selectDouyinVideoCandidates } from '../src/server/douyin.mjs';
+import { canonicalDouyinURL, DouyinImportError, extractDouyinAwemeId, extractDouyinURL, normalizeDouyinDetail, selectDouyinVideoCandidates } from '../src/server/douyin.mjs';
 import { DouyinImportService, parsePlatformCaption } from '../desktop/douyin-service.mjs';
 import { ReaderDatabase } from '../src/server/db.mjs';
 import { createReaderServer } from '../src/server/server.mjs';
@@ -23,6 +23,15 @@ async function json(url, init) {
     headers: { 'content-type': 'application/json', ...(init?.headers || {}) }
   });
   return { response, body: await response.json() };
+}
+
+async function waitForJob(database, id, statuses) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const job = await database.getImportJob(id);
+    if (statuses.includes(job.status)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`等待导入任务 ${id} 超时`);
 }
 
 test('Douyin share text extracts one trusted HTTPS URL and canonicalizes stable work ids', () => {
@@ -245,6 +254,46 @@ test('local transcription maps helper progress and keeps empty results retryable
   assert.deepEqual(progress.map((item) => item.progress), [78, 81, 90]);
   assert.equal((await database.getArticle(article.id)).metadata.importState, 'waiting-transcription');
   assert.deepEqual(await readdir(stagingDir).catch(() => []), []);
+});
+
+test('login gates and unavailable works never create an empty Douyin article', async (t) => {
+  for (const scenario of [
+    { name: 'login', error: new DouyinImportError('需要用户登录或处理验证码', { actionRequired: 'douyin_login', code: 'login_required' }), status: 'awaiting_user' },
+    { name: 'unavailable', error: new DouyinImportError('作品私密、删除或不可用', { code: 'work_unavailable' }), status: 'failed' }
+  ]) {
+    const root = await temporaryRoot(t, `reader-douyin-${scenario.name}-`);
+    const scenarioId = scenario.name === 'login' ? '7644608213127646501' : '7644608213127646502';
+    const douyinService = {
+      async prepareInput() { return { awemeId: scenarioId, canonicalURL: canonicalDouyinURL(scenarioId) }; },
+      async status() { return { available: true, authenticated: false }; },
+      async importWork() { throw scenario.error; }
+    };
+    const app = await createReaderServer({
+      rootDir: root,
+      dbPath: path.join(root, 'data', 'reader.sqlite3'),
+      port: 0,
+      douyinService
+    });
+    t.after(() => app.close());
+    const address = await app.listen();
+    const queued = await json(`http://127.0.0.1:${address.port}/api/import-jobs`, {
+      method: 'POST',
+      body: JSON.stringify({ kind: 'url', input: canonicalDouyinURL(scenarioId) })
+    });
+    assert.equal(queued.response.status, 202);
+    const terminal = await waitForJob(app.database, queued.body.job.id, [scenario.status]);
+    assert.equal(terminal.status, scenario.status);
+    assert.equal(await app.database.getArticle(`douyin-${scenarioId}`), null);
+    if (scenario.status === 'awaiting_user') {
+      assert.equal(terminal.phase, 'waiting_login');
+      assert.equal(terminal.action_required, 'douyin_login');
+      const cancelled = await json(`http://127.0.0.1:${address.port}/api/import-jobs/${terminal.id}/actions`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'cancel' })
+      });
+      assert.equal(cancelled.body.job.status, 'cancelled');
+    }
+  }
 });
 
 test('source server rejects Douyin explicitly while an injected desktop adapter queues canonical ids', async (t) => {

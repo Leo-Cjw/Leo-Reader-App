@@ -104,7 +104,7 @@ try {
     assert.equal(article.metadata.importState, 'waiting-transcription');
   }
 
-  console.log('Reader 1.1.0 真实抖音打包回归通过');
+  console.log('Reader 真实抖音打包回归通过');
   console.log(`work=${awemeId}`);
   console.log(`author=${article.author}`);
   console.log(`published=${article.published_at}`);
