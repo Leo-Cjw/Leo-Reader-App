@@ -227,8 +227,13 @@ npm test
 npm run build
 npm run qa:loopback
 npm run qa:accessibility
+npm run qa:douyin
+npm run qa:douyin:note
+npm run qa:transcription
 npm run qa:share
 npm run qa:upgrade
 ```
 
-1.1.0 候选把依赖审计、自动测试、生产构建、抖音真实作品和最终包/数据兼容门禁记录在独立交接。除既有安全回归外，新增 SSRF、DNS rebinding、恶意跳转、媒体超限、伪造 MIME、路径穿越、Cookie/签名 URL 脱敏、第三方窗口权限拒绝、模型哈希失败、Helper 输入/输出边界、任务取消与临时文件清理。Intel 主机上的最终 Universal App 已完成公开抖音作品、离线 Range、平台章节索引和既有打包门禁；依赖审计因仓库元数据外发策略未执行。1.1.0 仍需真实 Developer ID、公证、正式 GitHub Release、Apple Silicon 真机、`autoUpdater`、抖音登录/验证码/无章节本地模型转写、系统通知/Spotlight/Share Extension、AppKit 原生 AX 与 VoiceOver 人工验收；这些条件未满足前只能称为 ad-hoc Candidate。
+1.1.1 候选把依赖审计、自动测试、生产构建、抖音真实作品和最终包/数据兼容门禁记录在独立交接。除既有安全回归外，覆盖 SSRF、DNS rebinding、恶意跳转、媒体超限、伪造 MIME、路径穿越、Cookie/签名 URL 脱敏、第三方窗口权限拒绝、模型哈希失败、Helper 流式输入/输出边界、空转写结果、任务取消与临时文件清理。Intel 真机已完成公开 05:44 视频、离线 Range、10 图及独立背景音乐、平台章节索引和固定 SHA-256 模型的真实本地 Whisper 回归；本地转写生成非空 Markdown/WebVTT，并进入全文与 RAG 分块索引。依赖审计为生产依赖 0 个已知漏洞，构建树仅保留脚本精确放行的既有 Electron 打包公告。Apple Silicon 真机由产品决策移出本版门禁。
+
+真实转写回归发现 Intel/AMD Metal 后端可能在 whisper.cpp 内部断言并直接终止 Helper，因此 1.1.1 固定使用跨架构的 CPU/Accelerate 推理路径。Helper 以有界 NDJSON 发送单调进度和唯一结果；主进程校验协议、去重映射后的任务进度，并拒绝空分段，失败时保留媒体供单独重试。没有真实 Developer ID 与公证凭据时，App、DMG 和更新 ZIP 的正式发行门禁仍会失败关闭，交付只能称为 ad-hoc Candidate。

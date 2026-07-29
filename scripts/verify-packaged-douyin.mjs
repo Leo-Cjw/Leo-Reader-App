@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { launchPackagedReader, packagedReaderApp, waitFor } from './lib/packaged-reader-qa.mjs';
 
 const appPath = packagedReaderApp(process.argv[2]);
+const readerRoot = process.env.READER_DOUYIN_QA_ROOT
+  ? path.resolve(process.env.READER_DOUYIN_QA_ROOT)
+  : undefined;
 const shareText = '1.02 复制打开抖音，看看【Kiven大汉堡的作品】别再瞎折腾，Obsidian更适合这类人！ AI ... https://v.douyin.com/S4IhgLtZs00/ :0pm e@O.Kj fOX:/ 04/29';
 const awemeId = '7644608213127646518';
 const articleId = `douyin-${awemeId}`;
@@ -38,6 +42,7 @@ let session;
 try {
   session = await launchPackagedReader({
     appPath,
+    readerRoot,
     prefix: 'reader-packaged-douyin-'
   });
   const queued = await request(session.client, '/api/import-jobs', {
@@ -99,7 +104,7 @@ try {
     assert.equal(article.metadata.importState, 'waiting-transcription');
   }
 
-  console.log('Reader 1.1.0 真实抖音打包回归通过');
+  console.log('Reader 真实抖音打包回归通过');
   console.log(`work=${awemeId}`);
   console.log(`author=${article.author}`);
   console.log(`published=${article.published_at}`);
@@ -108,6 +113,7 @@ try {
   console.log(`videoBytes=${video.byte_size}`);
   console.log(`offlineRange=${range.status}`);
   console.log(`transcript=${transcript}`);
+  if (readerRoot) console.log(`readerRoot=${readerRoot}`);
 } finally {
   await session?.close().catch(() => {});
 }

@@ -271,9 +271,9 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 当前机器没有相应证书与凭据，因此实际交付仍为 ad-hoc，正式公开发行仍需：
 
 - 取得真实 Apple Developer ID 与公证凭据，发布首个正式 GitHub Release，并完成跨版本自动升级演练。
-- Share Extension 已完成单网页 URL、最多 4 KiB 选中文本或单个 100 MB 受支持文件的沙箱化、确认式系统交接；文件使用扩展私有缓存和不透明 token，不依赖易失临时 URL、路径深链、App Group 或安全作用域书签。Spotlight 已完成默认关闭的本机索引与深链闭环，仍需在 Developer ID、公证包和 Apple Silicon 真机验证系统结果点击；系统通知与 Share Extension 的真实系统菜单、Finder/照片来源也仍需在正式签名包上完成最终可用性验收。
+- Share Extension 已完成单网页 URL、最多 4 KiB 选中文本或单个 100 MB 受支持文件的沙箱化、确认式系统交接；文件使用扩展私有缓存和不透明 token，不依赖易失临时 URL、路径深链、App Group 或安全作用域书签。Spotlight 已完成默认关闭的本机索引与深链闭环；系统通知、Spotlight 和 Share Extension 的正式分发可用性仍需在 Developer ID、公证包上验收。
 
-当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron 与 Canvas 切片完成官方哈希、Mach-O 架构及签名结构验证，仍应在 Apple Silicon 真机上补运行验收。
+当前构建宿主为 Intel Mac，因此 x86_64 切片已实际启动；arm64 Electron、Canvas 与三个原生 helper 完成官方哈希、Mach-O 架构及签名结构验证。Apple Silicon 真机由产品决策移出 1.1.1 门禁，这一限制必须在发行说明中明确，不得把静态架构检查描述为真机运行验收。
 
 ## 1.1.0 抖音与本地转写边界
 
@@ -285,7 +285,9 @@ Open Graph / Twitter Card 代表图片和最多 16 张正文图片会进入本�
 
 schema v13 为 `import_jobs` 增加 `platform`、`phase`、`progress`、`warning`、`action_required`，并加入 `awaiting_user` 与 `cancelled`。阶段固定为解析、等待登录、下载、保存、等待模型、转写、索引和完成。重启把 `running` 恢复为 `pending`；抖音媒体地址不会持久化，因此恢复时必须重新捕获作品详情。已下载媒体在文章元数据中标记 `waiting-transcription`，转写重试不依赖旧签名地址。
 
-`Reader Transcription Helper` 是无网络入口的 Universal 原生进程。主进程只通过 stdin 发送 version 1 的受限 JSON，且媒体必须位于 `data/files`、模型必须位于独立模型目录。Helper 使用 AVFoundation 解码为 16 kHz 单声道 Float32，由固定 whisper.cpp v1.9.1 XCFramework 执行推理；不依赖 FFmpeg，也不申请麦克风权限。该官方 framework 的最低部署版本是 macOS 13.3，主应用在较旧系统上明确报告本地转写不可用，不下载模型或尝试启动 Helper。输出只包含有界时间戳分段。主进程生成 WebVTT、更新 Markdown，再沿用文章编辑路径重建分块、FTS 和已启用的语义索引。
+`Reader Transcription Helper` 是无网络入口的 Universal 原生进程。主进程只通过 stdin 发送 version 1 的受限 JSON，且媒体必须位于 `data/files`、模型必须位于独立模型目录。Helper 使用 AVFoundation 解码为 16 kHz 单声道 Float32，由固定 whisper.cpp v1.9.1 XCFramework 的 CPU/Accelerate 后端执行推理；不依赖 FFmpeg，也不申请麦克风权限。CPU 路径避免 Intel/AMD Metal 后端的进程级断言，同时保持两种架构一致的失败模型。该官方 framework 的最低部署版本是 macOS 13.3，主应用在较旧系统上明确报告本地转写不可用，不下载模型或尝试启动 Helper。
+
+1.1.1 把 Helper stdout 定义为有界 NDJSON 事件流：单调的 `progress` 事件之后只能出现一个 `result` 事件。主进程逐行验证版本、事件类型、进度范围、总字节数和唯一结果，把 Helper 进度去重映射到任务的 78–93%，并在索引阶段推进到 94%。空分段被视为可重试失败，不生成空 WebVTT；非空结果才生成 WebVTT、更新 Markdown，并沿用文章编辑路径重建分块、FTS 和已启用的语义索引。
 
 模型供应链与应用发行分离：多语言 `ggml-small.bin` 仅在用户点击后从固定 Hugging Face revision 下载，校验固定字节数与 SHA-256 后原子安装。模型不进入 App、Markdown ZIP 或完整备份。
 

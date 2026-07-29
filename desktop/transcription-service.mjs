@@ -146,7 +146,7 @@ export class TranscriptionService {
     if (await hashFile(this.modelPath) !== WHISPER_MODEL.sha256) throw new Error('本地转写模型校验失败，请重新安装');
   }
 
-  async transcribe(mediaPath, { language = 'auto' } = {}) {
+  async transcribe(mediaPath, { language = 'auto', onProgress = null } = {}) {
     if (!supportsTranscription(this.systemVersion)) throw new Error(`本地转写需要 macOS ${MINIMUM_SYSTEM_VERSION} 或更高版本`);
     if (!this.helperPath || !(await exists(this.helperPath))) throw new Error('Reader Transcription Helper 不可用');
     const verifiedMediaPath = safeContainedPath(path.join(this.rootDir, 'data', 'files'), mediaPath, '媒体');
@@ -161,8 +161,27 @@ export class TranscriptionService {
     return await new Promise((resolve, reject) => {
       const child = spawn(this.helperPath, [], { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin' } });
       let stdout = '';
+      let outputBytes = 0;
+      let resultPayload = null;
       let stderr = '';
       let timer;
+      const handleMessage = (line) => {
+        if (!line.trim()) return;
+        const payload = JSON.parse(line);
+        if (payload.version !== 1) throw new Error('转写 Helper 返回格式无效');
+        if (payload.event === 'progress') {
+          const progress = Number(payload.progress);
+          if (!Number.isInteger(progress) || progress < 0 || progress > 100) throw new Error('转写 Helper 进度无效');
+          if (typeof onProgress === 'function') onProgress(progress);
+          return;
+        }
+        if (payload.event === 'result' || Array.isArray(payload.segments)) {
+          if (resultPayload) throw new Error('转写 Helper 返回了重复结果');
+          resultPayload = payload;
+          return;
+        }
+        throw new Error('转写 Helper 返回了未知事件');
+      };
       const fail = (error) => {
         clearTimeout(timer);
         child.kill('SIGKILL');
@@ -171,8 +190,16 @@ export class TranscriptionService {
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk) => {
+        outputBytes += Buffer.byteLength(chunk);
+        if (outputBytes > MAX_HELPER_OUTPUT_BYTES) return fail(new Error('转写 Helper 输出超过限制'));
         stdout += chunk;
-        if (Buffer.byteLength(stdout) > MAX_HELPER_OUTPUT_BYTES) fail(new Error('转写 Helper 输出超过限制'));
+        const lines = stdout.split('\n');
+        stdout = lines.pop() || '';
+        try {
+          for (const line of lines) handleMessage(line);
+        } catch (error) {
+          fail(error);
+        }
       });
       child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-4000); });
       child.once('error', fail);
@@ -180,8 +207,9 @@ export class TranscriptionService {
         clearTimeout(timer);
         if (code !== 0) return reject(new Error(stderr.trim() || '本地转写失败'));
         try {
-          const payload = JSON.parse(stdout);
-          if (payload.version !== 1 || !Array.isArray(payload.segments) || payload.segments.length > 100_000) throw new Error('转写 Helper 返回格式无效');
+          if (stdout.trim()) handleMessage(stdout);
+          const payload = resultPayload;
+          if (!payload || payload.version !== 1 || !Array.isArray(payload.segments) || payload.segments.length > 100_000) throw new Error('转写 Helper 返回格式无效');
           const segments = payload.segments.map((segment) => ({
             startMs: Number(segment.startMs),
             endMs: Number(segment.endMs),

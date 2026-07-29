@@ -19,7 +19,14 @@ private struct Segment: Encodable {
 
 private struct Response: Encodable {
     let version: Int
+    let event: String
     let segments: [Segment]
+}
+
+private struct ProgressResponse: Encodable {
+    let version: Int
+    let event: String
+    let progress: Int
 }
 
 private enum HelperError: LocalizedError {
@@ -50,6 +57,24 @@ private func regularFile(_ path: String) throws -> URL {
         throw HelperError.invalidFile
     }
     return url
+}
+
+private final class ProgressEmitter {
+    private let lock = NSLock()
+    private var lastProgress = -1
+
+    func emit(_ progress: Int) {
+        let bounded = max(0, min(progress, 100))
+        lock.lock()
+        defer { lock.unlock() }
+        guard bounded > lastProgress else { return }
+        lastProgress = bounded
+        guard let encoded = try? JSONEncoder().encode(
+            ProgressResponse(version: 1, event: "progress", progress: bounded)
+        ) else { return }
+        FileHandle.standardOutput.write(encoded)
+        FileHandle.standardOutput.write(Data([0x0A]))
+    }
 }
 
 private func decodeAudio(_ url: URL) async throws -> [Float] {
@@ -87,9 +112,17 @@ private func decodeAudio(_ url: URL) async throws -> [Float] {
     return samples
 }
 
-private func transcribe(_ samples: [Float], modelURL: URL, language: String) throws -> [Segment] {
+private func transcribe(
+    _ samples: [Float],
+    modelURL: URL,
+    language: String,
+    progressEmitter: ProgressEmitter
+) throws -> [Segment] {
     var contextParameters = whisper_context_default_params()
-    contextParameters.use_gpu = true
+    // whisper.cpp's Metal backend can abort the whole helper on some Intel/AMD
+    // combinations. Accelerate remains local and deterministic on every
+    // supported Mac architecture, so reliability takes precedence here.
+    contextParameters.use_gpu = false
     guard let context = modelURL.path.withCString({ whisper_init_from_file_with_params($0, contextParameters) }) else {
         throw HelperError.modelFailed
     }
@@ -103,6 +136,12 @@ private func transcribe(_ samples: [Float], modelURL: URL, language: String) thr
     parameters.no_context = true
     parameters.single_segment = false
     parameters.n_threads = Int32(max(1, min(ProcessInfo.processInfo.activeProcessorCount - 1, 8)))
+    parameters.progress_callback = { _, _, progress, userData in
+        guard let userData else { return }
+        let emitter = Unmanaged<ProgressEmitter>.fromOpaque(userData).takeUnretainedValue()
+        emitter.emit(30 + Int(progress) * 65 / 100)
+    }
+    parameters.progress_callback_user_data = Unmanaged.passUnretained(progressEmitter).toOpaque()
     let result = language.withCString { languagePointer -> Int32 in
         parameters.language = languagePointer
         return samples.withUnsafeBufferPointer { buffer in
@@ -131,12 +170,22 @@ do {
           request.language == "auto" || request.language.range(of: #"^[a-z]{2,3}(?:-[A-Z]{2})?$"#, options: .regularExpression) != nil else {
         throw HelperError.invalidRequest
     }
+    let progressEmitter = ProgressEmitter()
+    progressEmitter.emit(5)
     let mediaURL = try regularFile(request.mediaPath)
     let modelURL = try regularFile(request.modelPath)
     let samples = try await decodeAudio(mediaURL)
-    let segments = try transcribe(samples, modelURL: modelURL, language: request.language)
-    let encoded = try JSONEncoder().encode(Response(version: 1, segments: segments))
+    progressEmitter.emit(30)
+    let segments = try transcribe(
+        samples,
+        modelURL: modelURL,
+        language: request.language,
+        progressEmitter: progressEmitter
+    )
+    progressEmitter.emit(98)
+    let encoded = try JSONEncoder().encode(Response(version: 1, event: "result", segments: segments))
     FileHandle.standardOutput.write(encoded)
+    FileHandle.standardOutput.write(Data([0x0A]))
 } catch {
     FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
     exit(1)

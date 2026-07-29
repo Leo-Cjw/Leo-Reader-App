@@ -1,4 +1,4 @@
-# Reader for Mac 1.1.0 Candidate
+# Reader for Mac 1.1.1 Candidate
 
 Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏、阅读进度、RSS 源和 AI 结果都写入本机 SQLite；界面通过本机 HTTP API 访问这些数据，不依赖云端账号。
 
@@ -8,7 +8,7 @@ Reader 是一款 local-first 阅读资料库。文章、目录、标签、收藏
 
 ### Mac App
 
-打开 `Reader-1.1.0-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物同时适用于 Apple Silicon 与 Intel Mac，主应用最低 macOS 12；固定的 whisper.cpp v1.9.1 官方 XCFramework 要求 macOS 13.3，因此 macOS 12/13.0–13.2 可使用平台字幕和其余 Reader 能力，但不能运行本地 Whisper 转写。本候选包仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。
+打开 `Reader-1.1.1-universal.dmg`，把其中的 `Reader.app` 拖到“应用程序”即可安装。通用产物包含 Apple Silicon 与 Intel 架构，主应用最低 macOS 12；固定的 whisper.cpp v1.9.1 官方 XCFramework 要求 macOS 13.3，因此 macOS 12/13.0–13.2 可使用平台字幕和其余 Reader 能力，但不能运行本地 Whisper 转写。本候选包仍使用 ad-hoc 签名且不会连接自动更新服务；跨机器分发时 Gatekeeper 可能要求在“系统设置 → 隐私与安全性”中确认打开。1.1.1 的运行验收以 Intel 真机为准，Apple Silicon 仅完成静态 Universal 架构和签名结构检查，不列入本版真机门禁。
 
 Mac App 的资料库独立位于：
 
@@ -69,7 +69,7 @@ npm run desktop:pack
 
 平台能力以 [平台支持矩阵](docs/PLATFORM_SUPPORT.md) 为唯一事实源；具体导入、验收和异常处理见 [平台导入 SOP](docs/IMPORT_SOP.md)：
 
-| 平台 | 状态 | Reader 1.1.0 边界 |
+| 平台 | 状态 | Reader 1.1.1 边界 |
 | --- | --- | --- |
 | 抖音 | 完整支持 | 桌面版保存视频、最多 30 图、背景音乐、平台字幕/章节与本地转写；受限内容与验证码自动化不支持 |
 | 微信公众号 | 专用部分支持 | 正文、表格、代码和图片；内嵌音视频不保证 |
@@ -263,4 +263,4 @@ Reader 只使用官方数据通道，不抓取 X 或微博网页。打开“添�
 - `POST /api/backups/restore`：校验备份并安排下次启动恢复。
 - `DELETE /api/backups/restore`：取消尚未执行的恢复。
 
-1.1.0 候选变更见 [docs/RELEASE_NOTES_1.1.0.md](docs/RELEASE_NOTES_1.1.0.md)，平台边界见 [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md)，操作流程见 [docs/IMPORT_SOP.md](docs/IMPORT_SOP.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。
+1.1.1 候选变更见 [docs/RELEASE_NOTES_1.1.1.md](docs/RELEASE_NOTES_1.1.1.md)，平台边界见 [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md)，操作流程见 [docs/IMPORT_SOP.md](docs/IMPORT_SOP.md)，详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，安全边界见 [docs/SECURITY.md](docs/SECURITY.md)，后续里程碑见 [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)。

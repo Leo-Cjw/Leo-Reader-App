@@ -659,7 +659,22 @@ export class DouyinImportService {
     const storedMedia = await database.getAttachment(media.id);
     if (!storedMedia?.storage_name) throw new DouyinImportError('本地转写媒体附件不可用', { code: 'missing_transcription_media' });
     await updateProgress({ phase: 'transcribing', progress: 78 });
-    const segments = await this.transcriptionService.transcribe(path.join(paths.filesDir, storedMedia.storage_name), { language: 'auto' });
+    let progressUpdates = Promise.resolve();
+    let lastMappedProgress = 78;
+    const segments = await this.transcriptionService.transcribe(path.join(paths.filesDir, storedMedia.storage_name), {
+      language: 'auto',
+      onProgress: (progress) => {
+        const mappedProgress = 78 + Math.round(Number(progress || 0) * 0.15);
+        if (mappedProgress <= lastMappedProgress) return;
+        lastMappedProgress = mappedProgress;
+        progressUpdates = progressUpdates.then(() => updateProgress({
+          phase: 'transcribing',
+          progress: Math.min(93, Math.max(78, mappedProgress))
+        }));
+      }
+    });
+    await progressUpdates;
+    if (!segments.length) throw new DouyinImportError('本地 Whisper 没有生成可搜索的转写分段，请重试或暂不转写', { code: 'empty_transcription' });
     const vtt = Buffer.from(segmentsToVTT(segments), 'utf8');
     const stagedVTT = await stageBytes(vtt, 'text/vtt', paths.stagingDir);
     await persistStagedAttachment(database, article.id, stagedVTT, paths.filesDir, '抖音转写.vtt');

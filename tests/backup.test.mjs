@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import os from 'node:os';
@@ -7,6 +8,7 @@ import path from 'node:path';
 import { listMigrationSnapshots, ReaderDatabase, resolveMigrationSnapshot } from '../src/server/db.mjs';
 import { SCHEMA_VERSION, schemaSQL } from '../src/server/schema.mjs';
 import { applyPendingRestore, createBackup, getPendingRestore, listBackups, pruneAutomaticBackups, resolveBackup, scheduleMigrationSnapshotRestore, scheduleRestore, validateBackupEntryPath, validateBackupPassphrase, verifyPlainBackupArchive } from '../src/server/backup.mjs';
+import { prepareMarkdownExport } from '../src/server/export.mjs';
 
 test('backup entry paths reject traversal, absolute paths and unknown files', () => {
   assert.equal(validateBackupEntryPath('files/image.png'), 'files/image.png');
@@ -121,6 +123,56 @@ test('complete backup is validated and restored on the next startup', async (t) 
   assert.equal(await restored.getArticle('after-backup'), null);
   assert.equal(await getPendingRestore(root), null);
   assert.equal(await readFile(path.join(filesDir, 'sample.bin'), 'utf8'), 'attachment-before-backup');
+});
+
+test('audio stays in media filters, Markdown ZIP exports and complete backup restore', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'reader-audio-portability-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dbPath = path.join(root, 'data', 'reader.sqlite3');
+  const filesDir = path.join(root, 'data', 'files');
+  await mkdir(filesDir, { recursive: true });
+  const database = await new ReaderDatabase(dbPath).initialize();
+  const audioBytes = Buffer.concat([Buffer.from('ID3'), Buffer.from('Reader audio backup evidence')]);
+  const sha256 = createHash('sha256').update(audioBytes).digest('hex');
+  const storageName = `${sha256}.mp3`;
+  await writeFile(path.join(filesDir, storageName), audioBytes, { mode: 0o600 });
+  const article = await database.createArticle({
+    id: 'audio-portability',
+    title: '离线音频',
+    content: '音频必须参与筛选、导出、备份和恢复。',
+    type: 'audio'
+  });
+  await database.createAttachment({
+    articleId: article.id,
+    fileName: '离线音频.mp3',
+    storageName,
+    mimeType: 'audio/mpeg',
+    byteSize: audioBytes.length,
+    sha256
+  });
+
+  assert.deepEqual((await database.listArticles({ mediaOnly: true })).map((item) => item.id), [article.id]);
+  const portable = await prepareMarkdownExport({ database, filesDir, ids: [article.id], includeAttachments: true });
+  assert.equal(portable.manifest.counts.attachments, 1);
+  assert.equal(portable.manifest.articles[0].attachments[0].mimeType, 'audio/mpeg');
+  assert.ok(portable.entries.some((entry) => entry.kind === 'file' && entry.sourcePath === path.join(filesDir, storageName) && entry.archivePath.endsWith('/离线音频.mp3')));
+  assert.match(String(portable.entries.find((entry) => entry.archivePath.startsWith('articles/'))?.content), /离线音频\.mp3/);
+
+  const backup = await createBackup({ database, rootDir: root, appVersion: '1.1.1' });
+  assert.deepEqual(backup.manifest.files.map((file) => ({ path: file.path, sha256: file.sha256 })), [{ path: storageName, sha256 }]);
+  const resolved = await resolveBackup(root, backup.id);
+  const archive = await readFile(resolved.path);
+  await database.execute(`DELETE FROM articles WHERE id='audio-portability';`);
+  await rm(path.join(filesDir, storageName));
+  const request = Readable.from([archive]);
+  request.headers = { 'content-length': String(archive.length) };
+  await scheduleRestore({ request, database, rootDir: root, appVersion: '1.1.1' });
+  await applyPendingRestore({ rootDir: root, dbPath });
+
+  const restored = await new ReaderDatabase(dbPath).initialize();
+  const restoredArticle = await restored.getArticle(article.id);
+  assert.equal(restoredArticle.attachments[0].mime_type, 'audio/mpeg');
+  assert.deepEqual(await readFile(path.join(filesDir, storageName)), audioBytes);
 });
 
 test('migration snapshot restore preserves files, backs up current data and remigrates on restart', async (t) => {

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { canonicalDouyinURL, extractDouyinAwemeId, extractDouyinURL, normalizeDouyinDetail, selectDouyinVideoCandidates } from '../src/server/douyin.mjs';
+import { canonicalDouyinURL, DouyinImportError, extractDouyinAwemeId, extractDouyinURL, normalizeDouyinDetail, selectDouyinVideoCandidates } from '../src/server/douyin.mjs';
 import { DouyinImportService, parsePlatformCaption } from '../desktop/douyin-service.mjs';
 import { ReaderDatabase } from '../src/server/db.mjs';
 import { createReaderServer } from '../src/server/server.mjs';
@@ -23,6 +23,15 @@ async function json(url, init) {
     headers: { 'content-type': 'application/json', ...(init?.headers || {}) }
   });
   return { response, body: await response.json() };
+}
+
+async function waitForJob(database, id, statuses) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const job = await database.getImportJob(id);
+    if (statuses.includes(job.status)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`等待导入任务 ${id} 超时`);
 }
 
 test('Douyin share text extracts one trusted HTTPS URL and canonicalizes stable work ids', () => {
@@ -86,7 +95,7 @@ test('platform WebVTT and JSON captions normalize to timestamped searchable segm
 test('isolated Douyin windows use the Chromium branch without exposing the Electron product token', () => {
   let configuredUserAgent = '';
   const isolatedSession = {
-    getUserAgent: () => 'Mozilla/5.0 Chrome/142.0.0.0 Electron/41.7.1 Reader/1.1.0',
+    getUserAgent: () => 'Mozilla/5.0 Chrome/142.0.0.0 Electron/41.7.1 Reader/1.1.1',
     setPermissionRequestHandler() {}
   };
   class BrowserWindow {
@@ -175,6 +184,105 @@ test('desktop adapter refreshes expired 1080p details, falls back to playable 72
   assert.deepEqual(await readdir(path.join(root, 'imports')), []);
 });
 
+test('different short links deduplicate one 30-image work with independent background music', async (t) => {
+  const root = await temporaryRoot(t, 'reader-douyin-images-');
+  const database = await new ReaderDatabase(path.join(root, 'reader.sqlite3')).initialize();
+  const payload = {
+    aweme_detail: {
+      aweme_id: awemeId,
+      desc: '三十图长图文',
+      author: { nickname: '图文作者' },
+      images: Array.from({ length: 31 }, (_, index) => ({
+        width: 1080,
+        height: 1440,
+        url_list: [`https://cdn.example/image-${index}.jpg`]
+      })),
+      music: {
+        title: '图文背景音乐',
+        play_url: { url_list: ['https://cdn.example/music.m4a'] }
+      },
+      chapter_list: [{ start_time_ms: 0, end_time_ms: 2_000, text: '图文平台章节' }]
+    }
+  };
+  let captures = 0;
+  const service = new DouyinImportService({
+    BrowserWindow: class {},
+    session: {},
+    fetchMedia: async (url) => url.endsWith('/music.m4a')
+      ? { bytes: Buffer.from('m4a background music'), contentType: 'audio/mp4' }
+      : { bytes: Buffer.from([0xff, 0xd8, 0xff, Number(url.match(/(\d+)\.jpg$/)?.[1] || 0), 0xff, 0xd9]), contentType: 'image/jpeg' }
+  });
+  service.resolveWorkURL = async () => ({ awemeId, canonicalURL: canonicalDouyinURL(awemeId) });
+  service.captureDetail = async () => { captures += 1; return payload; };
+  const firstInput = await service.prepareInput('https://v.douyin.com/short-one/');
+  const secondInput = await service.prepareInput('https://v.douyin.com/short-two/');
+  assert.deepEqual(firstInput, secondInput);
+  const context = {
+    database,
+    paths: { stagingDir: path.join(root, 'imports'), filesDir: path.join(root, 'files') },
+    updateProgress: async () => {},
+    isCancelled: async () => false
+  };
+  const first = await service.importWork({
+    id: 'job-images-first',
+    payload: { url: firstInput.canonicalURL, awemeId: firstInput.awemeId, collectionId: 'inbox' }
+  }, context);
+  const duplicate = await service.importWork({
+    id: 'job-images-duplicate',
+    payload: { url: secondInput.canonicalURL, awemeId: secondInput.awemeId, collectionId: 'inbox' }
+  }, context);
+  assert.equal(duplicate.id, first.id);
+  assert.equal(captures, 1);
+  assert.equal(first.metadata.imageCount, 30);
+  assert.equal(first.metadata.backgroundMusicSaved, true);
+  assert.equal(first.metadata.offlineResourceStatus, 'complete');
+  assert.equal(first.attachments.filter((item) => item.mime_type === 'image/jpeg').length, 30);
+  assert.equal(first.attachments.filter((item) => item.mime_type === 'audio/mp4').length, 1);
+  assert.equal(Number((await database.one(`SELECT count(*) AS count FROM articles WHERE url='${canonicalDouyinURL(awemeId)}';`)).count), 1);
+  assert.deepEqual(await readdir(path.join(root, 'imports')), []);
+});
+
+test('image and music failures complete as an explicit partial-offline article', async (t) => {
+  const root = await temporaryRoot(t, 'reader-douyin-partial-images-');
+  const database = await new ReaderDatabase(path.join(root, 'reader.sqlite3')).initialize();
+  const service = new DouyinImportService({
+    BrowserWindow: class {},
+    session: {},
+    fetchMedia: async (url) => {
+      if (url.includes('missing') || url.includes('music')) throw new Error('模拟媒体下载失败');
+      return { bytes: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), contentType: 'image/jpeg' };
+    }
+  });
+  service.captureDetail = async () => ({
+    aweme_detail: {
+      aweme_id: awemeId,
+      desc: '部分离线图文',
+      images: [
+        { url_list: ['https://cdn.example/saved.jpg'] },
+        { url_list: ['https://cdn.example/missing.jpg'] }
+      ],
+      music: { title: '缺失背景音乐', play_url: { url_list: ['https://cdn.example/music.m4a'] } },
+      chapter_list: [{ start_time_ms: 0, text: '平台章节' }]
+    }
+  });
+  const progress = [];
+  const article = await service.importWork({
+    id: 'job-images-partial',
+    payload: { url: canonicalDouyinURL(awemeId), awemeId, collectionId: 'inbox' }
+  }, {
+    database,
+    paths: { stagingDir: path.join(root, 'imports'), filesDir: path.join(root, 'files') },
+    updateProgress: async (value) => { progress.push(value); },
+    isCancelled: async () => false
+  });
+  assert.equal(article.metadata.imageCount, 1);
+  assert.equal(article.metadata.missingImageCount, 1);
+  assert.equal(article.metadata.backgroundMusicSaved, false);
+  assert.equal(article.metadata.offlineResourceStatus, 'partial');
+  assert.match(progress.find((item) => item.warning)?.warning || '', /缺少 1 张图片.*背景音乐未保存/);
+  assert.equal(article.attachments.length, 1);
+});
+
 test('schema v13 import jobs expose resumable phases, awaiting-user actions and cancellation', async (t) => {
   const root = await temporaryRoot(t, 'reader-douyin-jobs-');
   const database = await new ReaderDatabase(path.join(root, 'reader.sqlite3')).initialize();
@@ -194,6 +302,97 @@ test('schema v13 import jobs expose resumable phases, awaiting-user actions and 
   const cancelled = await database.actOnImportJob(job.id, 'cancel');
   assert.equal(cancelled.status, 'cancelled');
   assert.equal((await database.completeImportJob(job.id, 'ignored')).status, 'cancelled');
+});
+
+test('local transcription maps helper progress and keeps empty results retryable', async (t) => {
+  const root = await temporaryRoot(t, 'reader-douyin-transcription-');
+  const filesDir = path.join(root, 'files');
+  const stagingDir = path.join(root, 'imports');
+  const database = await new ReaderDatabase(path.join(root, 'reader.sqlite3')).initialize();
+  const article = await database.createArticle({
+    id: `douyin-${awemeId}`,
+    url: canonicalDouyinURL(awemeId),
+    title: '等待本地转写',
+    source: '抖音',
+    type: 'douyin',
+    content: '作品说明',
+    metadata: { importState: 'waiting-transcription' }
+  });
+  await mkdir(filesDir, { recursive: true });
+  await writeFile(path.join(filesDir, 'media.mp4'), 'local media');
+  await database.createAttachment({
+    articleId: article.id,
+    fileName: 'media.mp4',
+    storageName: 'media.mp4',
+    mimeType: 'video/mp4',
+    byteSize: 11,
+    sha256: 'a'.repeat(64)
+  });
+  const progress = [];
+  const service = new DouyinImportService({
+    BrowserWindow: class {},
+    session: {},
+    transcriptionService: {
+      async status() { return { installed: true }; },
+      async transcribe(_mediaPath, options) {
+        options.onProgress(20);
+        options.onProgress(80);
+        return [];
+      }
+    }
+  });
+  await assert.rejects(service.finishTranscription(
+    await database.getArticle(article.id),
+    { payload: {} },
+    {
+      database,
+      paths: { filesDir, stagingDir },
+      updateProgress: async (value) => { progress.push(value); }
+    }
+  ), /没有生成可搜索/);
+  assert.deepEqual(progress.map((item) => item.progress), [78, 81, 90]);
+  assert.equal((await database.getArticle(article.id)).metadata.importState, 'waiting-transcription');
+  assert.deepEqual(await readdir(stagingDir).catch(() => []), []);
+});
+
+test('login gates and unavailable works never create an empty Douyin article', async (t) => {
+  for (const scenario of [
+    { name: 'login', error: new DouyinImportError('需要用户登录或处理验证码', { actionRequired: 'douyin_login', code: 'login_required' }), status: 'awaiting_user' },
+    { name: 'unavailable', error: new DouyinImportError('作品私密、删除或不可用', { code: 'work_unavailable' }), status: 'failed' }
+  ]) {
+    const root = await temporaryRoot(t, `reader-douyin-${scenario.name}-`);
+    const scenarioId = scenario.name === 'login' ? '7644608213127646501' : '7644608213127646502';
+    const douyinService = {
+      async prepareInput() { return { awemeId: scenarioId, canonicalURL: canonicalDouyinURL(scenarioId) }; },
+      async status() { return { available: true, authenticated: false }; },
+      async importWork() { throw scenario.error; }
+    };
+    const app = await createReaderServer({
+      rootDir: root,
+      dbPath: path.join(root, 'data', 'reader.sqlite3'),
+      port: 0,
+      douyinService
+    });
+    t.after(() => app.close());
+    const address = await app.listen();
+    const queued = await json(`http://127.0.0.1:${address.port}/api/import-jobs`, {
+      method: 'POST',
+      body: JSON.stringify({ kind: 'url', input: canonicalDouyinURL(scenarioId) })
+    });
+    assert.equal(queued.response.status, 202);
+    const terminal = await waitForJob(app.database, queued.body.job.id, [scenario.status]);
+    assert.equal(terminal.status, scenario.status);
+    assert.equal(await app.database.getArticle(`douyin-${scenarioId}`), null);
+    if (scenario.status === 'awaiting_user') {
+      assert.equal(terminal.phase, 'waiting_login');
+      assert.equal(terminal.action_required, 'douyin_login');
+      const cancelled = await json(`http://127.0.0.1:${address.port}/api/import-jobs/${terminal.id}/actions`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'cancel' })
+      });
+      assert.equal(cancelled.body.job.status, 'cancelled');
+    }
+  }
 });
 
 test('source server rejects Douyin explicitly while an injected desktop adapter queues canonical ids', async (t) => {

@@ -107,6 +107,59 @@ test('schema v8 upgrades to the current schema without changing user data', asyn
   assert.equal((await snapshot.one("SELECT content FROM articles WHERE id='kept-article';")).content, '不可丢失的正文');
 });
 
+test('schema v12 migrates import jobs to resumable v13 without losing payload or state', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-v12-to-v13-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const databasePath = path.join(dir, 'reader.sqlite3');
+  const current = await new ReaderDatabase(databasePath).initialize();
+  const job = await current.createImportJob('url', { url: 'https://example.com/legacy', collectionId: 'inbox' });
+  await current.execute(`
+    DROP INDEX IF EXISTS idx_import_jobs_status;
+    DROP INDEX IF EXISTS idx_import_jobs_platform;
+    CREATE TABLE import_jobs_v12 (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('url','attachment')),
+      status TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed')),
+      payload_json TEXT NOT NULL,
+      result_article_id TEXT REFERENCES articles(id) ON DELETE SET NULL,
+      error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT
+    );
+    INSERT INTO import_jobs_v12(
+      id,kind,status,payload_json,result_article_id,error,attempts,
+      created_at,updated_at,started_at,finished_at
+    )
+    SELECT
+      id,kind,status,payload_json,result_article_id,error,attempts,
+      created_at,updated_at,started_at,finished_at
+    FROM import_jobs;
+    DROP TABLE import_jobs;
+    ALTER TABLE import_jobs_v12 RENAME TO import_jobs;
+    CREATE INDEX idx_import_jobs_status ON import_jobs(status,created_at);
+    DELETE FROM schema_migration_audit WHERE version=13;
+    DELETE FROM schema_migrations WHERE version=13;
+  `);
+
+  const migrated = await new ReaderDatabase(databasePath).initialize();
+  assert.deepEqual(
+    { fromVersion: migrated.lastMigrationSnapshot?.fromVersion, toVersion: migrated.lastMigrationSnapshot?.toVersion },
+    { fromVersion: 12, toVersion: 13 }
+  );
+  assert.deepEqual(migrated.appliedMigrations.map((migration) => migration.version), [13]);
+  const restoredJob = await migrated.getImportJob(job.id);
+  assert.equal(restoredJob.status, 'pending');
+  assert.equal(restoredJob.platform, 'web');
+  assert.equal(restoredJob.progress, 0);
+  assert.equal(restoredJob.payload.url, 'https://example.com/legacy');
+  const snapshot = new ReaderDatabase(migrated.lastMigrationSnapshot.path);
+  assert.equal((await snapshot.query('PRAGMA table_info(import_jobs);')).some((column) => column.name === 'platform'), false);
+  assert.equal((await snapshot.one('SELECT max(version) AS version FROM schema_migrations;')).version, 12);
+});
+
 test('a failed v9 migration rolls back its schema version and audit writes', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'reader-source-v9-rollback-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
